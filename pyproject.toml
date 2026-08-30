@@ -43,7 +43,10 @@ dev = [
 [tool.ruff]
 line-length = 88
 target-version = "py311"
-extend-exclude = [".venv"]
+# examples/ is MicroPython that runs on a hub, not code that runs here: the
+# pybricks modules it imports do not exist in this environment, and its style
+# is whatever reads best for someone learning from it.
+extend-exclude = [".venv", "examples"]
 
 [tool.ruff.lint]
 select = [
@@ -123,6 +126,10 @@ exclude_also = [
 # ---------------------------------------------------------------- pyright
 [tool.pyright]
 include = ["packages/*/src", "packages/*/tests", "tests"]
+# "ignore" rather than "exclude": an excluded file still gets red squiggles in
+# the editor when it is open, and examples/ is MicroPython for a hub, whose
+# imports cannot resolve here and never will.
+ignore = ["examples"]
 typeCheckingMode = "strict"
 pythonVersion = "3.11"
 venvPath = "."
