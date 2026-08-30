@@ -351,6 +351,14 @@ def explain(
     # Cancellation is control flow rather than failure: a task group cancels
     # its remaining children as part of unwinding, so these are always noise.
     leaves = [leaf for leaf in flatten(exc) if not isinstance(leaf, _CANCELLED)]
+    if not leaves:
+        # Noise all the way down, which means the whole command was cancelled
+        # rather than any part of it failing -- Ctrl-C, in a command that was
+        # inside a task group at the time. The interrupt reaches the top as
+        # cancellation rather than as KeyboardInterrupt, so without this it
+        # was reported as a bug in pb, under a message asking the user to
+        # report "everything below" with nothing below it to report.
+        return [Problem("Interrupted.", exit_code=EXIT_INTERRUPTED)]
     interesting = [leaf for leaf in leaves if not isinstance(leaf, _LOST_CONNECTION)]
     leaves = interesting or leaves
 
@@ -368,7 +376,7 @@ def explain(
             logger.debug("no friendly wording for %r", leaf)
             return None
         problems.append(problem)
-    return problems or None
+    return problems
 
 
 def render(err: Console, problems: list[Problem]) -> int:

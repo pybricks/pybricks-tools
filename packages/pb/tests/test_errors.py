@@ -151,6 +151,24 @@ def test_cancellation_is_not_a_failure() -> None:
     assert len(problems) == 1
 
 
+def test_an_interrupt_is_not_a_bug() -> None:
+    # Ctrl-C in a command that was inside a task group arrives at the top as
+    # cancellation rather than as KeyboardInterrupt, and every leaf is then
+    # something this module treats as noise. That used to leave nothing to
+    # explain, which was read as "no friendly wording for this" and reported
+    # as a bug in pb -- for the most ordinary thing a user can do.
+    problems = errors.explain(_grouped(asyncio.CancelledError()))
+    assert problems is not None
+    assert problems[0].exit_code == errors.EXIT_INTERRUPTED
+    assert problems[0].message == "Interrupted."
+
+
+def test_a_bare_cancellation_is_an_interrupt_too() -> None:
+    problems = errors.explain(asyncio.CancelledError())
+    assert problems is not None
+    assert problems[0].exit_code == errors.EXIT_INTERRUPTED
+
+
 def test_a_broken_stream_yields_to_a_better_explanation() -> None:
     # Losing the connection is what a hub error looks like from the transport,
     # a moment later. The hub error is the one worth printing.
