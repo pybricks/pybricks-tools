@@ -509,6 +509,84 @@ async def test_run_interactive_shows_what_the_program_prints(
     assert "The program stopped" in screen.text
 
 
+TRACEBACK = (
+    b"Traceback (most recent call last):\r\n"
+    b'  File "__main__.py", line 3, in <module>\r\n'
+    b"ZeroDivisionError: divide by zero\r\n"
+)
+"""What the firmware prints for a program that ended in an exception.
+
+``print_final_exception`` in ``bricks/_common/micropython.c`` prints this for
+an unhandled exception, "The program was stopped (SystemExit)." for a
+deliberate stop, and nothing at all for a program that simply ended.
+"""
+
+
+async def test_a_program_that_ends_in_a_traceback_fails_the_command(
+    service: FakeHub, terminal: list[_Screen], tmp_path: Path
+) -> None:
+    hub = service
+
+    async def talk(screen: _Screen) -> None:
+        await _when(lambda: bool(hub.status & p.StatusFlag.USER_PROGRAM_RUNNING))
+        hub.send_stdout(TRACEBACK)
+        await _when(lambda: "ZeroDivisionError" in screen.text)
+        hub.set_program_running(False)
+
+    screen = _Screen()
+
+    async def command() -> int:
+        return await program_commands.run_cmd(
+            _script(tmp_path, "1 / 0\n"), hub=HUB_NAME, interactive=True
+        )
+
+    # Nothing in the protocol says a program failed rather than finished, so
+    # what it printed on its way out is the only evidence there is -- and a
+    # command that ran a program which died in front of the user has not
+    # succeeded.
+    assert await _run(screen, terminal, talk, command) == errors.EXIT_HUB_ERROR
+
+
+async def test_a_program_that_prints_and_then_ends_well_does_not_fail(
+    service: FakeHub, terminal: list[_Screen], tmp_path: Path
+) -> None:
+    hub = service
+
+    async def talk(screen: _Screen) -> None:
+        await _when(lambda: bool(hub.status & p.StatusFlag.USER_PROGRAM_RUNNING))
+        # A traceback printed and recovered from, a long way from the end.
+        hub.send_stdout(TRACEBACK)
+        hub.send_stdout(b"carrying on\r\n" + b"x" * session.TAIL_BYTES)
+        await _when(lambda: "carrying on" in screen.text)
+        hub.set_program_running(False)
+
+    screen = _Screen()
+
+    async def command() -> int:
+        return await program_commands.run_cmd(
+            _script(tmp_path, "print('hi')\n"), hub=HUB_NAME, interactive=True
+        )
+
+    assert await _run(screen, terminal, talk, command) == errors.EXIT_OK
+
+
+async def test_an_exception_at_the_interpreter_is_not_a_failure(
+    service: FakeHub, terminal: list[_Screen]
+) -> None:
+    hub = service
+
+    async def talk(screen: _Screen) -> None:
+        await _when(lambda: hub.running_program_id == p.UserProgramId.REPL)
+        # Typing something that raises is an ordinary thing to do at a prompt,
+        # and the session it happened in ended perfectly well.
+        hub.send_stdout(TRACEBACK)
+        await _when(lambda: "ZeroDivisionError" in screen.text)
+        screen.go.set()
+
+    screen = _Screen(QUIT)
+    assert await _run(screen, terminal, talk) == errors.EXIT_OK
+
+
 async def test_leaving_an_interactive_run_stops_the_program(
     service: FakeHub, terminal: list[_Screen], tmp_path: Path
 ) -> None:
