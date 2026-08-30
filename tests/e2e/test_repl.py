@@ -74,7 +74,11 @@ async def service(
     endpoint: Endpoint, hub: FakeHub, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> AsyncGenerator[FakeHub, None]:
     runtime = tmp_path / "runtime"
-    runtime.mkdir()
+    # 0700, because the service refuses a runtime directory other users can
+    # read -- its socket and its token live there. A test that made one the
+    # usual way would be refused, but only on POSIX, where the check means
+    # something.
+    runtime.mkdir(mode=0o700)
     monkeypatch.setenv("PB_RUNTIME_DIR", str(runtime))
     monkeypatch.setenv("PB_ENDPOINT", str(endpoint))
     async with daemon_module.run_daemon(

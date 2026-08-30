@@ -71,7 +71,11 @@ async def service(
     blocking portal between the test and what it is testing.
     """
     runtime = tmp_path / "runtime"
-    runtime.mkdir()
+    # 0700, because the service refuses a runtime directory other users can
+    # read -- its socket and its token live there. A test that made one the
+    # usual way would be refused, but only on POSIX, where the check means
+    # something.
+    runtime.mkdir(mode=0o700)
     monkeypatch.setenv("PB_RUNTIME_DIR", str(runtime))
     # The commands resolve the endpoint from the environment, the same way the
     # console script does, so this is what points them at the private service
@@ -258,7 +262,11 @@ async def test_service_status_when_nothing_is_running(
     # the question rather than failing to answer it, so it says so plainly
     # and exits with the code that means nothing is connected.
     runtime = tmp_path / "runtime"
-    runtime.mkdir()
+    # 0700, because the service refuses a runtime directory other users can
+    # read -- its socket and its token live there. A test that made one the
+    # usual way would be refused, but only on POSIX, where the check means
+    # something.
+    runtime.mkdir(mode=0o700)
     monkeypatch.setenv("PB_RUNTIME_DIR", str(runtime))
     monkeypatch.setenv("PB_ENDPOINT", str(endpoint))
 
@@ -277,7 +285,11 @@ async def test_stopping_a_service_that_is_not_running_succeeds(
     # Asking for something to be stopped when it already is got what was
     # wanted, so it is not an error.
     runtime = tmp_path / "runtime"
-    runtime.mkdir()
+    # 0700, because the service refuses a runtime directory other users can
+    # read -- its socket and its token live there. A test that made one the
+    # usual way would be refused, but only on POSIX, where the check means
+    # something.
+    runtime.mkdir(mode=0o700)
     monkeypatch.setenv("PB_RUNTIME_DIR", str(runtime))
     monkeypatch.setenv("PB_ENDPOINT", str(endpoint))
 
@@ -293,7 +305,11 @@ async def test_disconnecting_when_no_service_is_running_succeeds(
 ) -> None:
     # Same reasoning: nothing is connected, which is the outcome asked for.
     runtime = tmp_path / "runtime"
-    runtime.mkdir()
+    # 0700, because the service refuses a runtime directory other users can
+    # read -- its socket and its token live there. A test that made one the
+    # usual way would be refused, but only on POSIX, where the check means
+    # something.
+    runtime.mkdir(mode=0o700)
     monkeypatch.setenv("PB_RUNTIME_DIR", str(runtime))
     monkeypatch.setenv("PB_ENDPOINT", str(endpoint))
 
