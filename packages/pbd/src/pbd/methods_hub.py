@@ -40,6 +40,28 @@ def _device_json(device: DeviceInfo) -> dict[str, Any]:
     }
 
 
+def _scan_seconds(params: dict[str, Any]) -> float | None:
+    """Work out how long a scan should run.
+
+    Absent and null mean different things, which is unusual enough to be worth
+    the helper. A caller that says nothing gets the default; a caller that
+    explicitly says null wants no limit, because it is a person choosing from
+    the list and a deadline on a person only ever expires at the worst moment.
+    Nothing runs away: the scan ends when the caller cancels the request or
+    drops the connection.
+
+    Args:
+        params: The request parameters.
+
+    Returns:
+        Seconds to scan for, or ``None`` for no limit.
+    """
+    if "timeout_s" not in params:
+        return DEFAULT_SCAN_SECONDS
+    seconds = params["timeout_s"]
+    return None if seconds is None else float(seconds)
+
+
 def _hub_json(connection: HubConnection) -> dict[str, Any]:
     info = connection.info
     status = connection.status
@@ -83,7 +105,11 @@ def _hub_json(connection: HubConnection) -> dict[str, Any]:
     "the caller as a hub.found notification while the scan runs, so a client "
     "can show hubs as they appear instead of waiting for the whole scan.",
     params={
-        "timeout_s": "How long to look. Defaults to 10 seconds.",
+        "timeout_s": (
+            "How long to look. Omit for 10 seconds; pass null to look until "
+            "the caller stops asking, which is what an interactive chooser "
+            "needs and is why null and absent mean different things here."
+        ),
         "name": "Only report hubs with this name.",
         "include_connected": "Also report hubs that are already connected.",
     },
@@ -94,7 +120,7 @@ async def hub_scan(session: Session, params: dict[str, Any]) -> dict[str, Any]:
     manager = session.daemon.hubs
     session.daemon.mark_activity()
 
-    seconds = float(params.get("timeout_s") or DEFAULT_SCAN_SECONDS)
+    seconds = _scan_seconds(params)
     name = params.get("name")
     exclude: frozenset[str] = frozenset()
     if not params.get("include_connected"):
