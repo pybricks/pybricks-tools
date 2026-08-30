@@ -49,6 +49,10 @@ class HubManager:
                 ownership is visible at the call site.
         """
         self.transport = transport
+        # The radio is the only thing that can notice a hub being switched
+        # off or carried out of range, so what it notices has to reach the
+        # connection that is waiting on it.
+        transport.on_disconnect = self._transport_lost
         self._tg = task_group
         self._hubs: dict[str, HubConnection] = {}
         self._connect_locks: dict[str, anyio.Lock] = {}
@@ -202,6 +206,21 @@ class HubManager:
         if self.default_hub_id == connection.id:
             self.default_hub_id = next(iter(self._hubs), None)
         logger.info("hub disconnected: %s (%d left)", connection.id, len(self._hubs))
+
+    def _transport_lost(self, device_id: str) -> None:
+        """Note that the transport has lost a hub.
+
+        Runs outside any task -- on Bluetooth it is a callback from the radio
+        itself -- so it does the least it can: it hands the fact to the
+        connection, which wakes its own pump and unwinds in its own time.
+
+        Args:
+            device_id: The hub that went away.
+        """
+        connection = self._hubs.get(device_id)
+        if connection is not None:
+            logger.info("the transport lost %s", device_id)
+            connection.notify_disconnected()
 
     def forget_closed(self) -> None:
         """Drop connections that have gone away on their own.

@@ -19,25 +19,34 @@ from pb_client.compile import (
     compile_source,
     describe_compiler,
 )
-from pb_client.daemon import Daemon, DaemonInfo, DeviceInfo, HubInfo, connect
+from pb_client.daemon import Daemon, connect
 from pb_client.errors import (
     DaemonStartError,
+    DaemonTooOld,
     DaemonUnavailable,
     PbClientError,
 )
+from pb_client.models import DaemonInfo, DeviceInfo, HubInfo
+from pb_client.stdio import REPL_PROGRAM_ID, HubEvent, Output, State, Status
 from pb_core.jsonrpc import JsonRpcError
 
 __all__ = [
+    "REPL_PROGRAM_ID",
     "SOURCE_NAME",
     "CompileError",
     "Daemon",
     "DaemonInfo",
     "DaemonStartError",
+    "DaemonTooOld",
     "DaemonUnavailable",
     "DeviceInfo",
+    "HubEvent",
     "HubInfo",
     "JsonRpcError",
+    "Output",
     "PbClientError",
+    "State",
+    "Status",
     "__version__",
     "compile_script",
     "compile_source",

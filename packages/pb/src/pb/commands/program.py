@@ -106,7 +106,7 @@ async def _run(
     return EXIT_OK
 
 
-@app.command(name="download", group=PROGRAM_COMMANDS, sort_key=1)
+@app.command(name="download", group=PROGRAM_COMMANDS, sort_key=2)
 async def download_cmd(
     script: Path, /, *, hub: str | None = None, verbose: Verbose = 0
 ) -> int:
@@ -132,7 +132,7 @@ async def _download(script: Path, hub: str | None) -> int:
     return EXIT_OK
 
 
-@app.command(name="start", group=PROGRAM_COMMANDS, sort_key=2)
+@app.command(name="start", group=PROGRAM_COMMANDS, sort_key=3)
 async def start_cmd(
     *, hub: str | None = None, slot: int | None = None, verbose: Verbose = 0
 ) -> int:
@@ -158,7 +158,7 @@ async def _start(hub: str | None, slot: int | None) -> int:
     return EXIT_OK
 
 
-@app.command(name="stop", group=PROGRAM_COMMANDS, sort_key=3)
+@app.command(name="stop", group=PROGRAM_COMMANDS, sort_key=4)
 async def stop_cmd(*, hub: str | None = None, verbose: Verbose = 0) -> int:
     """Stop the program running on a hub.
 
@@ -178,7 +178,7 @@ async def _stop(hub: str | None) -> int:
     return EXIT_OK
 
 
-@app.command(name="check", group=PROGRAM_COMMANDS, sort_key=4)
+@app.command(name="check", group=PROGRAM_COMMANDS, sort_key=5)
 async def check_cmd(
     script: Path | None = None,
     /,

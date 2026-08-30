@@ -1,0 +1,370 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 The Pybricks Authors
+
+"""A session with a hub, end to end against a simulated one.
+
+The whole path a user takes runs here: the command, a real service over a real
+socket or named pipe, the attach subscription, keystrokes going back, and the
+status line drawing on a terminal that only exists in this file. Only the radio
+and the hub itself are simulated.
+
+The terminal is where the interesting seams are, so it is stood in for rather
+than mocked away: :class:`_Screen` keeps every byte the session writes, which
+is what lets a test say "the hub's output reached the screen" and "the
+scrolling margin was given back" rather than "the right method was called".
+
+Keys are held back until a test says so. Without that the session would read
+its whole script and leave before the hub had done anything, which is not a
+race a real user can lose but is one a test wins every time.
+"""
+
+from __future__ import annotations
+
+import contextlib
+import sys
+import uuid
+from collections.abc import AsyncGenerator, Callable, Coroutine, Generator, Iterator
+from pathlib import Path
+from typing import Any
+
+import anyio
+import pytest
+
+# Imported to register the RPC methods.
+import pbd.methods.daemon  # pyright: ignore[reportUnusedImport]
+import pbd.methods.hub  # pyright: ignore[reportUnusedImport]
+import pbd.methods.program  # pyright: ignore[reportUnusedImport]
+import pbd.methods.stdio  # noqa: F401  # pyright: ignore[reportUnusedImport]
+from pb import console as console_module
+from pb import errors, escape
+from pb.commands import hub as hub_commands
+from pb.commands import repl as repl_command
+from pb_core.ipc import Endpoint
+from pbd import daemon as daemon_module
+from pbd.hub import protocol as p
+from pbd.hub.fake import FakeHub, FakeHubTransport
+
+pytestmark = pytest.mark.anyio
+
+HUB_NAME = "Pybricks Hub"
+ESC = bytes([escape.ESCAPE_KEY])
+QUIT = ESC + b"q"
+
+
+@pytest.fixture(scope="session")
+def anyio_backend() -> str:
+    return "asyncio"
+
+
+@pytest.fixture
+def hub() -> FakeHub:
+    return FakeHub(name=HUB_NAME, address="00:11:22:33:44:55")
+
+
+@pytest.fixture
+def endpoint(tmp_path: Path) -> Endpoint:
+    unique = uuid.uuid4().hex[:12]
+    if sys.platform == "win32":
+        return Endpoint("pipe", f"pb-repl-{unique}")
+    return Endpoint("unix", str(tmp_path / f"{unique}.sock"))
+
+
+@pytest.fixture
+async def service(
+    endpoint: Endpoint, hub: FakeHub, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> AsyncGenerator[FakeHub, None]:
+    runtime = tmp_path / "runtime"
+    runtime.mkdir()
+    monkeypatch.setenv("PB_RUNTIME_DIR", str(runtime))
+    monkeypatch.setenv("PB_ENDPOINT", str(endpoint))
+    async with daemon_module.run_daemon(
+        endpoint, idle_timeout=0, transport=FakeHubTransport(hub)
+    ):
+        yield hub
+
+
+class _Screen:
+    """A terminal that types from a script and keeps everything written to it.
+
+    Keys are handed over one read at a time, which is how a real console
+    behaves too, and only once :attr:`go` is set.
+    """
+
+    def __init__(self, *keys: bytes) -> None:
+        """Queue up what to type.
+
+        Args:
+            *keys: One read each, delivered in order once released.
+        """
+        self.written = bytearray()
+        self.typed: list[bytes] = list(keys)
+        self.go = anyio.Event()
+        self._size = (80, 24)
+
+    def read(self) -> bytes:
+        if not self.go.is_set() or not self.typed:
+            return b""
+        return self.typed.pop(0)
+
+    def write(self, data: bytes) -> None:
+        self.written.extend(data)
+
+    def size(self) -> tuple[int, int]:
+        return self._size
+
+    @property
+    def text(self) -> str:
+        return self.written.decode("utf-8", "replace")
+
+
+@pytest.fixture
+def terminal(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[_Screen]]:
+    """Put a scripted terminal where the real one would be.
+
+    Yields:
+        A one-item list the test fills with the screen to use, so that the
+        keystrokes can be chosen per test.
+    """
+    holder: list[_Screen] = []
+
+    @contextlib.contextmanager
+    def raw_console() -> Generator[_Screen]:
+        yield holder[0]
+
+    monkeypatch.setattr(console_module, "raw_console", raw_console)
+    monkeypatch.setattr(console_module, "why_unavailable", lambda: None)
+    # Nothing should wait a hundredth of a second for a scripted keystroke.
+    monkeypatch.setattr(repl_command, "KEY_POLL_SECONDS", 0)
+    monkeypatch.setattr(repl_command, "TICK_SECONDS", 0.01)
+    yield holder
+
+
+Prelude = Callable[[_Screen], Coroutine[Any, Any, None]]
+
+
+async def _run(
+    screen: _Screen, holder: list[_Screen], prelude: Prelude | None = None
+) -> int:
+    """Connect, then run one session.
+
+    Args:
+        screen: The terminal to give the session.
+        holder: Where the terminal fixture looks for it.
+        prelude: Runs alongside the session and is responsible for releasing
+            its keystrokes. Without one they are released immediately.
+
+    Returns:
+        The command's exit code.
+    """
+    holder.append(screen)
+    await hub_commands.connect_cmd(hub=HUB_NAME)
+    code = errors.EXIT_ERROR
+
+    async with anyio.create_task_group() as tg:
+        if prelude is None:
+            screen.go.set()
+        else:
+            tg.start_soon(prelude, screen)
+        with anyio.fail_after(10):
+            code = await repl_command.repl_cmd()
+        tg.cancel_scope.cancel()
+
+    return code
+
+
+async def _when(condition: Callable[[], bool]) -> None:
+    """Wait for something the hub is about to do.
+
+    A poll rather than an event, because what is being waited for is a change
+    in the simulated hub's own state, which has nothing to signal with. Ruff
+    is told so: the alternative it suggests does not exist here.
+
+    Args:
+        condition: What has to become true.
+    """
+    with anyio.fail_after(5):
+        while not condition():  # noqa: ASYNC110 - see above
+            await anyio.sleep(0.005)
+
+
+async def test_a_session_starts_the_interpreter_and_shows_what_it_says(
+    service: FakeHub, terminal: list[_Screen]
+) -> None:
+    hub = service
+
+    async def talk(screen: _Screen) -> None:
+        await _when(lambda: hub.running_program_id == p.UserProgramId.REPL)
+        hub.send_stdout(b">>> ")
+        await _when(lambda: ">>> " in screen.text)
+        screen.go.set()
+
+    screen = _Screen(QUIT)
+    assert await _run(screen, terminal, talk) == errors.EXIT_OK
+    assert ">>> " in screen.text
+
+
+async def test_the_escape_key_leaves_and_everything_else_goes_to_the_hub(
+    service: FakeHub, terminal: list[_Screen]
+) -> None:
+    hub = service
+
+    async def talk(screen: _Screen) -> None:
+        screen.go.set()
+        # Ctrl-C is the case that matters: it belongs to the hub, where it
+        # interrupts, and must not be taken as an interrupt for us.
+        await _when(lambda: bytes(hub.stdin) == b"print(1)\r\x03")
+
+    screen = _Screen(b"print(1)\r", b"\x03", QUIT)
+    assert await _run(screen, terminal, talk) == errors.EXIT_OK
+    assert bytes(hub.stdin) == b"print(1)\r\x03"
+
+
+async def test_the_escape_key_reaches_the_hub_when_pressed_twice(
+    service: FakeHub, terminal: list[_Screen]
+) -> None:
+    hub = service
+
+    async def talk(screen: _Screen) -> None:
+        screen.go.set()
+        await _when(lambda: bytes(hub.stdin) == ESC)
+
+    assert await _run(_Screen(ESC + ESC, QUIT), terminal, talk) == errors.EXIT_OK
+    assert bytes(hub.stdin) == ESC
+
+
+async def test_a_command_split_across_reads_still_ends_the_session(
+    service: FakeHub, terminal: list[_Screen]
+) -> None:
+    # How it always arrives on a real console, where each key is its own read.
+    assert await _run(_Screen(ESC, b"q"), terminal) == errors.EXIT_OK
+
+
+async def test_the_status_line_says_which_hub_and_what_it_is_doing(
+    service: FakeHub, terminal: list[_Screen]
+) -> None:
+    hub = service
+
+    async def talk(screen: _Screen) -> None:
+        await _when(lambda: hub.running_program_id == p.UserProgramId.REPL)
+        await _when(lambda: "REPL" in screen.text)
+        screen.go.set()
+
+    screen = _Screen(QUIT)
+    assert await _run(screen, terminal, talk) == errors.EXIT_OK
+    assert HUB_NAME in screen.text
+    # And the bottom row is handed back, margin and all.
+    assert screen.text.endswith("\x1b[r\x1b[24;1H\x1b[2K")
+
+
+async def test_a_battery_warning_appears_in_the_status_line(
+    service: FakeHub, terminal: list[_Screen]
+) -> None:
+    hub = service
+
+    async def talk(screen: _Screen) -> None:
+        hub.status |= p.StatusFlag.BATTERY_LOW_VOLTAGE_WARNING
+        hub.send_status()
+        await _when(lambda: "battery low" in screen.text)
+        screen.go.set()
+
+    screen = _Screen(QUIT)
+    assert await _run(screen, terminal, talk) == errors.EXIT_OK
+    assert "battery low" in screen.text
+
+
+async def test_the_help_lists_what_the_escape_key_can_do(
+    service: FakeHub, terminal: list[_Screen]
+) -> None:
+    screen = _Screen(ESC + b"?", QUIT)
+    assert await _run(screen, terminal) == errors.EXIT_OK
+    assert "leave the session" in screen.text
+    assert "Ctrl-] Ctrl-]" in screen.text
+
+
+async def test_an_unknown_command_says_so_rather_than_vanishing(
+    service: FakeHub, terminal: list[_Screen]
+) -> None:
+    screen = _Screen(ESC + b"z", QUIT)
+    assert await _run(screen, terminal) == errors.EXIT_OK
+    assert "no such command" in screen.text
+
+
+async def test_stopping_from_the_session_stops_the_program(
+    service: FakeHub, terminal: list[_Screen]
+) -> None:
+    hub = service
+
+    async def talk(screen: _Screen) -> None:
+        await _when(lambda: bool(hub.status & p.StatusFlag.USER_PROGRAM_RUNNING))
+        screen.go.set()
+        await _when(lambda: not hub.status & p.StatusFlag.USER_PROGRAM_RUNNING)
+
+    assert await _run(_Screen(ESC + b"s", QUIT), terminal, talk) == errors.EXIT_OK
+    assert not hub.status & p.StatusFlag.USER_PROGRAM_RUNNING
+
+
+async def test_a_hub_that_disconnects_ends_the_session(
+    service: FakeHub, terminal: list[_Screen]
+) -> None:
+    hub = service
+
+    async def talk(screen: _Screen) -> None:
+        await _when(lambda: hub.running_program_id == p.UserProgramId.REPL)
+        hub.disconnect()
+
+    screen = _Screen()
+    # The hub going away is a hub error rather than a clean exit: a script
+    # that ran this needs to hear about it.
+    assert await _run(screen, terminal, talk) == errors.EXIT_HUB_ERROR
+    assert "disconnect" in screen.text or "no longer connected" in screen.text
+
+
+async def test_a_running_program_is_left_alone(
+    service: FakeHub, terminal: list[_Screen]
+) -> None:
+    hub = service
+    hub.program_size = 8
+    hub.running_program_id = 0
+
+    screen = _Screen(QUIT)
+    holder = terminal
+    holder.append(screen)
+    await hub_commands.connect_cmd(hub=HUB_NAME)
+    # Reported after connecting, since that is the only way the service could
+    # have heard about it.
+    hub.set_program_running(True)
+    await anyio.sleep(0.1)
+    screen.go.set()
+
+    with anyio.fail_after(10):
+        assert await repl_command.repl_cmd() == errors.EXIT_OK
+
+    # Attaching to look at a program somebody started must not stop it.
+    assert hub.running_program_id == 0
+    assert "A program is running" in screen.text
+
+
+async def test_input_is_cut_to_fit_a_hub_with_a_small_buffer(
+    service: FakeHub, terminal: list[_Screen]
+) -> None:
+    hub = service
+    # Firmware from before the input buffer grew: 21 bytes, and a write that
+    # does not fit whole is refused rather than partly kept.
+    hub.stdin_capacity = 21
+    typed = b"print('a line longer than twenty-one bytes')\r"
+
+    async def talk(screen: _Screen) -> None:
+        screen.go.set()
+        # Stands for the program reading its input as it arrives, which is
+        # what makes room for the next piece.
+        while True:
+            await anyio.sleep(0.005)
+            hub.stdin_capacity = 21 + len(hub.stdin)
+
+    screen = _Screen(typed, QUIT)
+    assert await _run(screen, terminal, talk) == errors.EXIT_OK
+
+    # Every byte arrived, in order, though no single write would have fitted.
+    assert bytes(hub.stdin) == typed
+    assert len(hub.stdin_writes) > 1
+    assert max(len(write) for write in hub.stdin_writes) <= 21

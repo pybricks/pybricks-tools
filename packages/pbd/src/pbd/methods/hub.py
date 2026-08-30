@@ -23,7 +23,16 @@ from pbd.session import Session
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["hub_connect", "hub_disconnect", "hub_info", "hub_list", "hub_scan"]
+__all__ = [
+    "hub_connect",
+    "hub_disconnect",
+    "hub_info",
+    "hub_list",
+    "hub_of",
+    "hub_scan",
+    "report_json",
+    "status_json",
+]
 
 DEFAULT_SCAN_SECONDS = 10.0
 CONNECT_SECONDS = 30.0
@@ -62,9 +71,66 @@ def _scan_seconds(params: dict[str, Any]) -> float | None:
     return None if seconds is None else float(seconds)
 
 
+def hub_of(session: Session, params: dict[str, Any]) -> HubConnection:
+    """Find the hub a request is about.
+
+    Args:
+        session: The calling session.
+        params: The request parameters, whose ``id`` names a hub or is absent
+            for whichever hub is currently in use.
+
+    Returns:
+        The connection.
+
+    Raises:
+        JsonRpcError: If there is no such hub, or none in use.
+    """
+    hub_id = params.get("id")
+    try:
+        return session.daemon.hubs.get(str(hub_id) if hub_id else None)
+    except HubNotFoundError as exc:
+        raise JsonRpcError(ErrorCode.HUB_NOT_FOUND, str(exc)) from exc
+
+
+def report_json(report: p.StatusReport) -> dict[str, Any]:
+    """Describe one status report.
+
+    Args:
+        report: What the hub said.
+
+    Returns:
+        The status fields.
+    """
+    return {
+        "status_flags": int(report.flags),
+        "status_names": [flag.name for flag in report.flags if flag.name],
+        "program_running": report.program_running,
+        "running_program_id": report.running_program_id,
+        "selected_slot": report.selected_slot,
+    }
+
+
+def status_json(connection: HubConnection) -> dict[str, Any]:
+    """Describe what a hub is currently reporting about itself.
+
+    Its own function because it is sent two ways: as part of a hub's
+    description, and on its own as a ``hub.status`` notification whenever the
+    flags change. Both carry the whole status rather than a description of what
+    changed, because a status is a level rather than an event -- a client that
+    misses one and catches the next is still right.
+
+    Args:
+        connection: The hub.
+
+    Returns:
+        The status fields, or an empty mapping if the hub has not reported yet.
+    """
+    report = connection.status
+    return {} if report is None else report_json(report)
+
+
 def _hub_json(connection: HubConnection) -> dict[str, Any]:
     info = connection.info
-    status = connection.status
     payload: dict[str, Any] = {
         "id": connection.id,
         "state": str(connection.state),
@@ -88,14 +154,7 @@ def _hub_json(connection: HubConnection) -> dict[str, Any]:
                 flag.name for flag in info.capabilities.flags if flag.name
             ],
         }
-    if status is not None:
-        payload |= {
-            "status_flags": int(status.flags),
-            "status_names": [flag.name for flag in status.flags if flag.name],
-            "program_running": status.program_running,
-            "running_program_id": status.running_program_id,
-            "selected_slot": status.selected_slot,
-        }
+    payload |= status_json(connection)
     return payload
 
 

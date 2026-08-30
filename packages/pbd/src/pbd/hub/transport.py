@@ -155,6 +155,20 @@ class HubLink(Protocol):
 class HubTransport(Protocol):
     """Discovers hubs and opens connections to them."""
 
+    on_disconnect: Callable[[str], None] | None
+    """Called with a hub's id when the transport loses it.
+
+    The one thing a transport knows that nothing else can find out: a hub that
+    is switched off, or carried out of range, says nothing and simply stops
+    answering. Without this the daemon would go on believing it is connected
+    until something tried to write to it, and anyone attached to that hub would
+    wait for output that is never coming.
+
+    Set by whoever owns the connections. Invoked from outside any task -- on
+    Bluetooth it is a callback from the radio's own thread -- so it must only
+    record the fact and return.
+    """
+
     @property
     def scheme(self) -> str:
         """Identifier prefix for hubs on this transport, such as ``ble``."""

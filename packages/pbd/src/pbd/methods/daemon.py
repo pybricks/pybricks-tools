@@ -13,7 +13,11 @@ from typing import Any
 
 from pb_core import paths
 from pb_core.jsonrpc import ErrorCode, JsonRpcError
-from pb_core.protocol import MIN_PROTOCOL_VERSION, PROTOCOL_VERSION
+from pb_core.protocol import (
+    MIN_PROTOCOL_VERSION,
+    PROTOCOL_VERSION,
+    STDIO_CAPABILITY,
+)
 from pbd import __version__
 from pbd.methods import method, require
 from pbd.session import Session
@@ -72,7 +76,10 @@ async def daemon_hello(session: Session, params: dict[str, Any]) -> dict[str, An
         "machine": platform.machine(),
         "binary_encoding": "base64",
         "log_file": str(paths.log_file()),
-        "capabilities": [],
+        # Named features rather than a protocol version, so that a client
+        # newer than the running service can ask for the one thing it
+        # needs instead of every command failing over a version number.
+        "capabilities": [STDIO_CAPABILITY],
     }
 
 

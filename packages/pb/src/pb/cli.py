@@ -4,7 +4,7 @@
 """The ``pb`` command line.
 
 This module is the entry point and little else. The commands live in
-``commands_*`` modules grouped the way the help groups them, and importing them
+:mod:`pb.commands`, one module per group of the help, and importing them
 here is what registers them with the app -- the same arrangement the daemon
 uses for its RPC methods.
 
@@ -19,11 +19,11 @@ anyway -- :mod:`pb.errors` does that in one place, for all of them.
 
 from __future__ import annotations
 
-from pb import (  # noqa: F401  (imported to register the commands)
-    commands_hub,  # pyright: ignore[reportUnusedImport]
-    commands_program,  # pyright: ignore[reportUnusedImport]
-    commands_service,  # pyright: ignore[reportUnusedImport]
-)
+# Imported to register the commands.
+import pb.commands.hub
+import pb.commands.program
+import pb.commands.repl
+import pb.commands.service  # noqa: F401
 from pb.app import app
 from pb.errors import EXIT_OK
 

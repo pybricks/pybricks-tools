@@ -36,7 +36,12 @@ import anyio
 from rich.console import Console, RenderableType
 
 import pb_client
-from pb import commands_hub, commands_program, keys, ui
+from pb import (
+    keys,
+    ui,
+)
+from pb.commands import hub as hub_commands
+from pb.commands import program as program_commands
 from pb.keys import Key
 
 WIDTH = 74
@@ -75,8 +80,8 @@ would show it failing.
 """
 
 SESSION: list[tuple[str, Callable[[], Awaitable[int]]]] = [
-    ("pb connect --scan", lambda: commands_hub.connect_cmd(scan=True)),
-    (f'pb run -c "\n{RAINBOW}"', lambda: commands_program.run_cmd(command=RAINBOW)),
+    ("pb connect --scan", lambda: hub_commands.connect_cmd(scan=True)),
+    (f'pb run -c "\n{RAINBOW}"', lambda: program_commands.run_cmd(command=RAINBOW)),
 ]
 """What to show, in the order a new user would type it.
 

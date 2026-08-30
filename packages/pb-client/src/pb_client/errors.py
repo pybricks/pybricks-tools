@@ -7,7 +7,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-__all__ = ["DaemonStartError", "DaemonUnavailable", "PbClientError"]
+__all__ = [
+    "DaemonStartError",
+    "DaemonTooOld",
+    "DaemonUnavailable",
+    "PbClientError",
+]
 
 
 class PbClientError(Exception):
@@ -37,3 +42,25 @@ class DaemonStartError(PbClientError):
         )
         self.endpoint = endpoint
         self.log_file = log_file
+
+
+class DaemonTooOld(PbClientError):
+    """The running daemon does not have a feature this client needs.
+
+    The daemon outlives the install that started it, so upgrading the tool does
+    not upgrade what is already running. Rather than refusing every command
+    over a version difference, the client asks for the one feature it needs and
+    raises this when it is missing.
+    """
+
+    def __init__(self, feature: str) -> None:
+        """Say which feature is missing.
+
+        Args:
+            feature: The capability the daemon did not advertise.
+        """
+        super().__init__(
+            f"the background service that is running cannot {feature}; "
+            f"it was started by an older version"
+        )
+        self.feature = feature
