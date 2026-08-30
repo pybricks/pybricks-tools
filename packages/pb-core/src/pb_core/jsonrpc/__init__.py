@@ -27,6 +27,12 @@ from pb_core.jsonrpc.messages import (
     parse_message,
     to_wire,
 )
+from pb_core.jsonrpc.peer import (
+    JsonRpcPeer,
+    MethodHandler,
+    PeerClosedError,
+    connect_peer,
+)
 
 __all__ = [
     "CANCEL_METHOD",
@@ -35,13 +41,17 @@ __all__ = [
     "ErrorCode",
     "ErrorObject",
     "JsonRpcError",
+    "JsonRpcPeer",
     "LineFramer",
     "Message",
+    "MethodHandler",
     "Notification",
+    "PeerClosedError",
     "ProtocolError",
     "Request",
     "RequestId",
     "Response",
+    "connect_peer",
     "decode_binary",
     "encode_binary",
     "error_response",
