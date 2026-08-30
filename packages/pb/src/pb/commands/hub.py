@@ -150,11 +150,12 @@ async def connect_cmd(
             Ctrl-C gives up without connecting to anything.
         verbose: Increase log detail.
     """
-    if scan and hub is not None:
-        return ui.usage(
-            "Choose a hub with --scan, or name one with --hub, but not both.",
-            "Leave out [bold]--hub[/] to pick from the list.",
-        )
+    if scan:
+        # --scan wins over a named hub rather than being refused
+        # alongside one. The name may have come from the environment or
+        # from the project's pyproject.toml, and refusing a value the
+        # user never typed would make --scan unusable inside a project.
+        hub = None
     if scan and not keys.keys_available():
         # Better to say so than to sit waiting for a keystroke that cannot
         # arrive, which is what a piped or emulated terminal would do.
@@ -289,12 +290,12 @@ async def use_cmd(
             connected, as long as there is only one.
         verbose: Increase log detail.
     """
-    if clear and hub is not None:
-        return ui.usage(
-            "Name a hub with --hub, or forget the chosen one with --clear, "
-            "but not both.",
-            "Leave out [bold]--clear[/] to choose the hub you named.",
-        )
+    if clear:
+        # --clear wins over a named hub, for the same reason --scan does
+        # on connect: the name may have come from a project file rather
+        # than from the person typing, and forgetting the chosen hub
+        # would otherwise be impossible in a project directory.
+        hub = None
     configure_logging(verbose)
     return await errors.run(_use, hub, clear)
 

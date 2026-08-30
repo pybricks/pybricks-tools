@@ -100,6 +100,25 @@ The hub does not have to be connected, or even switched on, so the hub a
 project belongs to can be chosen before any of it is plugged in.
 `pb use --clear` forgets it again.
 
+A project can name its own hub, which is the better answer when the project is
+shared. Put it in the project's `pyproject.toml`:
+
+```toml
+[tool.pb]
+hub = "Workshop Hub"
+```
+
+Every command run anywhere inside that project uses that hub, so a robot
+project works for whoever clones it without anybody having to remember a flag.
+It beats the hub remembered by `pb use`, because a project is more specific
+than a standing preference, and inside such a project `pb use` on its own pins
+the project's hub rather than offering a list.
+
+`PB_HUB` sits between the two, for pointing one shell or one CI job somewhere
+else. In fact every option can be set that way -- `PB_SLOT`, `PB_VERBOSE` and
+so on -- though the hub is the one worth knowing about. What you type always
+wins over all of it.
+
 Every command takes `-v` for more detail, and `-vv` or `-vvv` when something
 is going wrong and you want to see why.
 
