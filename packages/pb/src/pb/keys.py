@@ -3,10 +3,11 @@
 
 """Reading single keystrokes, for the few places that ask a person to choose.
 
-Deliberately small. This is not the terminal emulator ``pb terminal`` will
-need: that one has to forward every byte a key produces to a hub, and getting
-that right is a project of its own. This one only has to tell up from down from
-Enter, which is enough for a chooser.
+Deliberately small, and not to be confused with :mod:`pb.console`, which is
+what a session with a hub reads its keyboard through: that one forwards every
+byte a key produces, in raw mode, and getting it right is most of a project.
+This one only has to tell up from down from Enter, which is enough for a
+chooser.
 
 Two properties make it much safer than it looks:
 

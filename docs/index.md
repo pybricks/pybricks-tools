@@ -23,6 +23,11 @@ pb connect          # find a hub and connect to it
 pb run demo.py      # compile the script, send it, and run it
 ```
 
+`pb run` stays with the program: what it prints appears as it prints it, and
+what you type goes to the hub, so `input()` works and Ctrl-C interrupts. Press
+Ctrl-] q to leave, or Ctrl-] h for the rest. Down a pipe or in a build there is
+no terminal to do that with, so the output simply comes through on stdout.
+
 `pb connect` only needs doing once. Later commands reuse the connection, so
 `pb run` is quick to repeat while you are working on a program.
 
@@ -37,6 +42,7 @@ pb run demo.py      # again, without reconnecting
 | `pb connect` | Connect to a hub and keep it connected |
 | `pb run SCRIPT` | Compile a script, send it, and run it |
 | `pb run -c CODE` | Run a line or two of Python without a file |
+| `pb repl` | Talk to the hub's interpreter, a line at a time |
 | `pb download SCRIPT` | Send a script without running it |
 | `pb start` | Start the program already on the hub |
 | `pb stop` | Stop the running program |
@@ -89,6 +95,8 @@ The same things are available as a library, so you can drive a hub from your
 own program:
 
 ```python
+from pathlib import Path
+
 import anyio
 import pb_client
 
