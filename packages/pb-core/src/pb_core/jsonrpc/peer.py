@@ -105,6 +105,9 @@ class JsonRpcPeer:
             OUTBOX_SIZE
         )
         self._closed = anyio.Event()
+        self._drained = anyio.Event()
+        """Set once the writer has stopped, whether drained or cancelled."""
+
         self.dropped_notifications = 0
         """Notifications discarded because this peer was not keeping up."""
 
@@ -200,12 +203,30 @@ class JsonRpcPeer:
         """Wait until the peer disconnects."""
         await self._closed.wait()
 
+    async def drain(self) -> None:
+        """Send everything already queued, and refuse anything more.
+
+        For the one message that must not be lost to a teardown: the reply to
+        the request that asked for the teardown. Cancelling the writer instead
+        drops it, and the caller is left believing its request went unanswered
+        when in fact it was obeyed.
+
+        Waits for the writer to finish, so callers should bound it -- a peer
+        that has stopped reading must not be able to hold this open.
+        """
+        self._outbox_tx.close()
+        await self._drained.wait()
+
     async def _writer_loop(self) -> None:
         try:
             async for message in self._outbox_rx:
                 await self._framer.send(message)
         except (anyio.BrokenResourceError, anyio.ClosedResourceError):
             logger.debug("writer stopping: connection gone")
+        finally:
+            # Set however the writer ends, including cancellation, so that
+            # nothing waiting on a drain can hang.
+            self._drained.set()
 
     async def _reader_loop(self) -> None:
         try:
