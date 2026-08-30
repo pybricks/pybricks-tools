@@ -19,6 +19,7 @@ import contextlib
 import logging
 import sys
 from collections.abc import Generator, Iterable, Mapping
+from contextlib import AbstractContextManager
 from pathlib import Path
 from typing import Annotated
 
@@ -140,6 +141,20 @@ def _null() -> Generator[None]:
     yield
 
 
+def _spinner(err: Console, message: str) -> AbstractContextManager[object]:
+    """Show progress while a step runs.
+
+    Args:
+        err: The stderr console. Progress is never data.
+        message: What is happening, in the present tense.
+
+    Returns:
+        A context manager, which does nothing at all when stderr is not a
+        terminal -- a spinner in a log file is just escape codes.
+    """
+    return err.status(message) if err.is_terminal else _null()
+
+
 def _configure_logging(verbose: int) -> None:
     """Map repeated ``-v`` flags onto log levels."""
     if verbose <= 0:
@@ -214,12 +229,7 @@ def scan_cmd(
 async def _scan(seconds: float, name: str | None) -> int:
     out, err = _console(), _console(err=True)
     async with pb_client.connect() as daemon:
-        spinner = (
-            err.status(f"Scanning for {seconds:.0f}s...")
-            if err.is_terminal
-            else _null()
-        )
-        with spinner:
+        with _spinner(err, f"Scanning for {seconds:.0f}s..."):
             devices = await daemon.scan(seconds=seconds, name=name)
 
     if not devices:
@@ -265,8 +275,7 @@ def connect_cmd(hub: str | None = None, /, *, verbose: Verbose = 0) -> int:
 async def _connect(hub: str | None) -> int:
     err = _console(err=True)
     async with pb_client.connect() as daemon:
-        spinner = err.status("Connecting...") if err.is_terminal else _null()
-        with spinner:
+        with _spinner(err, "Connecting..."):
             info = await daemon.connect_hub(
                 hub_id=hub if hub and _looks_like_id(hub) else None,
                 name=hub if hub and not _looks_like_id(hub) else None,
@@ -488,18 +497,16 @@ def run_cmd(
 async def _run(script: Path, hub: str | None, slot: int | None, wait: bool) -> int:
     err = _console(err=True)
 
-    spinner = err.status("Compiling...") if err.is_terminal else _null()
-    with spinner:
+    with _spinner(err, "Compiling..."):
         program = await pb_client.compile_script(script)
 
+    # Sending and running are two steps to the user, and were one spinner
+    # that said "Downloading" for as long as the program ran.
     async with pb_client.connect(autostart=False) as daemon:
-        spinner = (
-            err.status(f"Downloading {len(program)} bytes...")
-            if err.is_terminal
-            else _null()
-        )
-        with spinner:
-            reason = await daemon.run_program(program, hub_id=hub, slot=slot, wait=wait)
+        with _spinner(err, f"Downloading {len(program)} bytes..."):
+            await daemon.download(program, hub_id=hub)
+        with _spinner(err, "Running..." if wait else "Starting..."):
+            reason = await daemon.start_program(hub_id=hub, slot=slot, wait=wait)
 
     if reason == "disconnected":
         err.print("[yellow]The hub disconnected while the program was running.[/]")

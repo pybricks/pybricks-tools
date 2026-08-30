@@ -124,14 +124,52 @@ async def program_download(session: Session, params: dict[str, Any]) -> dict[str
     return {"size": len(program)}
 
 
+async def _start_and_watch(
+    connection: HubConnection, command: bytes, wait: bool, doing: str
+) -> str:
+    """Start a program, optionally staying until it stops.
+
+    Args:
+        connection: The hub to start it on.
+        command: The encoded start command.
+        wait: Whether to return only once the program has stopped.
+        doing: What to say the hub would not do, if it refuses.
+
+    Returns:
+        ``"started"``, ``"stopped"`` or ``"disconnected"``.
+    """
+    # Subscribing before starting, so the program cannot finish between the
+    # start command and our first look at the status.
+    async with connection.subscribe(frozenset({Channel.STATUS})) as watcher:
+        try:
+            async with connection.abort_on_disconnect():
+                await connection.send_command(command)
+                if not wait:
+                    return "started"
+                return await _wait_for_stop(connection, watcher)
+        except HubDisconnectedError:
+            return "disconnected"
+        except HubCommandError as exc:
+            # A refusal is an answer, not a lost connection: say which command
+            # the hub turned down.
+            raise as_wire_error(exc, doing) from exc
+        except anyio.get_cancelled_exc_class():
+            # The caller gave up, so stop the program rather than leaving it
+            # running. Shielded: we are already unwinding.
+            with anyio.CancelScope(shield=True), anyio.move_on_after(2):
+                await connection.send_command(p.encode_stop_user_program())
+            raise
+
+
 @method(
     "program.start",
     "Start a program that is already on the hub.",
     params={
         "id": "The hub. Defaults to the current hub.",
         "slot": "Which program slot, or null for the one the hub has selected.",
+        "wait": "Wait for the program to stop before replying. Default false.",
     },
-    returns="An empty object.",
+    returns="Why it ended: started, stopped or disconnected.",
 )
 async def program_start(session: Session, params: dict[str, Any]) -> dict[str, Any]:
     """Start a program."""
@@ -148,9 +186,8 @@ async def program_start(session: Session, params: dict[str, Any]) -> dict[str, A
     except ValueError as exc:
         raise JsonRpcError(ErrorCode.HUB_UNSUPPORTED, str(exc)) from exc
 
-    with hub_errors("start that program"):
-        await connection.send_command(command)
-    return {}
+    wait = bool(params.get("wait", False))
+    return {"reason": await _start_and_watch(connection, command, wait, "start it")}
 
 
 @method(
@@ -198,31 +235,15 @@ async def program_run(session: Session, params: dict[str, Any]) -> dict[str, Any
     except ValueError as exc:
         raise JsonRpcError(ErrorCode.HUB_UNSUPPORTED, str(exc)) from exc
 
-    # Subscribing before starting, so the program cannot finish between the
-    # start command and our first look at the status.
-    async with connection.subscribe(frozenset({Channel.STATUS})) as watcher:
-        try:
-            async with connection.abort_on_disconnect():
-                await _download(connection, program)
-                await connection.send_command(command)
+    try:
+        async with connection.abort_on_disconnect():
+            await _download(connection, program)
+    except HubDisconnectedError:
+        return {"reason": "disconnected", "size": len(program)}
+    except HubCommandError as exc:
+        raise as_wire_error(exc, "store that program") from exc
 
-                if not wait:
-                    return {"reason": "started", "size": len(program)}
-
-                reason = await _wait_for_stop(connection, watcher)
-        except HubDisconnectedError:
-            return {"reason": "disconnected", "size": len(program)}
-        except HubCommandError as exc:
-            # A refusal is an answer, not a lost connection: say which command
-            # the hub turned down.
-            raise as_wire_error(exc, "run that program") from exc
-        except anyio.get_cancelled_exc_class():
-            # The caller gave up, so stop the program rather than leaving it
-            # running. Shielded: we are already unwinding.
-            with anyio.CancelScope(shield=True), anyio.move_on_after(2):
-                await connection.send_command(p.encode_stop_user_program())
-            raise
-
+    reason = await _start_and_watch(connection, command, wait, "run it")
     return {"reason": reason, "size": len(program)}
 
 
