@@ -25,6 +25,7 @@ from typing import Annotated
 
 import cyclopts
 from rich.console import Console
+from rich.live import Live
 from rich.table import Table
 
 import pb_client
@@ -51,6 +52,27 @@ type-checked while it is switched off.
 """
 
 _ID_PREFIXES = ("ble:", "fake:", "usb:", "rfcomm:")
+
+SIGNAL_BLOCKS = "▁▃▅▇"
+"""The bar chart, one character per level, rising left to right."""
+
+SIGNAL_EMPTY = "·"
+"""What stands in for a bar that is not lit.
+
+A dim copy of the block would say the same thing in colour alone, which is no
+use to a colour-blind reader or to anything that strips styling. A dot is
+plainly not a bar.
+"""
+
+_SIGNAL_FLOORS = (-90, -80, -67, -55)
+"""How many dBm each level needs, weakest first.
+
+Bluetooth reports signal strength as a negative number of dBm, roughly -30 for
+a hub on the desk down to about -100 for one that can barely be heard. The
+boundaries are the ones Wi-Fi tools have long used, which put a hub in the same
+room at four bars and one through a wall at two. Anything at or below the first
+floor still gets one bar rather than none: it was heard, so it is there.
+"""
 
 HUB_WARNINGS: Mapping[str, str] = {
     "BATTERY_LOW_VOLTAGE_WARNING": "battery low",
@@ -232,6 +254,29 @@ def hub_warnings(status_names: Iterable[str]) -> list[str]:
     return said
 
 
+def signal_bars(rssi: int | None) -> str:
+    """Draw a signal strength as a bar chart, in Rich markup.
+
+    Args:
+        rssi: The received signal strength in dBm, as Bluetooth reports it, or
+            ``None`` when the transport does not measure one.
+
+    Returns:
+        Four block characters, filled and coloured according to strength, with
+        the unfilled ones left dim so that the bar keeps its width and the rows
+        stay aligned. A number in dBm means nothing to most people, but "how
+        many bars" is a thing everyone already reads off a phone.
+    """
+    if rssi is None:
+        return f"[dim]{SIGNAL_EMPTY * len(SIGNAL_BLOCKS)}[/]"
+    # At least one bar: the hub was heard, so it is out there somewhere.
+    level = max(1, sum(1 for floor in _SIGNAL_FLOORS if rssi >= floor))
+    style = "green" if level >= 3 else "yellow" if level == 2 else "red"
+    filled = SIGNAL_BLOCKS[:level]
+    empty = SIGNAL_EMPTY * (len(SIGNAL_BLOCKS) - level)
+    return f"[{style}]{filled}[/][dim]{empty}[/]"
+
+
 def _rows(out: Console, rows: list[tuple[str, str]]) -> None:
     """Render key/value rows, as a table on a terminal and tab-separated when piped."""
     if out.is_terminal:
@@ -262,33 +307,74 @@ def scan_cmd(
     return errors.run(_scan, timeout, name)
 
 
+def _scan_table(devices: Iterable[pb_client.DeviceInfo], caption: str) -> Table:
+    """Build the table of hubs seen so far.
+
+    Args:
+        devices: What has been seen, in the order it was first seen. Not sorted
+            by signal, tempting as that is: rows that swap places under the
+            reader's eyes while they are trying to read one are worse than a
+            list that is not in the ideal order.
+        caption: A line under the table saying what is happening.
+
+    Returns:
+        The table, ready to print or hand to a live display.
+    """
+    table = Table(caption=caption, caption_justify="left")
+    table.add_column("Name")
+    # Known before connecting, because a Pybricks hub puts its Plug and Play ID
+    # in the scan response. Two hubs called "Pybricks Hub" are told apart by
+    # this and by their signal, which is the whole reason to show either.
+    table.add_column("Type")
+    if SHOW_HUB_IDS:
+        table.add_column("Address", style="dim")
+    table.add_column("Signal", justify="right")
+    for device in devices:
+        row = [
+            device.name,
+            device.hub_type or "",
+            device.id,
+            signal_bars(device.rssi),
+        ]
+        if not SHOW_HUB_IDS:
+            del row[2]
+        table.add_row(*row)
+    return table
+
+
 async def _scan(seconds: float, name: str | None) -> int:
     out, err = _console(), _console(err=True)
-    async with pb_client.connect() as daemon:
-        with _spinner(err, f"Scanning for {seconds:.0f}s..."):
-            devices = await daemon.scan(seconds=seconds, name=name)
+    seen: dict[str, pb_client.DeviceInfo] = {}
 
-    if not devices:
+    async with (
+        pb_client.connect() as daemon,
+        daemon.scanning(seconds=seconds, name=name) as devices,
+    ):
+        if out.is_terminal:
+            # Redrawn in place as advertisements arrive, so a hub appears the
+            # moment it is heard and its signal moves as it is carried about.
+            table = _scan_table((), f"Scanning for {seconds:.0f}s...")
+            with Live(table, console=out, auto_refresh=False) as live:
+                async for device in devices:
+                    seen[device.id] = device
+                    live.update(
+                        _scan_table(seen.values(), f"Scanning for {seconds:.0f}s..."),
+                        refresh=True,
+                    )
+                live.update(_scan_table(seen.values(), f"Found {len(seen)}."))
+        else:
+            # Piped: one line per hub, printed the moment it is first heard, so
+            # that "pb scan | head -1" answers as soon as there is an answer.
+            async for device in devices:
+                if device.id not in seen:
+                    line = (
+                        f"{device.name}\t{device.id}" if SHOW_HUB_IDS else device.name
+                    )
+                    out.print(line, highlight=False, markup=False)
+                seen[device.id] = device
+
+    if not seen:
         err.print("[yellow]No hubs found.[/] Is the hub switched on and in range?")
-        return EXIT_OK
-
-    if out.is_terminal:
-        table = Table()
-        table.add_column("Name")
-        if SHOW_HUB_IDS:
-            table.add_column("Address", style="dim")
-        table.add_column("Signal", justify="right")
-        for device in devices:
-            signal = f"{device.rssi} dBm" if device.rssi is not None else ""
-            row = [device.name, device.id, signal]
-            if not SHOW_HUB_IDS:
-                del row[1]
-            table.add_row(*row)
-        out.print(table)
-    else:
-        for device in devices:
-            line = f"{device.name}\t{device.id}" if SHOW_HUB_IDS else device.name
-            out.print(line, highlight=False, markup=False)
     return EXIT_OK
 
 
