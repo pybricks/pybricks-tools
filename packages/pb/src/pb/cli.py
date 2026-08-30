@@ -111,11 +111,29 @@ app = cyclopts.App(
         "A hub stays connected between commands, so you only need to run "
         "pb connect once."
     ),
+    # Every command below is in a group of its own, so what is left in the
+    # default panel is --help and --version. Calling that panel "Commands"
+    # would be a lie, and putting it last keeps the commands at the top where
+    # someone reading the help is looking.
+    group_commands=cyclopts.Group("Options", sort_key=3),
 )
+
+HUB_COMMANDS = cyclopts.Group("Hubs", sort_key=0)
+"""Finding a hub, holding on to one, and asking what it is doing."""
+
+PROGRAM_COMMANDS = cyclopts.Group("Programs", sort_key=1)
+"""Getting a program onto a hub and controlling it once it is there."""
+
+SERVICE_COMMANDS = cyclopts.Group("Background service", sort_key=2)
+"""The thing holding the connections open. Rarely needed, so it comes last."""
 
 service_app = cyclopts.App(
     name="service",
     help="Manage the background service that keeps hubs connected.",
+    group=SERVICE_COMMANDS,
+    # Not inherited from the root app, where the default panel holds only the
+    # flags: down here it really is the list of commands.
+    group_commands=cyclopts.Group("Commands"),
 )
 app.command(service_app)
 
@@ -153,6 +171,24 @@ def _spinner(err: Console, message: str) -> AbstractContextManager[object]:
         terminal -- a spinner in a log file is just escape codes.
     """
     return err.status(message) if err.is_terminal else _null()
+
+
+def _usage(message: str, hint: str | None = None) -> int:
+    """Report a problem with the command line itself.
+
+    Presented like any other expected failure -- one sentence and a suggestion
+    -- rather than through a cyclopts group validator, whose wording ("Invalid
+    values for group Program...") is written for whoever wrote the CLI rather
+    than for whoever is using it.
+
+    Args:
+        message: What is wrong with the arguments.
+        hint: What to type instead.
+
+    Returns:
+        The process exit code.
+    """
+    return errors.render(_console(err=True), [errors.Problem(message, hint)])
 
 
 def _configure_logging(verbose: int) -> None:
@@ -211,7 +247,7 @@ def _rows(out: Console, rows: list[tuple[str, str]]) -> None:
 # ---------------------------------------------------------------------- hubs
 
 
-@app.command(name="scan")
+@app.command(name="scan", group=HUB_COMMANDS, sort_key=0)
 def scan_cmd(
     *, timeout: float = 10.0, name: str | None = None, verbose: Verbose = 0
 ) -> int:
@@ -256,8 +292,8 @@ async def _scan(seconds: float, name: str | None) -> int:
     return EXIT_OK
 
 
-@app.command(name="connect")
-def connect_cmd(hub: str | None = None, /, *, verbose: Verbose = 0) -> int:
+@app.command(name="connect", group=HUB_COMMANDS, sort_key=1)
+def connect_cmd(*, hub: str | None = None, verbose: Verbose = 0) -> int:
     """Connect to a hub and keep it connected.
 
     The connection outlives this command, so later commands reuse it rather
@@ -291,8 +327,8 @@ async def _connect(hub: str | None) -> int:
     return EXIT_OK
 
 
-@app.command(name="disconnect")
-def disconnect_cmd(hub: str | None = None, /, *, verbose: Verbose = 0) -> int:
+@app.command(name="disconnect", group=HUB_COMMANDS, sort_key=4)
+def disconnect_cmd(*, hub: str | None = None, verbose: Verbose = 0) -> int:
     """Disconnect a hub.
 
     Args:
@@ -319,7 +355,7 @@ async def _disconnect(hub: str | None) -> int:
     return EXIT_OK
 
 
-@app.command(name="list")
+@app.command(name="list", group=HUB_COMMANDS, sort_key=2)
 def list_cmd(*, verbose: Verbose = 0) -> int:
     """List the hubs that are currently connected.
 
@@ -373,9 +409,9 @@ async def _list() -> int:
     return EXIT_OK
 
 
-@app.command(name="status")
+@app.command(name="status", group=HUB_COMMANDS, sort_key=3)
 def status_cmd(
-    hub: str | None = None, /, *, full: bool = False, verbose: Verbose = 0
+    *, hub: str | None = None, full: bool = False, verbose: Verbose = 0
 ) -> int:
     """Show what a hub is doing.
 
@@ -425,9 +461,9 @@ async def _status(hub: str | None, full: bool) -> int:
     return EXIT_OK
 
 
-@app.command(name="start")
+@app.command(name="start", group=PROGRAM_COMMANDS, sort_key=2)
 def start_cmd(
-    hub: str | None = None, /, *, slot: int | None = None, verbose: Verbose = 0
+    *, hub: str | None = None, slot: int | None = None, verbose: Verbose = 0
 ) -> int:
     """Start a program that is already on the hub.
 
@@ -451,8 +487,8 @@ async def _start(hub: str | None, slot: int | None) -> int:
     return EXIT_OK
 
 
-@app.command(name="stop")
-def stop_cmd(hub: str | None = None, /, *, verbose: Verbose = 0) -> int:
+@app.command(name="stop", group=PROGRAM_COMMANDS, sort_key=3)
+def stop_cmd(*, hub: str | None = None, verbose: Verbose = 0) -> int:
     """Stop the program running on a hub.
 
     Args:
@@ -471,12 +507,15 @@ async def _stop(hub: str | None) -> int:
     return EXIT_OK
 
 
-@app.command(name="run")
+@app.command(name="run", group=PROGRAM_COMMANDS, sort_key=0)
 def run_cmd(
-    script: Path,
-    hub: str | None = None,
+    script: Path | None = None,
     /,
     *,
+    command: Annotated[
+        str | None, cyclopts.Parameter(name=["-c", "--command"], show_default=False)
+    ] = None,
+    hub: str | None = None,
     slot: int | None = None,
     wait: bool = True,
     verbose: Verbose = 0,
@@ -484,21 +523,39 @@ def run_cmd(
     """Compile a script, send it to a hub, and run it.
 
     Args:
-        script: The Python file to run.
+        script: The Python file to run. Leave it out when using --command.
         hub: Which hub, by name. Defaults to the one in use.
+        command: Python code to run, instead of a file. Like python -c.
         slot: Which program slot to use.
         wait: Wait for the program to finish before returning.
         verbose: Increase log detail.
     """
+    if (script is None) == (command is None):
+        return _usage(
+            "Give a script to run, or -c with the code to run.",
+            "For example [bold]pb run demo.py[/] or [bold]pb run -c 'print(1)'[/].",
+        )
     _configure_logging(verbose)
-    return errors.run(_run, script, hub, slot, wait)
+    return errors.run(_run, script, command, hub, slot, wait)
 
 
-async def _run(script: Path, hub: str | None, slot: int | None, wait: bool) -> int:
+async def _run(
+    script: Path | None,
+    command: str | None,
+    hub: str | None,
+    slot: int | None,
+    wait: bool,
+) -> int:
     err = _console(err=True)
 
     with _spinner(err, "Compiling..."):
-        program = await pb_client.compile_script(script)
+        if script is not None:
+            program = await pb_client.compile_script(script)
+        else:
+            # Exactly one of the two is given; the command line was checked
+            # before any of this ran.
+            assert command is not None
+            program = await pb_client.compile_source(command)
 
     # Sending and running are two steps to the user, and were one spinner
     # that said "Downloading" for as long as the program ran.
@@ -518,9 +575,9 @@ async def _run(script: Path, hub: str | None, slot: int | None, wait: bool) -> i
     return EXIT_OK
 
 
-@app.command(name="download")
+@app.command(name="download", group=PROGRAM_COMMANDS, sort_key=1)
 def download_cmd(
-    script: Path, hub: str | None = None, /, *, verbose: Verbose = 0
+    script: Path, /, *, hub: str | None = None, verbose: Verbose = 0
 ) -> int:
     """Compile a script and send it to a hub without running it.
 
