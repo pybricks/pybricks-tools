@@ -9,6 +9,7 @@ maintainers = [{ name = "David Lechner", email = "david@pybricks.com" }]
 requires-python = ">=3.11"
 dependencies = [
     "anyio>=4.14",
+    "platformdirs>=4",
     "typing-extensions>=4.15",
 ]
 

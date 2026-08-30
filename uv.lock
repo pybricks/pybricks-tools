@@ -916,12 +916,14 @@ version = "0.1.0"
 source = { editable = "packages/pb-core" }
 dependencies = [
     { name = "anyio" },
+    { name = "platformdirs" },
     { name = "typing-extensions" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "anyio", specifier = ">=4.14" },
+    { name = "platformdirs", specifier = ">=4" },
     { name = "typing-extensions", specifier = ">=4.15" },
 ]
 
@@ -934,7 +936,6 @@ dependencies = [
     { name = "bleak" },
     { name = "mpy-cross-v6" },
     { name = "packaging" },
-    { name = "platformdirs" },
     { name = "pybricks-core" },
     { name = "semver" },
     { name = "typing-extensions" },
@@ -946,7 +947,6 @@ requires-dist = [
     { name = "bleak", specifier = ">=1.1.0" },
     { name = "mpy-cross-v6", specifier = ">=1.1.1" },
     { name = "packaging", specifier = ">=22" },
-    { name = "platformdirs", specifier = ">=4" },
     { name = "pybricks-core", editable = "packages/pb-core" },
     { name = "semver", specifier = ">=3" },
     { name = "typing-extensions", specifier = ">=4.15" },
