@@ -85,6 +85,15 @@ class DeviceInfo:
     rssi: int | None = None
     transport: str = "ble"
 
+    hub_type: str | None = None
+    """What kind of hub it is, such as ``"City hub"``, if it says.
+
+    Known before connecting because the firmware puts its Plug and Play ID in
+    the scan response, so a scan can tell a Prime hub from a Move hub without
+    touching either. ``None`` for a hub whose advertisement does not carry one,
+    or one this build has no name for.
+    """
+
 
 @dataclass(frozen=True, slots=True)
 class ScanFilter:
