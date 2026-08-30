@@ -55,6 +55,15 @@ async def daemon_hello(session: Session, params: dict[str, Any]) -> dict[str, An
             ErrorCode.UNSUPPORTED_PROTOCOL_VERSION,
             f"client speaks protocol {client_version}; this daemon serves "
             f"{MIN_PROTOCOL_VERSION}..{PROTOCOL_VERSION}",
+            # The numbers, so that the client can say which of the two is
+            # the old one. Guessing costs the user a suggestion that
+            # cannot work: stopping the service does not help anyone
+            # whose pb is the older half.
+            {
+                "client": client_version,
+                "min": MIN_PROTOCOL_VERSION,
+                "max": PROTOCOL_VERSION,
+            },
         )
 
     session.authenticated = True

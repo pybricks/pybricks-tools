@@ -349,3 +349,56 @@ async def test_a_service_that_goes_away_mid_call_is_not_called_a_bug(
     assert "Lost the connection" in captured.err
     assert "bug in pb" not in captured.err
     assert "Traceback" not in captured.err
+
+
+def _version_error(client: int, lowest: int, highest: int) -> JsonRpcError:
+    """Build the error a service raises when the handshake does not agree."""
+    return JsonRpcError(
+        ErrorCode.UNSUPPORTED_PROTOCOL_VERSION,
+        f"client speaks protocol {client}; this daemon serves {lowest}..{highest}",
+        {"client": client, "min": lowest, "max": highest},
+    )
+
+
+def test_an_old_service_is_named_as_the_old_one() -> None:
+    # The usual way round: the service outlives the install that started it.
+    problems = errors.explain(_version_error(3, 1, 2))
+    assert problems is not None
+    (problem,) = problems
+    assert "speaks protocol 3" in problem.message
+    assert "background service speaks 1 to 2" in problem.message
+    assert problem.hint is not None
+    assert "pb service stop" in problem.hint
+
+
+def test_an_old_pb_is_not_told_to_stop_the_service() -> None:
+    # The other way round, and the reason this exists: stopping the service
+    # does nothing for somebody whose own pb is the older half.
+    problems = errors.explain(_version_error(1, 2, 2))
+    assert problems is not None
+    (problem,) = problems
+    assert problem.hint is not None
+    assert "Upgrade" in problem.hint
+    assert "background service speaks 2." in problem.message
+
+
+def test_a_service_too_old_to_say_is_blamed_anyway() -> None:
+    # No numbers means a service from before they were sent, which is itself
+    # the answer: it is the old one.
+    stale = JsonRpcError(
+        ErrorCode.UNSUPPORTED_PROTOCOL_VERSION,
+        "client speaks protocol 2; this daemon serves 1..1",
+    )
+    problems = errors.explain(stale)
+    assert problems is not None
+    (problem,) = problems
+    assert problem.hint is not None
+    assert "left over from an older install" in problem.hint
+
+
+def test_the_version_headline_carries_no_markup() -> None:
+    # Headlines are printed literally, so markup in one arrives as itself.
+    problems = errors.explain(_version_error(1, 2, 2))
+    assert problems is not None
+    (problem,) = problems
+    assert "[" not in problem.message

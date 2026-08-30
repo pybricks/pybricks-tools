@@ -101,6 +101,18 @@ _STALE = (
     "Run [bold]pb service stop[/] and try again."
 )
 
+_OLD_CLIENT = (
+    "Upgrade [bold]pb[/], or run [bold]pb service stop[/] to replace the "
+    "service with one this version can talk to."
+)
+"""What to suggest when it is this copy of pb that is behind.
+
+The service outlives the install that started it, so it is usually the
+older of the two -- but not always, and telling somebody to stop the
+service when their own pb is the old half sends them somewhere that
+cannot help.
+"""
+
 _RULES: Mapping[int, _Rule] = {
     # Hubs. The daemon's own wording is specific -- "no connected hub named
     # 'Spare Hub'" -- so it is usually kept as the headline and only the
@@ -320,7 +332,45 @@ def _describe_rpc(exc: JsonRpcError, hints: Mapping[int, str] | None) -> Problem
     hint = rule.hint if hints is None else hints.get(exc.code, rule.hint)
     if exc.code == ErrorCode.PROGRAM_SLOT_NOT_SELECTED:
         hint = _slot_hint(exc, hint)
+    if exc.code == ErrorCode.UNSUPPORTED_PROTOCOL_VERSION:
+        message, hint = _version_mismatch(exc, message, hint)
     return Problem(message=message, hint=hint, exit_code=rule.exit_code)
+
+
+def _version_mismatch(
+    exc: JsonRpcError, message: str, hint: str | None
+) -> tuple[str, str | None]:
+    """Say which of the two halves is the old one.
+
+    Args:
+        exc: The error the service sent.
+        message: The wording to fall back on.
+        hint: The suggestion to fall back on.
+
+    Returns:
+        What to print. A service too old to send the numbers is itself
+        the answer to the question, so the fallback -- which blames the
+        service -- is right in exactly the case where nothing can be
+        worked out.
+    """
+    payload: object = exc.data
+    if not isinstance(payload, Mapping):
+        return message, hint
+    data = cast("Mapping[str, object]", payload)
+    client = data.get("client")
+    lowest = data.get("min")
+    highest = data.get("max")
+    if not (
+        isinstance(client, int) and isinstance(lowest, int) and isinstance(highest, int)
+    ):
+        return message, hint
+    served = f"{lowest}" if lowest == highest else f"{lowest} to {highest}"
+    # No markup: a headline is printed literally, because it can carry a name
+    # or a path that somebody wrote square brackets into.
+    said = (
+        f"This pb speaks protocol {client} and the background service speaks {served}."
+    )
+    return said, (_OLD_CLIENT if client < lowest else _STALE)
 
 
 def _describe(exc: BaseException, hints: Mapping[int, str] | None) -> Problem | None:
