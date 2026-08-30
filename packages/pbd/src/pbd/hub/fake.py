@@ -350,6 +350,16 @@ class FakeHubTransport:
                 address=hub.address,
                 rssi=-50,
                 transport=self.scheme,
+                # A real hub advertises its Plug and Play ID in the scan
+                # response, so this one does too.
+                hub_type=p.hub_type_name(
+                    p.PnpId(
+                        vendor_id_source=p.VendorIdSource.BLUETOOTH_SIG,
+                        vendor_id=p.LEGO_COMPANY_ID,
+                        product_id=hub.hub_type,
+                        product_version=hub.variant,
+                    )
+                ),
             )
         # A real scan keeps running until the caller stops it, so this does
         # too; otherwise tests would not exercise the cancellation path.

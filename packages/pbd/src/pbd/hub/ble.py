@@ -56,6 +56,33 @@ def device_id_for(address: str) -> str:
     return f"{SCHEME}:{address.upper()}"
 
 
+def _advertised_pnp_id(advertisement: AdvertisementData) -> p.PnpId | None:
+    """Read the hub's Plug and Play ID out of its scan response.
+
+    The firmware puts the same seven bytes there that the Device Information
+    Service serves once connected, as service data under the PnP ID's own
+    characteristic UUID. That is what makes it possible to say what kind of hub
+    each one is while scanning, without connecting to any of them.
+
+    Args:
+        advertisement: What bleak reported, advertisement and scan response
+            merged.
+
+    Returns:
+        The decoded identifier, or ``None`` if this hub did not advertise one
+        or advertised something malformed. Either way the hub is still listed:
+        not knowing what kind it is is no reason to hide it.
+    """
+    data = advertisement.service_data.get(p.PNP_ID_UUID)
+    if data is None:
+        return None
+    try:
+        return p.unpack_pnp_id(data)
+    except ValueError:
+        logger.debug("ignoring a malformed advertised PnP ID: %r", data)
+        return None
+
+
 def _rejection(exc: BleakGATTProtocolError) -> HubCommandError:
     """Turn a GATT protocol error into the hub's own refusal.
 
@@ -163,6 +190,7 @@ class BleHubTransport:
             address=device.address,
             rssi=advertisement.rssi,
             transport=SCHEME,
+            hub_type=p.hub_type_name(_advertised_pnp_id(advertisement)),
         )
 
     def open(self, device_id: str) -> AbstractAsyncContextManager[HubLink]:
