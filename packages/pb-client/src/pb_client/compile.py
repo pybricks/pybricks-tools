@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 import subprocess
+from collections.abc import Sequence
 from pathlib import Path
 
 import anyio
@@ -27,7 +28,14 @@ from pb_client.errors import PbClientError
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["CompileError", "compile_script", "compiler_version", "describe_compiler"]
+__all__ = [
+    "MAIN_MODULE",
+    "CompileError",
+    "compile_script",
+    "compiler_version",
+    "describe_compiler",
+    "pack_program",
+]
 
 
 class CompileError(PbClientError):
@@ -90,18 +98,47 @@ def _compile_sync(name: str, source: str) -> bytes:
     return mpy
 
 
+MAIN_MODULE = "__main__"
+"""What the hub calls the module it starts."""
+
+
+def pack_program(modules: Sequence[tuple[str, bytes]]) -> bytes:
+    """Pack compiled modules into the container the hub stores.
+
+    The hub reads stored program data as a run of modules, each one a 32-bit
+    little-endian size, a zero-terminated module name, and that module's
+    ``.mpy`` bytes -- with no padding or alignment between them. There is no
+    bare-``.mpy`` alternative: the firmware parses this header before looking
+    at the MicroPython magic, so a bare ``.mpy`` is read as a garbage header
+    and refused.
+
+    Args:
+        modules: Name and compiled bytes for each module. The one the hub
+            starts must be called ``__main__``.
+
+    Returns:
+        The bytes to store on the hub.
+    """
+    parts: list[bytes] = []
+    for name, mpy in modules:
+        parts.append(len(mpy).to_bytes(4, "little"))
+        parts.append(name.encode() + b"\x00")
+        parts.append(mpy)
+    return b"".join(parts)
+
+
 async def compile_script(path: Path) -> bytes:
     """Compile a Python file into a program the hub can run.
 
-    A script with no local imports compiles to a bare ``.mpy``, which every
-    supported hub accepts. Programs spanning several modules need the
-    multi-module container format, which is not implemented yet.
+    The result is the hub's container format holding one module, ``__main__``.
+    Programs spanning several local modules need the rest of that container
+    filled in, which is not implemented yet.
 
     Args:
         path: The script to compile.
 
     Returns:
-        The compiled program.
+        The compiled program, ready to download.
 
     Raises:
         CompileError: If the file cannot be read or the compiler rejects it.
@@ -123,5 +160,8 @@ async def compile_script(path: Path) -> bytes:
     except subprocess.SubprocessError as exc:  # pragma: no cover - environment
         raise CompileError(f"could not run the compiler: {exc}") from exc
 
-    logger.info("compiled %s to %d bytes", path.name, len(mpy))
-    return mpy
+    program = pack_program([(MAIN_MODULE, mpy)])
+    logger.info(
+        "compiled %s to %d bytes (%d packed)", path.name, len(mpy), len(program)
+    )
+    return program
