@@ -9,14 +9,14 @@ import re
 
 import pytest
 
-from pb import cli
+from pb import ui
 
 MARKUP = re.compile(r"\[[^\]]*\]")
 
 
 def _drawn(rssi: int | None) -> str:
     """The bar without its colours, which is what occupies the column."""
-    return MARKUP.sub("", cli.signal_bars(rssi))
+    return MARKUP.sub("", ui.signal_bars(rssi))
 
 
 @pytest.mark.parametrize("rssi", [None, -120, -100, -85, -75, -60, -40, -20])
@@ -28,7 +28,7 @@ def test_every_bar_is_the_same_width(rssi: int | None) -> None:
 
 def _lit(rssi: int | None) -> int:
     """How many of the four positions are drawn as bars rather than as dots."""
-    return sum(1 for char in _drawn(rssi) if char in cli.SIGNAL_BLOCKS)
+    return sum(1 for char in _drawn(rssi) if char in ui.SIGNAL_BLOCKS)
 
 
 def test_a_stronger_signal_is_never_fewer_bars() -> None:
@@ -43,14 +43,14 @@ def test_a_stronger_signal_is_never_fewer_bars() -> None:
 
 def test_a_hub_that_was_heard_always_gets_a_bar() -> None:
     # Zero bars would read as "not there", and it is: it just advertised.
-    assert cli.SIGNAL_BLOCKS[0] in cli.signal_bars(-120)
+    assert ui.SIGNAL_BLOCKS[0] in ui.signal_bars(-120)
 
 
 def test_a_hub_with_no_measurement_is_not_drawn_as_a_weak_one() -> None:
     # Some transports report no strength at all. Showing one bar would be a
     # lie about a hub that might be right here.
-    assert cli.SIGNAL_BLOCKS[0] not in cli.signal_bars(None)
+    assert ui.SIGNAL_BLOCKS[0] not in ui.signal_bars(None)
 
 
 def test_the_strongest_signal_fills_the_bar() -> None:
-    assert _drawn(-20) == cli.SIGNAL_BLOCKS
+    assert _drawn(-20) == ui.SIGNAL_BLOCKS
