@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 import struct
-from collections.abc import AsyncGenerator, AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass, field
 from typing import final
@@ -76,6 +76,9 @@ class FakeHub:
     commands: list[bytes] = field(default_factory=list[bytes])
     """Every command received, so tests can assert on the wire traffic."""
 
+    on_status: Callable[[], None] | None = None
+    """Called after each status report, so tests can wait rather than poll."""
+
     _handler: NotificationHandler | None = None
     _connected: bool = False
 
@@ -100,6 +103,8 @@ class FakeHub:
         if self.profile >= (1, 5, 0):
             payload.append(self.selected_slot)
         self.notify(bytes(payload))
+        if self.on_status is not None:
+            self.on_status()
 
     def send_stdout(self, data: bytes) -> None:
         """Send program output."""

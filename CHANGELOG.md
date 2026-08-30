@@ -29,6 +29,9 @@ All notable changes to this project are documented here. The format is based on
   reuse.
 - `pb scan`, `pb connect`, `pb disconnect`, `pb list`, `pb status` and
   `pb stop`. A hub connected by one command stays connected for the next.
+- `pb run` and `pb download`: compiling with mpy-cross, chunked download, and
+  waiting for the program to finish. Compilation happens on the client, so the
+  daemon never reads the caller's files.
 
 ### Notes
 

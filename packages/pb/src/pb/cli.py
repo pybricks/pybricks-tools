@@ -15,6 +15,7 @@ import contextlib
 import logging
 import sys
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Annotated
 
 import anyio
@@ -340,6 +341,104 @@ async def _stop(hub: str | None) -> int:
     except pb_client.JsonRpcError as exc:
         return _report_hub_error(err, exc)
     err.print("Stopped.")
+    return EXIT_OK
+
+
+@app.command(name="run")
+def run_cmd(
+    script: Path,
+    hub: str | None = None,
+    *,
+    slot: int | None = None,
+    wait: bool = True,
+    verbose: Verbose = 0,
+) -> int:
+    """Compile a script, send it to a hub, and run it.
+
+    Args:
+        script: The Python file to run.
+        hub: Which hub. Defaults to the current one.
+        slot: Which program slot to use.
+        wait: Wait for the program to finish before returning.
+        verbose: Increase log detail.
+    """
+    _configure_logging(verbose)
+    return anyio.run(_run, script, hub, slot, wait, backend="asyncio")
+
+
+async def _run(script: Path, hub: str | None, slot: int | None, wait: bool) -> int:
+    err = _console(err=True)
+
+    try:
+        spinner = err.status("Compiling...") if err.is_terminal else _null()
+        with spinner:
+            program = await pb_client.compile_script(script)
+    except pb_client.CompileError as exc:
+        err.print(f"[red]{exc}[/]")
+        if exc.output:
+            err.print(exc.output.rstrip(), highlight=False, markup=False)
+        return EXIT_ERROR
+
+    try:
+        async with pb_client.connect(autostart=False) as daemon:
+            spinner = (
+                err.status(f"Downloading {len(program)} bytes...")
+                if err.is_terminal
+                else _null()
+            )
+            with spinner:
+                reason = await daemon.run_program(
+                    program, hub_id=hub, slot=slot, wait=wait
+                )
+    except pb_client.DaemonUnavailable:
+        err.print("No daemon is running. Connect a hub first with [bold]pb connect[/].")
+        return EXIT_DAEMON_UNAVAILABLE
+    except pb_client.JsonRpcError as exc:
+        return _report_hub_error(err, exc)
+
+    if reason == "disconnected":
+        err.print("[yellow]The hub disconnected while the program was running.[/]")
+        return EXIT_HUB_ERROR
+    if reason == "started":
+        err.print("Program started.")
+    else:
+        err.print("Program finished.")
+    return EXIT_OK
+
+
+@app.command(name="download")
+def download_cmd(script: Path, hub: str | None = None, *, verbose: Verbose = 0) -> int:
+    """Compile a script and send it to a hub without running it.
+
+    Args:
+        script: The Python file to send.
+        hub: Which hub. Defaults to the current one.
+        verbose: Increase log detail.
+    """
+    _configure_logging(verbose)
+    return anyio.run(_download, script, hub, backend="asyncio")
+
+
+async def _download(script: Path, hub: str | None) -> int:
+    err = _console(err=True)
+    try:
+        program = await pb_client.compile_script(script)
+    except pb_client.CompileError as exc:
+        err.print(f"[red]{exc}[/]")
+        if exc.output:
+            err.print(exc.output.rstrip(), highlight=False, markup=False)
+        return EXIT_ERROR
+
+    try:
+        async with pb_client.connect(autostart=False) as daemon:
+            size = await daemon.download(program, hub_id=hub)
+    except pb_client.DaemonUnavailable:
+        err.print("No daemon is running. Connect a hub first with [bold]pb connect[/].")
+        return EXIT_DAEMON_UNAVAILABLE
+    except pb_client.JsonRpcError as exc:
+        return _report_hub_error(err, exc)
+
+    err.print(f"Downloaded {size} bytes.")
     return EXIT_OK
 
 
