@@ -91,6 +91,23 @@ async def test_compiles_a_script_to_the_container_the_hub_reads(
     assert mpy[:1] == b"M"
 
 
+async def test_compiles_source_with_no_file_behind_it() -> None:
+    # What "pb run -c" compiles. The container is the same as for a file: the
+    # hub has no notion of where the source came from.
+    program = await pb_client.compile_source("print('hi')\n")
+    name, _, mpy = program[4:].partition(b"\x00")
+    assert name == b"__main__"
+    assert mpy[:1] == b"M"
+
+
+async def test_source_with_no_file_is_called_string_on_the_hub() -> None:
+    # The compiled module carries the name the hub prints in a traceback, and
+    # there is no file to name. <string> is what CPython prints for python -c,
+    # so a traceback from the hub reads the way a Python user already expects.
+    program = await pb_client.compile_source("raise ValueError\n")
+    assert b"<string>" in program
+
+
 async def test_compile_error_carries_the_compiler_output(tmp_path: Path) -> None:
     # The compiler names the offending line, which is the only useful part of
     # a syntax error, so it must not be swallowed.

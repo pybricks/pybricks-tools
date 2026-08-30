@@ -30,8 +30,10 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "MAIN_MODULE",
+    "SOURCE_NAME",
     "CompileError",
     "compile_script",
+    "compile_source",
     "compiler_version",
     "describe_compiler",
     "pack_program",
@@ -101,6 +103,15 @@ def _compile_sync(name: str, source: str) -> bytes:
 MAIN_MODULE = "__main__"
 """What the hub calls the module it starts."""
 
+SOURCE_NAME = "<string>"
+"""The file name to record for source that did not come from a file.
+
+The compiled module carries a name, which is what the hub prints in a
+traceback, and there is no file to name. CPython prints ``<string>`` for
+``python -c``, so a traceback from ``pb run -c`` reads the way a user who knows
+that already expects it to.
+"""
+
 
 def pack_program(modules: Sequence[tuple[str, bytes]]) -> bytes:
     """Pack compiled modules into the container the hub stores.
@@ -127,12 +138,37 @@ def pack_program(modules: Sequence[tuple[str, bytes]]) -> bytes:
     return b"".join(parts)
 
 
-async def compile_script(path: Path) -> bytes:
-    """Compile a Python file into a program the hub can run.
+async def compile_source(source: str, *, name: str = SOURCE_NAME) -> bytes:
+    """Compile Python source into a program the hub can run.
 
     The result is the hub's container format holding one module, ``__main__``.
     Programs spanning several local modules need the rest of that container
     filled in, which is not implemented yet.
+
+    Args:
+        source: The Python code.
+        name: What to call it in compiler diagnostics and in tracebacks from
+            the hub. Defaults to :data:`SOURCE_NAME`.
+
+    Returns:
+        The compiled program, ready to download.
+
+    Raises:
+        CompileError: If the compiler rejects it.
+    """
+    logger.info("compiling %s (%d bytes of source)", name, len(source))
+    try:
+        mpy = await anyio.to_thread.run_sync(_compile_sync, name, source)
+    except subprocess.SubprocessError as exc:  # pragma: no cover - environment
+        raise CompileError(f"could not run the compiler: {exc}") from exc
+
+    program = pack_program([(MAIN_MODULE, mpy)])
+    logger.info("compiled %s to %d bytes (%d packed)", name, len(mpy), len(program))
+    return program
+
+
+async def compile_script(path: Path) -> bytes:
+    """Compile a Python file into a program the hub can run.
 
     Args:
         path: The script to compile.
@@ -154,14 +190,4 @@ async def compile_script(path: Path) -> bytes:
         reason = exc.strerror or str(exc)
         raise CompileError(f"could not read {path}: {reason.lower()}") from exc
 
-    logger.info("compiling %s (%d bytes of source)", path, len(source))
-    try:
-        mpy = await anyio.to_thread.run_sync(_compile_sync, path.name, source)
-    except subprocess.SubprocessError as exc:  # pragma: no cover - environment
-        raise CompileError(f"could not run the compiler: {exc}") from exc
-
-    program = pack_program([(MAIN_MODULE, mpy)])
-    logger.info(
-        "compiled %s to %d bytes (%d packed)", path.name, len(mpy), len(program)
-    )
-    return program
+    return await compile_source(source, name=path.name)
