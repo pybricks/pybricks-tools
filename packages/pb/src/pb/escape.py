@@ -53,7 +53,6 @@ class Action(Enum):
 
     QUIT = "quit"
     STOP = "stop"
-    RESTART = "restart"
     HELP = "help"
     UNKNOWN = "unknown"
     """A key that follows the escape and means nothing. Reported rather than
@@ -66,16 +65,24 @@ COMMANDS: Mapping[int, Action] = {
     0x04: Action.QUIT,
     ord("s"): Action.STOP,
     ord("S"): Action.STOP,
-    ord("r"): Action.RESTART,
-    ord("R"): Action.RESTART,
-    ord("?"): Action.HELP,
     ord("h"): Action.HELP,
+    ord("H"): Action.HELP,
+    ord("?"): Action.HELP,
 }
 """What each key after the escape does.
 
 Ctrl-D is here as a second way to quit because it is what fingers do at a
 prompt when they mean "I am finished", and on its own it belongs to the hub
 where it is a soft reset.
+
+Help is advertised as ``h`` and answers to ``?`` as well. Both are worth
+having: ``?`` is what the other escape-key tools use, and ``h`` is the one a
+hand can reach without a shift key.
+
+There is deliberately no "restart the interpreter". A session that finds a
+program running starts the interpreter by itself as soon as that program ends,
+and a session whose interpreter stops is over, so nothing is left for a restart
+command to do that the session does not already do on its own.
 """
 
 
@@ -93,8 +100,7 @@ def help_lines(key: int = ESCAPE_KEY) -> list[tuple[str, str]]:
     return [
         (f"{name} q", "leave the session"),
         (f"{name} s", "stop what is running on the hub"),
-        (f"{name} r", "restart the interpreter"),
-        (f"{name} ?", "show this help"),
+        (f"{name} h", "show this help"),
         (f"{name} {name}", f"send {name} to the hub"),
     ]
 

@@ -14,6 +14,13 @@ import pytest
 
 from pb import app as pb_app
 from pb import cli, errors
+from pb import console as console_module
+from pb.commands import repl as repl_command
+
+
+@pytest.fixture(scope="session")
+def anyio_backend() -> str:
+    return "asyncio"
 
 
 def _subcommands(app: cyclopts.App) -> list[str]:
@@ -29,6 +36,22 @@ def _commands(app: cyclopts.App, path: str = "pb") -> Iterator[tuple[str, Any]]:
             yield from _commands(sub, f"{path} {name}")
         elif sub.default_command is not None:
             yield f"{path} {name}", sub.default_command
+
+
+@pytest.mark.anyio
+async def test_a_session_without_a_terminal_is_refused_in_words(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # An error's headline is printed literally, since it can carry a hub name
+    # or a path, so markup written into one arrives on screen as itself. This
+    # message used to say "[bold]pb repl[/] needs a terminal".
+    monkeypatch.setattr(
+        console_module, "why_unavailable", lambda: "standard input is a pipe"
+    )
+    assert await repl_command.repl_cmd() == errors.EXIT_ERROR
+    printed = capsys.readouterr().err
+    assert "pb repl needs a terminal" in printed
+    assert "[bold]" not in printed
 
 
 def test_every_top_level_command_is_in_a_named_group() -> None:

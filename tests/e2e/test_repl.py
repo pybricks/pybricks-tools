@@ -343,10 +343,12 @@ async def test_a_hub_disconnected_on_purpose_needs_no_rescuing(
         await hub_commands.disconnect_cmd(hub=HUB_NAME)
 
     screen = _Screen()
-    assert await _run(screen, terminal, talk) == errors.EXIT_HUB_ERROR
-    # Disconnecting stops a built-in program on the way out, so this hub is
-    # advertising again and there is nothing for anyone to go and do to it.
-    # Saying otherwise would send the user to fetch a hub that is fine.
+    # Disconnecting stops a built-in program on the way out, so what this
+    # session sees first is its interpreter stopping, which is an ordinary end
+    # rather than a failure. The hub is advertising again by then, and there
+    # is nothing for anyone to go and do to it: saying otherwise would send
+    # the user to fetch a hub that is fine.
+    assert await _run(screen, terminal, talk) == errors.EXIT_OK
     assert not hub.status & p.StatusFlag.USER_PROGRAM_RUNNING
     assert "Press the hub's button" not in screen.text
 
@@ -392,7 +394,7 @@ async def test_an_interpreter_that_was_already_running_is_left_alone(
 
 
 async def test_a_running_program_is_left_alone(
-    service: FakeHub, terminal: list[_Screen]
+    service: FakeHub, terminal: list[_Screen], capsys: pytest.CaptureFixture[str]
 ) -> None:
     hub = service
     hub.program_size = 8
@@ -409,11 +411,32 @@ async def test_a_running_program_is_left_alone(
     screen.go.set()
 
     with anyio.fail_after(10):
-        assert await repl_command.repl_cmd() == errors.EXIT_OK
+        assert await repl_command.repl_cmd() == errors.EXIT_HUB_ERROR
 
-    # Attaching to look at a program somebody started must not stop it.
+    # The hub runs one thing at a time, so the interpreter could only start by
+    # stopping the program somebody deliberately set going -- and nothing here
+    # could hand the prompt back afterwards. So it is refused, and said in the
+    # ordinary way rather than inside a session that never began.
     assert hub.running_program_id == 0
-    assert "A program is running" in screen.text
+    assert hub.status & p.StatusFlag.USER_PROGRAM_RUNNING
+    assert not screen.written
+    assert "A program is running on the hub" in capsys.readouterr().err
+
+
+async def test_the_interpreter_stopping_ends_the_session(
+    service: FakeHub, terminal: list[_Screen]
+) -> None:
+    hub = service
+
+    async def talk(screen: _Screen) -> None:
+        await _when(lambda: hub.running_program_id == p.UserProgramId.REPL)
+        # What Ctrl-D at the prompt does: the interpreter is a program as far
+        # as the hub is concerned, and ending it leaves nothing to type at.
+        hub.set_program_running(False)
+
+    screen = _Screen()
+    assert await _run(screen, terminal, talk) == errors.EXIT_OK
+    assert "The interpreter stopped" in screen.text
 
 
 async def test_input_is_cut_to_fit_a_hub_with_a_small_buffer(
