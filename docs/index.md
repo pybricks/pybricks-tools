@@ -58,6 +58,11 @@ and how strong its signal is:
 Both columns are worth having when two hubs share a name: one of these is on
 the desk and the other is through a wall.
 
+To pick one from that list instead of reading it, use `pb connect --scan`. The
+arrow keys move the selection and Enter connects. There is no time limit, so
+you can switch the hub on while it is watching, and Ctrl-C gives up without
+connecting to anything.
+
 With more than one hub connected, name the one you mean with `--hub`, which
 every command takes:
 
