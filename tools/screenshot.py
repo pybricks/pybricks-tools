@@ -33,7 +33,7 @@ from pathlib import Path
 from typing import Any
 
 import anyio
-from rich.console import Console
+from rich.console import Console, RenderableType
 
 import pb_client
 from pb import commands_hub, commands_program, keys, ui
@@ -44,16 +44,30 @@ WIDTH = 74
 
 OUT = Path("docs/assets/pb.svg")
 
-RAINBOW = """from pybricks.hubs import ThisHub
+TARGET = "City hub"
+"""The kind of hub the picture connects to.
+
+Named rather than left to whichever hub answered first, so that the program in
+the next line can name its hub class. ``ThisHub`` would run anywhere and would
+save this trouble, but it is not what anybody writes: a reader who has just
+watched a City hub being chosen should see ``CityHub`` in the program that
+follows.
+"""
+
+RAINBOW = """from pybricks.hubs import CityHub
 from pybricks.parameters import Color
 from pybricks.tools import wait
 
-hub = ThisHub()
+hub = CityHub()
 for hue in range(0, 360, 2):
     hub.light.on(Color(hue))
     wait(20)
 """
-"""A program every hub can run: they all have a colour light and nothing else.
+"""The program the picture runs, on the hub the picture connects to.
+
+Every hub has a colour light and nothing else is plugged in, so the only thing
+tying this to one kind of hub is the class name -- which is the point: it has
+to match what was chosen a moment earlier.
 
 Kept in step with the README by hand, which is safe enough because it is what
 this script actually sends to the hub -- if it stopped working, the picture
@@ -90,14 +104,6 @@ TYPING_DELAY = 3.0
 
 Long enough for every hub in the room to have advertised at least once, so the
 picture shows a full list rather than whichever hub happened to be quickest.
-"""
-
-CHOICE = [Key.DOWN, Key.ENTER]
-"""What to type at the chooser: move down one, then connect.
-
-Down one rather than straight to Enter, so the picture shows the selection
-somewhere other than where it started and it is obvious the arrows do
-something.
 """
 
 
@@ -152,21 +158,54 @@ class _StillLive:
 
 
 class _Keystrokes:
-    """Type at the chooser, after leaving it alone long enough to fill up."""
+    """Work the chooser: wait, walk the selection onto a hub, then take it.
 
-    def __init__(self, script: list[Key], after: float = TYPING_DELAY) -> None:
-        """Queue up what to press.
+    Driven by what is actually on screen rather than by a fixed number of
+    presses, because which hub is heard first varies from run to run and the
+    picture has to end up on the same one every time -- the program it runs
+    next names that hub's class.
+
+    Watches the list by standing in front of the function that draws it, which
+    is the only place the selection is visible from outside.
+    """
+
+    def __init__(self, target: str = TARGET, after: float = TYPING_DELAY) -> None:
+        """Set up the typing.
 
         Args:
-            script: The keys, in order.
-            after: Seconds to wait before pressing the first one.
+            target: The kind of hub to end up on, as the Type column spells it.
+            after: Seconds to leave the chooser alone first, so that every hub
+                in the room has had a chance to advertise.
         """
-        self._script = list(script)
+        self._target = target
         self._after = after
         self._start: float | None = None
+        self._listed: list[pb_client.DeviceInfo] = []
+        self._selected = 0
+        self._taken = False
+
+    def watching(
+        self, draw: Callable[[list[pb_client.DeviceInfo], int], RenderableType]
+    ) -> Callable[[list[pb_client.DeviceInfo], int], RenderableType]:
+        """Wrap the chooser's drawing function so that this can see the list.
+
+        Args:
+            draw: What actually draws the list.
+
+        Returns:
+            The same function, noting what it was asked to draw on the way.
+        """
+
+        def drawing(
+            devices: list[pb_client.DeviceInfo], selected: int
+        ) -> RenderableType:
+            self._listed, self._selected = devices, selected
+            return draw(devices, selected)
+
+        return drawing
 
     def __call__(self) -> Key | None:
-        """Return the next key, or nothing if it is not time yet.
+        """Return the next key, or nothing if there is nothing to press yet.
 
         Returns:
             The key to deliver to the chooser this poll.
@@ -174,9 +213,23 @@ class _Keystrokes:
         now = time.monotonic()
         if self._start is None:
             self._start = now
-        if now - self._start < self._after or not self._script:
+        if now - self._start < self._after or self._taken:
             return None
-        return self._script.pop(0)
+        wanted = next(
+            (
+                index
+                for index, device in enumerate(self._listed)
+                if device.hub_type == self._target
+            ),
+            None,
+        )
+        if wanted is None:
+            # Not heard yet. Keep waiting rather than settling for another.
+            return None
+        if wanted != self._selected:
+            return Key.DOWN
+        self._taken = True
+        return Key.ENTER
 
 
 _REAL_DEVICE = pb_client.DeviceInfo.from_wire
@@ -210,6 +263,7 @@ def _capture(console: Console) -> Generator[None]:
         ui.console,
         ui.spinner,
         ui.live,
+        ui.chooser_table,
         keys.poll_key,
         keys.reading_keys,
         keys.keys_available,
@@ -217,7 +271,9 @@ def _capture(console: Console) -> Generator[None]:
     ui.console = lambda *, err=False: console
     ui.spinner = lambda err, message: contextlib.nullcontext()
     ui.live = _StillLive
-    keys.poll_key = _Keystrokes(CHOICE)
+    typing = _Keystrokes()
+    keys.poll_key = typing
+    ui.chooser_table = typing.watching(ui.chooser_table)
     # No terminal to put into cbreak mode, and no terminal to check for.
     keys.reading_keys = contextlib.nullcontext
     keys.keys_available = lambda: True
@@ -230,6 +286,7 @@ def _capture(console: Console) -> Generator[None]:
             ui.console,
             ui.spinner,
             ui.live,
+            ui.chooser_table,
             keys.poll_key,
             keys.reading_keys,
             keys.keys_available,

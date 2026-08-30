@@ -18,16 +18,19 @@ Then switch a hub on and pick it off the list:
 ```bash
 pb connect --scan
 pb run -c "
-from pybricks.hubs import ThisHub
+from pybricks.hubs import CityHub
 from pybricks.parameters import Color
 from pybricks.tools import wait
 
-hub = ThisHub()
+hub = CityHub()
 for hue in range(0, 360, 2):
     hub.light.on(Color(hue))
     wait(20)
 "
 ```
+
+`CityHub` is the class for that kind of hub; use `PrimeHub`, `TechnicHub`,
+`InventorHub`, `EssentialHub` or `MoveHub` for yours.
 
 **The hub stays connected after the command finishes.** So the second `pb run`
 starts instantly, and so does the hundredth — edit, run, edit, run, with no
