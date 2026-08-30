@@ -379,6 +379,11 @@ async def hub_use(session: Session, params: dict[str, Any]) -> dict[str, Any]:
 
     Kept in the daemon rather than in a client config file so that it survives
     the command exiting and is shared between shells.
+
+    It names a hub that is connected now, and no more than that: the selection
+    is dropped when that hub disconnects, and it does not outlive the service.
+    A hub cannot say durably which hub it is, so there is nothing better to
+    remember -- which is why there is no ``pb use`` command yet.
     """
     manager = session.daemon.hubs
     session.daemon.mark_activity()
