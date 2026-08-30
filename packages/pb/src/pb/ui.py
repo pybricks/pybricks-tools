@@ -62,9 +62,10 @@ Off for now. A hub id is built from its Bluetooth address, which is not stable
 invites users to write down something that will stop working. Ids remain in the
 wire protocol and are still accepted as arguments; only the display is off.
 
-Turn this on once a hub has a durable identifier worth showing. Annotated as
-``bool`` rather than left to inference so that the code behind it keeps being
-type-checked while it is switched off.
+Turn this on once a hub has a durable identifier worth showing -- see "Wanted
+from the firmware" in the design notes, since the hub does not have one yet.
+Annotated as ``bool`` rather than left to inference so that the code behind it
+keeps being type-checked while it is switched off.
 """
 
 SIGNAL_BLOCKS = "▁▃▅▇"
