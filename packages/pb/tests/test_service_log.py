@@ -30,9 +30,13 @@ def anyio_backend() -> str:
 
 @pytest.fixture
 def log(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
-    """Point the command at a log file of the test's own."""
+    """Point the command at a log file of the test's own, and hurry it along."""
     path = tmp_path / "pbd.log"
     monkeypatch.setattr(service, "log_file", lambda: path)
+    # A quarter of a second is right for a person watching and far too long to
+    # wait for repeatedly in a test. What is being tested is what the loop does
+    # each time round, not how often it goes round.
+    monkeypatch.setattr(service, "POLL_SECONDS", 0.02)
     return path
 
 
