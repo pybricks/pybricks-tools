@@ -310,20 +310,30 @@ class Daemon:
         return str(result.get("reason", "stopped"))
 
     async def start_program(
-        self, *, hub_id: str | None = None, slot: int | None = None
-    ) -> None:
+        self,
+        *,
+        hub_id: str | None = None,
+        slot: int | None = None,
+        wait: bool = False,
+    ) -> str:
         """Start a program already stored on the hub.
 
         Args:
             hub_id: Which hub, or ``None`` for the current one.
             slot: Which slot, or ``None`` for the hub's current selection.
+            wait: Whether to return only once the program has stopped.
+
+        Returns:
+            Why it ended: ``"started"`` if not waiting, otherwise ``"stopped"``
+            or ``"disconnected"``.
         """
-        params: dict[str, Any] = {}
+        params: dict[str, Any] = {"wait": wait}
         if hub_id:
             params["id"] = hub_id
         if slot is not None:
             params["slot"] = slot
-        await self._peer.call("program.start", params)
+        result = await self._peer.call("program.start", params)
+        return str(result.get("reason", "started"))
 
     async def stop_program(self, hub_id: str | None = None) -> None:
         """Stop the program running on a hub.
