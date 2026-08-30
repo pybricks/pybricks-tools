@@ -501,7 +501,7 @@ async def test_run_interactive_shows_what_the_program_prints(
 
     async def command() -> int:
         return await program_commands.run_cmd(
-            _script(tmp_path, "print('counting')\n"), hub=HUB_NAME, interactive=True
+            _script(tmp_path, "print('counting')\n"), hub=HUB_NAME
         )
 
     assert await _run(screen, terminal, talk, command) == errors.EXIT_OK
@@ -537,7 +537,7 @@ async def test_a_program_that_ends_in_a_traceback_fails_the_command(
 
     async def command() -> int:
         return await program_commands.run_cmd(
-            _script(tmp_path, "1 / 0\n"), hub=HUB_NAME, interactive=True
+            _script(tmp_path, "1 / 0\n"), hub=HUB_NAME
         )
 
     # Nothing in the protocol says a program failed rather than finished, so
@@ -564,7 +564,7 @@ async def test_a_program_that_prints_and_then_ends_well_does_not_fail(
 
     async def command() -> int:
         return await program_commands.run_cmd(
-            _script(tmp_path, "print('hi')\n"), hub=HUB_NAME, interactive=True
+            _script(tmp_path, "print('hi')\n"), hub=HUB_NAME
         )
 
     assert await _run(screen, terminal, talk, command) == errors.EXIT_OK
@@ -600,7 +600,7 @@ async def test_leaving_an_interactive_run_stops_the_program(
 
     async def command() -> int:
         return await program_commands.run_cmd(
-            _script(tmp_path, "print('hi')\n"), hub=HUB_NAME, interactive=True
+            _script(tmp_path, "print('hi')\n"), hub=HUB_NAME
         )
 
     assert await _run(screen, terminal, talk, command) == errors.EXIT_OK
@@ -631,12 +631,28 @@ async def test_start_interactive_runs_what_is_already_on_the_hub(
     assert "again" in screen.text
 
 
-async def test_interactive_and_no_wait_are_refused_together(
-    capsys: pytest.CaptureFixture[str], tmp_path: Path
+async def test_wait_by_name_leaves_the_terminal_alone(
+    service: FakeHub, terminal: list[_Screen], tmp_path: Path
 ) -> None:
-    # Two answers to the same question -- how long to stay with the program.
-    code = await program_commands.run_cmd(
-        _script(tmp_path, "print('hi')\n"), interactive=True, wait=False
-    )
-    assert code == errors.EXIT_ERROR
-    assert "--no-wait" in capsys.readouterr().err
+    hub = service
+
+    async def talk(screen: _Screen) -> None:
+        del screen
+        await _when(lambda: bool(hub.status & p.StatusFlag.USER_PROGRAM_RUNNING))
+        hub.send_stdout(b"counting\n")
+        await anyio.sleep(0.05)
+        hub.set_program_running(False)
+
+    screen = _Screen()
+
+    async def command() -> int:
+        # --wait says stay, and says nothing about wanting the terminal taken
+        # over, so it is taken to mean the plain form. That is the one thing a
+        # script run from a terminal needs to be able to ask for.
+        return await program_commands.run_cmd(
+            _script(tmp_path, "print('counting')\n"), hub=HUB_NAME, wait=True
+        )
+
+    assert await _run(screen, terminal, talk, command) == errors.EXIT_OK
+    # Nothing was drawn on the terminal at all: no status line, no margin.
+    assert not screen.written
