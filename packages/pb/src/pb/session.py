@@ -80,6 +80,27 @@ stop ``pb`` from noticing the key that ends the session.
 StartFunc = Callable[[banner_module.Banner], Awaitable[None]]
 """Starts whatever the session is here to talk to, once the screen is ready."""
 
+TRACEBACK = b"Traceback (most recent call last):"
+"""How the hub begins the report of a program that ended in an exception.
+
+Nothing in the protocol says whether a program finished or failed -- the status
+report only stops saying that something is running -- so the only evidence is
+what the firmware prints. ``print_final_exception`` prints a traceback for an
+unhandled exception, "The program was stopped (SystemExit)." for a deliberate
+stop, and nothing at all for a program that simply ended.
+
+Matching on what the hub printed is a heuristic and is worth naming as one. It
+is here because the alternative is worse: a command that ran a program which
+died with an exception, in front of the user, and then reported success.
+"""
+
+TAIL_BYTES = 4096
+"""How much of the end of a program's output to keep, to see how it ended.
+
+Enough for a traceback with several frames, and small enough that one printed
+earlier and recovered from has scrolled out of it by the time the program ends.
+"""
+
 
 class Running:
     """What the session knows about the thing it is talking to.
@@ -90,13 +111,19 @@ class Running:
     other end.
     """
 
-    def __init__(self, noun: str, *, arrived: bool = False) -> None:
+    def __init__(
+        self, noun: str, *, arrived: bool = False, watch_for_crash: bool = False
+    ) -> None:
         """Describe what the session expects to find running.
 
         Args:
             noun: What to call it in messages, such as ``"interpreter"``.
             arrived: True if it is known to be running already, which is the
                 case for a session joining something rather than starting it.
+            watch_for_crash: Whether ending in an exception should make the
+                command fail. True for a program, whose failure is the
+                command's failure; false for the interpreter, where an
+                exception is an ordinary thing to type.
         """
         self.noun = noun
         """What this is called when the session has something to say about it."""
@@ -120,6 +147,26 @@ class Running:
 
         self.gone = False
         """Whether it ran and has since stopped."""
+
+        self._watch_for_crash = watch_for_crash
+        self._tail = bytearray()
+        """The end of what it printed, which is where it says how it ended."""
+
+    def saw(self, data: bytes) -> None:
+        """Take in some of what it printed.
+
+        Args:
+            data: The bytes, exactly as the hub sent them.
+        """
+        if not self._watch_for_crash:
+            return
+        self._tail.extend(data)
+        del self._tail[:-TAIL_BYTES]
+
+    @property
+    def crashed(self) -> bool:
+        """Whether it ended by raising something nothing caught."""
+        return self._watch_for_crash and TRACEBACK in self._tail
 
     def note(self, status: pb_client.Status) -> None:
         """Take in what the hub says about itself.
@@ -179,7 +226,7 @@ async def attached(
         start: Starts it, once the screen is ready to show what it says.
 
     Returns:
-        The exit code: zero unless the hub went away.
+        The exit code: zero unless the hub went away or the program failed.
     """
     # Attached before anything is started, so that the first thing it prints is
     # already being listened for by the time it arrives.
@@ -209,7 +256,7 @@ async def _session(
         start: Starts it, inside the banner and before the tasks.
 
     Returns:
-        The exit code: zero unless the hub went away.
+        The exit code: zero unless the hub went away or the program failed.
     """
     ended = _Ending()
     keys = escape.Filter()
@@ -247,7 +294,7 @@ async def _session(
                 "hub off and on."
             )
 
-    if ended.disconnected:
+    if ended.disconnected or running.crashed:
         return EXIT_HUB_ERROR
     return EXIT_OK
 
@@ -318,6 +365,7 @@ async def _show_hub(
     """
     async for event in events:
         if isinstance(event, pb_client.Output):
+            running.saw(event.data)
             bar.write(event.data)
         elif isinstance(event, pb_client.Status):
             running.note(event)

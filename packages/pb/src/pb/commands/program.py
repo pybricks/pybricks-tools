@@ -237,10 +237,12 @@ async def _interactively(
         slot: Which program slot, or None for the hub's own choice.
 
     Returns:
-        The exit code.
+        The exit code: three if the program ended in an exception, since a
+        program that failed in front of the user is not a command that
+        succeeded.
     """
     info = await daemon.hub_info(hub)
-    running = session.Running("program")
+    running = session.Running("program", watch_for_crash=True)
 
     async def start(bar: banner_module.Banner) -> None:
         """Set the program going, now that the screen is ready for it.
