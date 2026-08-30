@@ -48,10 +48,7 @@ async def run_cmd(
     ] = None,
     hub: str | None = None,
     slot: int | None = None,
-    wait: bool = True,
-    interactive: Annotated[
-        bool, cyclopts.Parameter(name=["-i", "--interactive"])
-    ] = False,
+    wait: bool | None = None,
     verbose: Verbose = 0,
 ) -> int:
     """Compile a script, send it to a hub, and run it.
@@ -67,10 +64,12 @@ async def run_cmd(
         hub: Which hub, by name. Defaults to the one in use.
         command: Python code to run, instead of a file. Like python -c.
         slot: Which program slot to use.
-        wait: Wait for the program to finish before returning. --no-wait
-            starts it and returns, for setting a robot going and walking away.
-        interactive: Insist on the interactive form, so that having no
-            terminal is an error rather than a fallback to plain output.
+        wait: How long to stay with the program, and how much of the terminal
+            to use while doing it. Left out, the session takes the terminal
+            when there is one. --wait stays but leaves the terminal alone and
+            only prints the output, which is what a script wants. --no-wait
+            starts the program and returns, for setting a robot going and
+            walking away.
         verbose: Increase log detail.
     """
     if (script is None) == (command is None):
@@ -78,17 +77,8 @@ async def run_cmd(
             "Give a script to run, or -c with the code to run.",
             "For example [bold]pb run demo.py[/] or [bold]pb run -c 'print(1)'[/].",
         )
-    if interactive and not wait:
-        # Two answers to the same question -- how long to stay with the
-        # program -- and they disagree.
-        return ui.usage(
-            "--interactive stays with the program, so it cannot be combined "
-            "with --no-wait.",
-            "Leave out [bold]--no-wait[/] to watch it, or [bold]--interactive[/] "
-            "to start it and return.",
-        )
     configure_logging(verbose)
-    return await errors.run(_run, script, command, hub, slot, wait, interactive)
+    return await errors.run(_run, script, command, hub, slot, wait)
 
 
 async def _run(
@@ -96,17 +86,9 @@ async def _run(
     command: str | None,
     hub: str | None,
     slot: int | None,
-    wait: bool,
-    interactive: bool,
+    wait: bool | None,
 ) -> int:
     err = ui.console(err=True)
-    if interactive:
-        # Before compiling: refusing after a wait, for a reason known before
-        # it started, is a poor way to treat somebody's time.
-        no_terminal = session.needs_terminal("pb run --interactive")
-        if no_terminal is not None:
-            return no_terminal
-
     with ui.spinner(err, "Compiling..."):
         if script is not None:
             program = await pb_client.compile_script(script)
@@ -121,10 +103,13 @@ async def _run(
     async with pb_client.connect(autostart=False) as daemon:
         with ui.spinner(err, f"Downloading {len(program)} bytes..."):
             await daemon.download(program, hub_id=hub, slot=slot)
-        if wait:
+        if wait is not False:
             # The hub stays connected either way, so there is nothing to be
-            # gained by watching a spinner instead of the program.
-            return await _stay_with_it(daemon, hub, slot)
+            # gained by watching a spinner instead of the program. Asking for
+            # --wait by name is asking for less than that: it says stay, and
+            # says nothing about wanting the terminal taken over, so it is
+            # taken to mean the plain form.
+            return await _stay_with_it(daemon, hub, slot, terminal=wait is None)
         with ui.spinner(err, "Starting..."):
             await daemon.start_program(hub_id=hub, slot=slot, wait=False)
 
@@ -211,14 +196,14 @@ async def _start(hub: str | None, slot: int | None, interactive: bool) -> int:
             return no_terminal
     async with pb_client.connect(autostart=False) as daemon:
         if interactive:
-            return await _stay_with_it(daemon, hub, slot)
+            return await _stay_with_it(daemon, hub, slot, terminal=True)
         await daemon.start_program(hub_id=hub, slot=slot)
     err.print("Program started.")
     return EXIT_OK
 
 
 async def _stay_with_it(
-    daemon: pb_client.Daemon, hub: str | None, slot: int | None
+    daemon: pb_client.Daemon, hub: str | None, slot: int | None, *, terminal: bool
 ) -> int:
     """Start a program and stay with it until it ends.
 
@@ -229,15 +214,17 @@ async def _stay_with_it(
     stopped on the way out, since a hub with something running cannot be found
     by anything.
 
-    Without a terminal the same thing happens with the terminal parts left
-    out: the output still arrives, on stdout, and the exit code still says how
-    the program ended. That is what a build or a pipeline gets, and it is why
-    there is no separate way of asking for it.
+    Where there is no terminal, or where the caller would rather it were left
+    alone, the same thing happens with the terminal parts left out: the output
+    still arrives, on stdout, and the exit code still says how the program
+    ended. That is what a build or a pipeline gets.
 
     Args:
         daemon: The connected service.
         hub: Which hub.
         slot: Which program slot, or None for the hub's own choice.
+        terminal: Whether taking the terminal over is wanted at all. A script
+            run from a terminal is still a script.
 
     Returns:
         The exit code: three if the program ended in an exception, since a
@@ -258,9 +245,9 @@ async def _stay_with_it(
         await daemon.start_program(hub_id=hub, slot=slot, wait=False)
         running.ours = True
 
-    # A user who asked for --interactive by name has already been told if
-    # there is no terminal, so by here the two are the same question.
-    stay = session.attached if session.have_terminal() else session.streamed
+    # Both have to hold: something to take over, and a reason to.
+    use_terminal = terminal and session.have_terminal()
+    stay = session.attached if use_terminal else session.streamed
     return await stay(daemon, info, hub, replay=0, running=running, start=start)
 
 
