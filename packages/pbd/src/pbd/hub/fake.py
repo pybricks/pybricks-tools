@@ -51,6 +51,10 @@ class FakeHub:
     address: str = "AA:BB:CC:DD:EE:FF"
     profile: p.Version = (1, 5, 0)
     firmware: str = "4.0.1"
+    hub_type: int = p.HubType.TECHNIC_LARGE_HUB
+    variant: int = 0
+    """Product id and version, as the PnP ID reports them."""
+
     max_write_size: int = 512
     max_program_size: int = 16384
     num_slots: int = 5
@@ -240,7 +244,13 @@ class FakeHub:
         if uuid == p.SOFTWARE_REVISION_UUID:
             return ".".join(str(part) for part in self.profile).encode()
         if uuid == p.PNP_ID_UUID:
-            return struct.pack("<BHHH", 1, p.LEGO_COMPANY_ID, 0x0081, 0)
+            return struct.pack(
+                "<BHHH",
+                p.VendorIdSource.BLUETOOTH_SIG,
+                p.LEGO_COMPANY_ID,
+                self.hub_type,
+                self.variant,
+            )
         if uuid == p.PYBRICKS_HUB_CAPABILITIES_UUID:
             if self.profile >= (1, 5, 0):
                 return struct.pack(

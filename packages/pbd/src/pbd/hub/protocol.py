@@ -34,6 +34,7 @@ __all__ = [
     "Event",
     "FeatureFlag",
     "HubError",
+    "HubType",
     "StatusFlag",
     "StatusReport",
     "UserProgramId",
@@ -46,6 +47,7 @@ __all__ = [
     "encode_write_stdin",
     "encode_write_user_program_meta",
     "encode_write_user_ram",
+    "hub_type_name",
     "parse_status_report",
     "parse_version",
     "unpack_capabilities",
@@ -481,3 +483,68 @@ def unpack_pnp_id(data: bytes) -> PnpId:
         raise ValueError(f"PnP ID must be 7 bytes, got {len(data)}")
     source, vendor, product, version = struct.unpack("<BHHH", data)
     return PnpId(source, vendor, product, version)
+
+
+class HubType(IntEnum):
+    """Product ids LEGO assigns to its hubs, as carried in the PnP ID.
+
+    These are the LWP3 hub kinds. Only the ones that can run Pybricks are
+    listed; the numbering is LEGO's and is not contiguous.
+    """
+
+    MOVE_HUB = 0x40
+    CITY_HUB = 0x41
+    TECHNIC_HUB = 0x80
+    TECHNIC_LARGE_HUB = 0x81
+    """SPIKE Prime and MINDSTORMS Robot Inventor, told apart by the variant."""
+    TECHNIC_SMALL_HUB = 0x83
+    """SPIKE Essential."""
+    TECHNIC_MOVE_HUB = 0x84
+
+
+class VendorIdSource(IntEnum):
+    """Who assigned the vendor id in a PnP ID."""
+
+    BLUETOOTH_SIG = 1
+    USB_IMPLEMENTERS_FORUM = 2
+
+
+_HUB_TYPE_NAMES: Final[dict[tuple[int, int | None], str]] = {
+    (HubType.MOVE_HUB, None): "Move hub",
+    (HubType.CITY_HUB, None): "City hub",
+    (HubType.TECHNIC_HUB, None): "Technic hub",
+    (HubType.TECHNIC_MOVE_HUB, None): "Technic Move hub",
+    # The large and small Technic hubs are each sold under more than one name,
+    # and the product version is what says which.
+    (HubType.TECHNIC_LARGE_HUB, 0): "Prime hub",
+    (HubType.TECHNIC_LARGE_HUB, 1): "Inventor hub",
+    (HubType.TECHNIC_SMALL_HUB, 0): "Essential hub",
+}
+"""What to call each hub, following Pybricks Code so that the two agree.
+
+Keyed by product id and, where a hub has variants, product version. A hub
+whose variant is unknown falls back to the entry with no variant, if there is
+one.
+"""
+
+
+def hub_type_name(pnp: PnpId | None) -> str | None:
+    """Name the kind of hub a PnP ID describes.
+
+    Args:
+        pnp: The decoded PnP ID, or ``None`` if the hub did not give one.
+
+    Returns:
+        A name to show a user, such as ``"Technic hub"``, or ``None`` when
+        this is not a LEGO hub we know about. Callers say nothing rather than
+        guessing: a hub that works but cannot be named is better described by
+        silence than by "Unsupported".
+    """
+    if pnp is None:
+        return None
+    if pnp.vendor_id_source != VendorIdSource.BLUETOOTH_SIG:
+        return None
+    if pnp.vendor_id != LEGO_COMPANY_ID:
+        return None
+    exact = _HUB_TYPE_NAMES.get((pnp.product_id, pnp.product_version))
+    return exact or _HUB_TYPE_NAMES.get((pnp.product_id, None))

@@ -298,3 +298,49 @@ def test_pnp_id_round_trip() -> None:
 def test_pnp_id_rejects_a_wrong_length() -> None:
     with pytest.raises(ValueError, match="7 bytes"):
         p.unpack_pnp_id(b"\x01\x02")
+
+
+def _pnp(product: int, version: int = 0, *, vendor: int | None = None) -> p.PnpId:
+    return p.PnpId(
+        vendor_id_source=p.VendorIdSource.BLUETOOTH_SIG,
+        vendor_id=p.LEGO_COMPANY_ID if vendor is None else vendor,
+        product_id=product,
+        product_version=version,
+    )
+
+
+@pytest.mark.parametrize(
+    ("product", "version", "expected"),
+    [
+        (p.HubType.MOVE_HUB, 0, "Move hub"),
+        (p.HubType.CITY_HUB, 0, "City hub"),
+        (p.HubType.TECHNIC_HUB, 0, "Technic hub"),
+        (p.HubType.TECHNIC_MOVE_HUB, 0, "Technic Move hub"),
+        # One product id, two hubs on the shelf: the version says which.
+        (p.HubType.TECHNIC_LARGE_HUB, 0, "Prime hub"),
+        (p.HubType.TECHNIC_LARGE_HUB, 1, "Inventor hub"),
+        (p.HubType.TECHNIC_SMALL_HUB, 0, "Essential hub"),
+    ],
+)
+def test_hub_type_names_follow_pybricks_code(
+    product: int, version: int, expected: str
+) -> None:
+    assert p.hub_type_name(_pnp(product, version)) == expected
+
+
+def test_an_unknown_variant_of_a_known_hub_is_not_guessed_at() -> None:
+    # Naming a future SPIKE variant after an existing one would be worse than
+    # saying nothing, since the name is what a user checks they have.
+    assert p.hub_type_name(_pnp(p.HubType.TECHNIC_LARGE_HUB, 7)) is None
+
+
+def test_an_unknown_hub_has_no_name() -> None:
+    assert p.hub_type_name(_pnp(0x99)) is None
+
+
+def test_a_hub_from_another_vendor_has_no_name() -> None:
+    assert p.hub_type_name(_pnp(p.HubType.CITY_HUB, vendor=0x1234)) is None
+
+
+def test_a_hub_that_gave_no_pnp_id_has_no_name() -> None:
+    assert p.hub_type_name(None) is None

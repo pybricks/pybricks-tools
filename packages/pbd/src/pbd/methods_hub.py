@@ -12,6 +12,7 @@ from typing import Any
 import anyio
 
 from pb_core.jsonrpc import ErrorCode, JsonRpcError
+from pbd.hub import protocol as p
 from pbd.hub.connection import HubConnection, HubDisconnectedError
 from pbd.hub.manager import HubAlreadyConnectedError, HubNotFoundError
 from pbd.hub.transport import DeviceInfo, ScanFilter
@@ -50,6 +51,9 @@ def _hub_json(connection: HubConnection) -> dict[str, Any]:
             "address": info.address,
             "transport": info.transport,
             "firmware": info.firmware,
+            # What the hub is, in the words Pybricks Code uses. Absent rather
+            # than guessed at when the PnP ID names something unfamiliar.
+            "type": p.hub_type_name(info.pnp),
             "protocol": ".".join(str(part) for part in info.profile),
             "max_write_size": info.capabilities.max_write_size,
             "max_program_size": info.capabilities.max_program_size,

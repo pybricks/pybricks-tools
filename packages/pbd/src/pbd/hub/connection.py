@@ -99,6 +99,8 @@ class HubInfo:
     firmware: str
     profile: p.Version
     capabilities: p.Capabilities
+    pnp: p.PnpId | None = None
+    """What kind of hub this is, or None if it did not say."""
 
 
 @dataclass
@@ -226,6 +228,16 @@ class HubConnection:
         capabilities = p.unpack_capabilities(
             await link.read_characteristic(p.PYBRICKS_HUB_CAPABILITIES_UUID)
         )
+
+        raw_pnp = await link.read_characteristic(p.PNP_ID_UUID)
+        try:
+            pnp = p.unpack_pnp_id(raw_pnp)
+        except ValueError:
+            # Only what the hub is called is lost, so a hub that answers this
+            # characteristic oddly is still perfectly usable.
+            logger.warning("hub gave a PnP ID of %d bytes; ignoring", len(raw_pnp))
+            pnp = None
+
         return HubInfo(
             id=self.id,
             name=name,
@@ -234,6 +246,7 @@ class HubConnection:
             firmware=firmware,
             profile=profile,
             capabilities=capabilities,
+            pnp=pnp,
         )
 
     async def wait_closed(self) -> None:
