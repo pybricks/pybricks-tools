@@ -16,7 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-__all__ = ["DaemonInfo", "DeviceInfo", "Downloaded", "HubInfo"]
+__all__ = ["Choice", "DaemonInfo", "DeviceInfo", "Downloaded", "HubInfo"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,6 +87,41 @@ class DeviceInfo:
             hub_type=(
                 str(payload["type"]) if payload.get("type") is not None else None
             ),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class Choice:
+    """The hub that commands act on when none is named."""
+
+    name: str | None
+    """The chosen hub's name, or ``None`` if none has been chosen.
+
+    A name rather than an id, because an id is built from a Bluetooth
+    address and stops naming the hub it names today.
+    """
+
+    connected: bool
+    """Whether that hub is connected at the moment.
+
+    A hub can be chosen while it is switched off, so this is worth saying
+    out loud rather than assuming.
+    """
+
+    @classmethod
+    def from_wire(cls, payload: dict[str, Any]) -> Choice:
+        """Read one from a ``hub.use`` result.
+
+        Args:
+            payload: The result object.
+
+        Returns:
+            The parsed result.
+        """
+        name = payload.get("default")
+        return cls(
+            name=str(name) if name else None,
+            connected=bool(payload.get("connected", False)),
         )
 
 

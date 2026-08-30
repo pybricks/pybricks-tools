@@ -53,6 +53,9 @@ def _private_runtime(  # pyright: ignore[reportUnusedFunction]
     # something.
     runtime.mkdir(mode=0o700)
     monkeypatch.setenv("PB_RUNTIME_DIR", str(runtime))
+    # And a state directory of its own, so that a test choosing a hub
+    # does not rewrite the choice the person running the tests made.
+    monkeypatch.setenv("PB_STATE_DIR", str(tmp_path / "state"))
     monkeypatch.delenv("PB_ENDPOINT", raising=False)
     yield
 
@@ -220,17 +223,91 @@ async def test_scan_hides_hubs_that_are_already_connected(
     assert [device.name for device in devices] == [SECOND]
 
 
-async def test_choosing_the_default_hub(daemon_at: Endpoint) -> None:
+async def test_choosing_the_hub_commands_act_on(daemon_at: Endpoint) -> None:
     async with pb_client.connect(daemon_at, autostart=False) as daemon:
         first = await daemon.connect_hub(name=FIRST)
         await daemon.connect_hub(name=SECOND)
 
+        # An id is accepted, since it is what the wire calls the parameter,
+        # but what comes back -- and what is stored -- is the hub's name.
         chosen = await daemon.use_hub(first.id)
-        assert chosen == first.id
+        assert chosen.name == FIRST
+        assert chosen.connected
 
         # A command with no hub named now acts on that one.
         info = await daemon.hub_info()
         assert info.name == FIRST
+
+
+async def test_the_choice_is_reported_without_being_changed(
+    daemon_at: Endpoint,
+) -> None:
+    async with pb_client.connect(daemon_at, autostart=False) as daemon:
+        assert (await daemon.chosen_hub()).name is None
+
+        await daemon.connect_hub(name=SECOND)
+        await daemon.use_hub(FIRST)
+
+        reported = await daemon.chosen_hub()
+        assert reported.name == FIRST
+        # Chosen, but switched off as far as anyone here can tell, which is
+        # worth saying rather than implying by silence.
+        assert not reported.connected
+        assert (await daemon.chosen_hub()).name == FIRST
+
+
+async def test_a_hub_can_be_chosen_before_it_is_connected(
+    daemon_at: Endpoint,
+) -> None:
+    # Pinning the hub a project belongs to is a reasonable thing to do before
+    # any of the hardware is switched on, so a name that matches nothing yet
+    # is accepted rather than refused.
+    async with pb_client.connect(daemon_at, autostart=False) as daemon:
+        chosen = await daemon.use_hub("Some Other Hub")
+        assert chosen.name == "Some Other Hub"
+        assert not chosen.connected
+
+        # It does not stand in the way of the only hub there is.
+        await daemon.connect_hub(name=FIRST)
+        assert (await daemon.hub_info()).name == FIRST
+
+
+async def test_an_id_for_a_hub_that_is_not_connected_is_refused(
+    daemon_at: Endpoint,
+) -> None:
+    # A name for an absent hub is a choice; an id for one is nothing that can
+    # be stored, since the name it would have to be turned into is unknown.
+    async with pb_client.connect(daemon_at, autostart=False) as daemon:
+        with pytest.raises(JsonRpcError) as caught:
+            await daemon.use_hub("ble:00:00:00:00:00:00")
+    assert caught.value.code == ErrorCode.HUB_NOT_FOUND
+
+
+async def test_disconnecting_does_not_move_the_choice(daemon_at: Endpoint) -> None:
+    async with pb_client.connect(daemon_at, autostart=False) as daemon:
+        await daemon.connect_hub(name=FIRST)
+        await daemon.connect_hub(name=SECOND)
+        await daemon.use_hub(FIRST)
+
+        await daemon.disconnect_hub(FIRST)
+
+        # The hub was switched off, not un-chosen. Moving the choice to
+        # whatever else happened to be connected is how a remembered
+        # preference stops being worth remembering.
+        assert (await daemon.chosen_hub()).name == FIRST
+        # Meanwhile commands still have somewhere to go: the chosen hub is
+        # not connected, so the only hub that is answers instead.
+        assert (await daemon.hub_info()).name == SECOND
+
+
+async def test_the_choice_can_be_forgotten(daemon_at: Endpoint) -> None:
+    async with pb_client.connect(daemon_at, autostart=False) as daemon:
+        await daemon.connect_hub(name=FIRST)
+        await daemon.use_hub(FIRST)
+
+        cleared = await daemon.use_hub(None)
+        assert cleared.name is None
+        assert (await daemon.chosen_hub()).name is None
 
 
 async def test_a_hub_can_be_named_by_name(daemon_at: Endpoint) -> None:

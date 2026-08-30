@@ -24,7 +24,7 @@ an arrow as well as a style.
 from __future__ import annotations
 
 import contextlib
-from collections.abc import Generator, Iterable, Mapping
+from collections.abc import Collection, Generator, Iterable, Mapping
 from contextlib import AbstractContextManager
 
 from rich.console import Console, RenderableType
@@ -265,6 +265,7 @@ def scan_table(
     devices: Iterable[pb_client.DeviceInfo],
     caption: str = "",
     selected: int | None = None,
+    connected: Collection[str] = (),
 ) -> Table:
     """Build the table of hubs seen so far.
 
@@ -277,6 +278,9 @@ def scan_table(
         selected: Which row the user is on, when this is a chooser rather than
             a report. Marked with an arrow as well as with a style, so it is
             still visible where colour is not.
+        connected: The ids of hubs that are connected. A connected hub does
+            not advertise, so there is no signal to report for one and the
+            column says so instead of drawing an empty meter.
 
     Returns:
         The table, ready to print or hand to a live display.
@@ -293,7 +297,12 @@ def scan_table(
         table.add_column("Address", style="dim")
     table.add_column("Signal", justify="right")
     for index, device in enumerate(devices):
-        row = [device.name, device.hub_type or "", device.id, signal_bars(device.rssi)]
+        strength = (
+            "[green]connected[/]"
+            if device.id in connected
+            else signal_bars(device.rssi)
+        )
+        row = [device.name, device.hub_type or "", device.id, strength]
         if not SHOW_HUB_IDS:
             del row[2]
         if selected is not None:
@@ -302,13 +311,13 @@ def scan_table(
     return table
 
 
-def connected_table(hubs: Iterable[pb_client.HubInfo], default: str | None) -> Table:
+def connected_table(hubs: Iterable[pb_client.HubInfo], acting: str | None) -> Table:
     """Build the table of hubs the service is holding open.
 
     Args:
         hubs: The connected hubs.
-        default: The id of the one commands act on when none is named, marked
-            with a star.
+        acting: The id of the one a command with no hub named would act
+            on, marked with a star.
 
     Returns:
         The table.
@@ -324,7 +333,7 @@ def connected_table(hubs: Iterable[pb_client.HubInfo], default: str | None) -> T
     table.add_column("Used by", justify="right")
     for info in hubs:
         table.add_row(
-            "*" if info.id == default else "",
+            "*" if info.id == acting else "",
             info.name,
             info.firmware,
             str(info.subscribers),
@@ -332,12 +341,17 @@ def connected_table(hubs: Iterable[pb_client.HubInfo], default: str | None) -> T
     return table
 
 
-def chooser_table(devices: list[pb_client.DeviceInfo], selected: int) -> RenderableType:
+def chooser_table(
+    devices: list[pb_client.DeviceInfo],
+    selected: int,
+    connected: Collection[str] = (),
+) -> RenderableType:
     """Draw the chooser's list.
 
     Args:
         devices: The hubs heard so far.
         selected: Which one the user is on.
+        connected: The ids of hubs that are connected rather than heard.
 
     Returns:
         What to show, which is a line of text until a hub has been heard -- an
@@ -346,4 +360,4 @@ def chooser_table(devices: list[pb_client.DeviceInfo], selected: int) -> Rendera
     """
     if not devices:
         return Text("Looking for hubs...", style="dim")
-    return scan_table(devices, selected=selected)
+    return scan_table(devices, selected=selected, connected=connected)

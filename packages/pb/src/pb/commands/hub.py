@@ -14,9 +14,11 @@ nothing is connected.
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncIterator
 from typing import Annotated
 
 import cyclopts
+from rich.console import Console, RenderableType
 
 import pb_client
 from pb import errors, keys, picker, ui
@@ -26,7 +28,14 @@ from pb_core.jsonrpc import ErrorCode
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["connect_cmd", "disconnect_cmd", "list_cmd", "scan_cmd", "status_cmd"]
+__all__ = [
+    "connect_cmd",
+    "disconnect_cmd",
+    "list_cmd",
+    "scan_cmd",
+    "status_cmd",
+    "use_cmd",
+]
 
 _ID_PREFIXES = ("ble:", "fake:", "usb:", "rfcomm:")
 
@@ -57,7 +66,7 @@ def _looks_like_id(value: str) -> bool:
     return value.startswith(_ID_PREFIXES)
 
 
-@app.command(name="scan", group=HUB_COMMANDS, sort_key=4)
+@app.command(name="scan", group=HUB_COMMANDS, sort_key=5)
 async def scan_cmd(
     *,
     timeout: float = 10.0,  # noqa: ASYNC109 - see below
@@ -232,7 +241,7 @@ async def _list() -> int:
     out, err = ui.console(), ui.console(err=True)
     try:
         async with pb_client.connect(autostart=False) as daemon:
-            hubs, default = await daemon.list_hubs()
+            hubs, acting = await daemon.list_hubs()
     except _HANDLED_HERE as exc:
         # An empty list is a real answer to "what is connected?".
         if errors.find(exc, pb_client.DaemonUnavailable) is None:
@@ -245,15 +254,143 @@ async def _list() -> int:
         return EXIT_OK
 
     if out.is_terminal:
-        out.print(ui.connected_table(hubs, default))
+        out.print(ui.connected_table(hubs, acting))
     else:
         for info in hubs:
-            marker = "*" if info.id == default else "-"
+            marker = "*" if info.id == acting else "-"
             fields = [marker, info.name, info.id, info.firmware]
             if not ui.SHOW_HUB_IDS:
                 del fields[2]
             ui.plain(out, "\t".join(fields))
     return EXIT_OK
+
+
+@app.command(name="use", group=HUB_COMMANDS, sort_key=4)
+async def use_cmd(
+    *,
+    hub: str | None = None,
+    clear: bool = False,
+    verbose: Verbose = 0,
+) -> int:
+    """Choose the hub that commands act on when none is named.
+
+    With no options, this lists the hubs that are connected and the hubs it
+    can hear, and lets you choose one with the arrow keys.
+
+    What is remembered is the hub's name, so the choice survives the hub being
+    switched off and on, and outlives the background service. Every shell sees
+    the same choice.
+
+    Args:
+        hub: The hub's name. It does not have to be connected, or even switched
+            on, so the hub a project belongs to can be chosen before any of it
+            is plugged in.
+        clear: Forget the chosen hub. Commands then act on whichever hub is
+            connected, as long as there is only one.
+        verbose: Increase log detail.
+    """
+    if clear and hub is not None:
+        return ui.usage(
+            "Name a hub with --hub, or forget the chosen one with --clear, "
+            "but not both.",
+            "Leave out [bold]--clear[/] to choose the hub you named.",
+        )
+    configure_logging(verbose)
+    return await errors.run(_use, hub, clear)
+
+
+async def _use(hub: str | None, clear: bool) -> int:
+    err = ui.console(err=True)
+    async with pb_client.connect() as daemon:
+        if clear:
+            await daemon.use_hub(None)
+            err.print(
+                "No hub is chosen. Commands will use the connected hub, "
+                "while there is only one."
+            )
+            return EXIT_OK
+
+        if hub is None:
+            if not keys.keys_available():
+                # Nothing can be chosen without a terminal to choose in, so
+                # answer the other question this command can answer: which hub
+                # is chosen already.
+                return await _say_which(daemon, err)
+            hub = await _choose(daemon, err)
+            if hub is None:
+                err.print("Nothing chosen.")
+                return EXIT_OK
+
+        choice = await daemon.use_hub(hub)
+        err.print(f"Now using [bold]{choice.name}[/].")
+        if not choice.connected:
+            # Worth saying, because nothing else will: commands go on using
+            # the hub that is connected until this one is.
+            err.print("It is not connected at the moment.")
+    return EXIT_OK
+
+
+async def _say_which(daemon: pb_client.Daemon, err: Console) -> int:
+    """Report the chosen hub, for a caller with no terminal to choose in.
+
+    Args:
+        daemon: The connected service.
+        err: Where messages go.
+
+    Returns:
+        The exit code. Nothing chosen is an answer rather than a failure, so
+        it is still zero; the name goes to stdout, where a script reading it
+        gets the name and nothing else.
+    """
+    choice = await daemon.chosen_hub()
+    if choice.name is None:
+        err.print("No hub is chosen.")
+        return EXIT_OK
+    ui.plain(ui.console(), choice.name)
+    return EXIT_OK
+
+
+async def _choose(daemon: pb_client.Daemon, err: Console) -> str | None:
+    """Let the user pick from the hubs that are connected or in range.
+
+    Args:
+        daemon: The connected service.
+        err: Where the list is drawn.
+
+    Returns:
+        The chosen hub's name, or None if the user left without choosing.
+    """
+    hubs, _ = await daemon.list_hubs()
+    connected = [
+        pb_client.DeviceInfo(
+            id=info.id,
+            name=info.name,
+            address=info.address,
+            rssi=None,
+            transport=info.id.split(":", 1)[0],
+            hub_type=info.hub_type,
+        )
+        for info in hubs
+    ]
+    known = {device.id for device in connected}
+
+    async def offered() -> AsyncIterator[pb_client.DeviceInfo]:
+        """Offer the connected hubs first, then whatever the radio hears."""
+        for device in connected:
+            yield device
+        async for device in found:
+            # A connected hub does not advertise, so this is belt and braces:
+            # what it prevents is a hub arriving twice under two descriptions.
+            if device.id not in known:
+                yield device
+
+    def render(devices: list[pb_client.DeviceInfo], selected: int) -> RenderableType:
+        return ui.chooser_table(devices, selected, connected=known)
+
+    # No time limit: the hub may still be in the next room.
+    async with daemon.scanning(seconds=None) as found:
+        device = await picker.choose_hub(err, offered(), render, verb="use it")
+    return device.name if device is not None else None
 
 
 @app.command(name="status", group=HUB_COMMANDS, sort_key=2)

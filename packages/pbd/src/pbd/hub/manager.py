@@ -21,6 +21,7 @@ from anyio.abc import TaskGroup
 
 from pbd.hub.connection import HubConnection, HubInfo
 from pbd.hub.events import HubState
+from pbd.hub.selection import Selection
 from pbd.hub.transport import DeviceInfo, HubTransport, ScanFilter
 
 logger = logging.getLogger(__name__)
@@ -39,7 +40,12 @@ class HubAlreadyConnectedError(RuntimeError):
 class HubManager:
     """The set of hubs the daemon currently holds open."""
 
-    def __init__(self, transport: HubTransport, task_group: TaskGroup) -> None:
+    def __init__(
+        self,
+        transport: HubTransport,
+        task_group: TaskGroup,
+        selection: Selection | None = None,
+    ) -> None:
         """Create a manager.
 
         Args:
@@ -47,6 +53,8 @@ class HubManager:
             task_group: The long-lived group that will own hub connections.
                 Deliberately passed in rather than created here, so that
                 ownership is visible at the call site.
+            selection: Which hub the user chose. Defaults to the one
+                stored in the user's state directory.
         """
         self.transport = transport
         # The radio is the only thing that can notice a hub being switched
@@ -57,11 +65,22 @@ class HubManager:
         self._hubs: dict[str, HubConnection] = {}
         self._connect_locks: dict[str, anyio.Lock] = {}
         self._scan_lock = anyio.Lock()
-        self.default_hub_id: str | None = None
+        self._last_connected: str | None = None
+        """The hub most recently connected, while it stays connected.
+
+        The fallback for a user who has not chosen a hub and has two of
+        them connected: the one just connected is the one being worked
+        with. Ephemeral on purpose -- it is an id, it means nothing once
+        that hub is gone, and it promises nothing.
+        """
+
+        self.selection = selection if selection is not None else Selection()
         """The hub commands act on when none is named.
 
         Held here rather than in a client config file so that it survives the
-        command exiting and is shared between shells.
+        command exiting and is shared between shells, and kept on disk so
+        that it survives this service too. It is a name: see
+        :mod:`pbd.hub.selection` for why there is nothing better to keep.
         """
 
     # ------------------------------------------------------------------ query
@@ -84,8 +103,8 @@ class HubManager:
         """Return a connected hub.
 
         Args:
-            name_or_id: The hub's name or id, or ``None`` to use the current
-                default. A name is what callers actually have: ids are built
+            name_or_id: The hub's name or id, or ``None`` to use the chosen
+                one. A name is what callers actually have: ids are built
                 from the Bluetooth address, which is not stable and which
                 ``pb`` no longer shows anyone, so every command that names a
                 hub names it the way the user typed it.
@@ -94,16 +113,28 @@ class HubManager:
             The connection.
 
         Raises:
-            HubNotFoundError: If no such hub is connected, or no default is set.
+            HubNotFoundError: If no such hub is connected, or nothing says
+                which hub is meant.
         """
-        wanted = name_or_id or self.default_hub_id
-        if wanted is None:
-            if len(self._hubs) == 1:
-                # Exactly one hub is unambiguous, so do not make the user say
-                # which one.
-                return next(iter(self._hubs.values()))
-            raise HubNotFoundError("no hub selected")
-        return self.resolve(wanted)
+        if name_or_id is not None:
+            return self.resolve(name_or_id)
+        chosen = self.selection.name
+        if chosen is not None:
+            try:
+                return self.resolve(chosen)
+            except HubNotFoundError:
+                # A standing preference between hubs should not stand in
+                # the way of the only hub there is, so a chosen hub that
+                # is switched off falls through rather than refusing.
+                logger.debug("the chosen hub %r is not connected", chosen)
+        last = self._last_connected
+        if last is not None and last in self._hubs:
+            return self._hubs[last]
+        if len(self._hubs) == 1:
+            # Exactly one hub is unambiguous, so do not make the user say
+            # which one.
+            return next(iter(self._hubs.values()))
+        raise HubNotFoundError("no hub selected")
 
     def resolve(self, name_or_id: str) -> HubConnection:
         """Find a connected hub by id or by name.
@@ -178,7 +209,7 @@ class HubManager:
                     raise HubAlreadyConnectedError(f"{device.id} is already connected")
                 if existing.info is not None:
                     logger.debug("reusing the existing connection to %s", device.id)
-                    self.default_hub_id = device.id
+                    self._last_connected = device.id
                     return existing.info
 
             connection = HubConnection(self.transport, device)
@@ -187,7 +218,11 @@ class HubManager:
             info = await self._tg.start(connection.run)
             assert isinstance(info, HubInfo)
             self._hubs[device.id] = connection
-            self.default_hub_id = device.id
+            # Connecting says which hub you mean for now, but it is not
+            # the same as choosing one: pb use is what changes a
+            # remembered choice, so that nothing moves it behind the
+            # user's back.
+            self._last_connected = device.id
             logger.info("hub connected: %s (%d total)", device.id, len(self._hubs))
             return info
 
@@ -203,8 +238,11 @@ class HubManager:
         connection = self.get(hub_id)
         connection.close("client requested disconnect")
         self._hubs.pop(connection.id, None)
-        if self.default_hub_id == connection.id:
-            self.default_hub_id = next(iter(self._hubs), None)
+        # The remembered choice is left alone: a hub that has been switched
+        # off is still the hub the user is working with. Only the
+        # ephemeral fallback moves.
+        if self._last_connected == connection.id:
+            self._last_connected = next(iter(self._hubs), None)
         logger.info("hub disconnected: %s (%d left)", connection.id, len(self._hubs))
 
     def _transport_lost(self, device_id: str) -> None:
@@ -233,15 +271,15 @@ class HubManager:
             if connection.state is HubState.DISCONNECTED:
                 logger.info("hub went away: %s", hub_id)
                 self._hubs.pop(hub_id, None)
-                if self.default_hub_id == hub_id:
-                    self.default_hub_id = next(iter(self._hubs), None)
+                if self._last_connected == hub_id:
+                    self._last_connected = next(iter(self._hubs), None)
 
     async def close_all(self) -> None:
         """Disconnect every hub, for daemon shutdown."""
         for connection in list(self._hubs.values()):
             connection.close("daemon shutting down")
         self._hubs.clear()
-        self.default_hub_id = None
+        self._last_connected = None
 
 
 @asynccontextmanager

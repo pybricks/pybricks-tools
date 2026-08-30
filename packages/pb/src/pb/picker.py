@@ -40,13 +40,20 @@ a poll rather than a blocking read because the display has to keep moving while
 nobody is typing.
 """
 
-HELP = "↑↓ to choose, Enter to connect, Ctrl-C to stop looking"
+# The line under the list. What Enter does depends on who is asking --
+# connecting to a hub and choosing which one to work with are different
+# answers -- so the verb is the caller's to supply. A comment rather than a
+# docstring: a documented attribute is rendered into the API reference, and
+# the arrows in it cannot be encoded by the formatter the renderer shells out
+# to on a Windows machine with a legacy code page.
+HELP = "↑↓ to choose, Enter to {verb}, Ctrl-C to stop looking"
 
 
 async def choose_hub(
     err: Console,
     devices: AsyncIterator[pb_client.DeviceInfo],
     render: Callable[[list[pb_client.DeviceInfo], int], RenderableType],
+    verb: str = "connect",
 ) -> pb_client.DeviceInfo | None:
     """Show hubs as they are found and let the user pick one.
 
@@ -57,6 +64,7 @@ async def choose_hub(
         render: Draws the list, given the hubs in the order first seen and the
             index of the selected one. Passed in so that this module does not
             have to know what a hub looks like on screen.
+        verb: What pressing Enter will do, for the help line.
 
     Returns:
         The hub the user chose, or ``None`` if they left without choosing.
@@ -68,7 +76,10 @@ async def choose_hub(
 
     def frame() -> RenderableType:
         listed = [seen[device_id] for device_id in order]
-        return Group(render(listed, selected), Text(HELP, style="dim"))
+        return Group(
+            render(listed, selected),
+            Text(HELP.format(verb=verb), style="dim"),
+        )
 
     with keys.reading_keys(), ui.live(frame(), err) as live:
         async with anyio.create_task_group() as tg:

@@ -67,3 +67,21 @@ def test_ensure_private_dir_rejects_world_readable(tmp_path: Path) -> None:
     target.chmod(0o755)
     with pytest.raises(PermissionError, match="accessible to other users"):
         paths.ensure_private_dir(target)
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="XDG is Linux-only")
+def test_state_dir_honours_xdg(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # What the service remembers between runs -- which hub the user chose --
+    # is state rather than cache or config, so XDG_STATE_HOME is where the
+    # spec puts it.
+    monkeypatch.delenv(paths.STATE_DIR_ENV_VAR, raising=False)
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+    assert paths.state_dir() == tmp_path / paths.APP_NAME
+
+
+def test_state_dir_can_be_moved(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # So a test never rewrites the choice of whoever is running it.
+    monkeypatch.setenv(paths.STATE_DIR_ENV_VAR, str(tmp_path))
+    assert paths.state_dir() == tmp_path
