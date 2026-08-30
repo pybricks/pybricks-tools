@@ -104,11 +104,24 @@ def spawn_daemon(endpoint: Endpoint) -> None:
         "close_fds": True,
     }
     if sys.platform == "win32":
-        # Detached, so it has no console and no Ctrl+C from this terminal
-        # reaches it; shutdown goes through daemon.shutdown instead.
+        # CREATE_NO_WINDOW, emphatically not DETACHED_PROCESS. Both are
+        # described as freeing a child from the parent's console, and only one
+        # of them does it quietly: measured on Windows 11, a console
+        # application started with DETACHED_PROCESS has a *new* console
+        # allocated for it, and that console is visible. It is the terminal
+        # that used to flash up whenever a command started the service.
+        # Adding CREATE_NO_WINDOW alongside does not help -- it is documented
+        # as ignored in combination with DETACHED_PROCESS, and measurement
+        # agrees.
+        #
+        # On its own, CREATE_NO_WINDOW leaves the daemon with no console
+        # window of the parent's or of its own, so no console control event
+        # can reach it -- including the one Windows sends when the terminal
+        # that started it is closed. CREATE_NEW_PROCESS_GROUP keeps Ctrl+C out
+        # as well. Shutting down deliberately goes through daemon.shutdown.
         child = subprocess.Popen(
             command,
-            creationflags=subprocess.DETACHED_PROCESS
+            creationflags=subprocess.CREATE_NO_WINDOW
             | subprocess.CREATE_NEW_PROCESS_GROUP,
             **common,
         )
