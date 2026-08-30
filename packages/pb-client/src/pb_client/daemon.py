@@ -270,14 +270,15 @@ class Daemon:
         await self._peer.call("daemon.shutdown")
 
     async def scan(
-        self, *, seconds: float = 10.0, name: str | None = None
+        self, *, seconds: float | None = 10.0, name: str | None = None
     ) -> list[DeviceInfo]:
         """Look for hubs that are advertising.
 
         Args:
-            seconds: How long the daemon should look. This bounds the scan
-                itself rather than this call; wrap the call in a cancel scope
-                to bound the wait.
+            seconds: How long the daemon should look, or ``None`` for as long
+                as this call is waiting. This bounds the scan itself rather
+                than the call; wrap the call in a cancel scope to bound the
+                wait.
             name: Only report hubs with this name.
 
         Returns:
@@ -291,7 +292,7 @@ class Daemon:
 
     @asynccontextmanager
     async def scanning(
-        self, *, seconds: float = 10.0, name: str | None = None
+        self, *, seconds: float | None = 10.0, name: str | None = None
     ) -> AsyncGenerator[AsyncIterator[DeviceInfo], None]:
         """Scan, reporting each hub as it is seen rather than at the end.
 
@@ -305,11 +306,15 @@ class Daemon:
         hub it likes and get on with it.
 
         Args:
-            seconds: How long the daemon should look.
+            seconds: How long the daemon should look, or ``None`` to keep
+                looking until the block is left. Use ``None`` when a person is
+                reading the results, since a deadline on a person only ever
+                expires at the worst moment.
             name: Only report hubs with this name.
 
         Yields:
-            An iterator over the hubs seen, ending when the scan does.
+            An iterator over the hubs seen, ending when the scan does -- which,
+            with no time limit, means when the block is left.
 
         Raises:
             RuntimeError: If this connection has no notification router, which

@@ -120,6 +120,19 @@ async def test_scanning_ends_by_itself_when_the_scan_is_over(
     assert names == {FIRST, SECOND}
 
 
+async def test_a_scan_with_no_time_limit_ends_when_the_caller_leaves(
+    daemon_at: Endpoint,
+) -> None:
+    # What an interactive chooser asks for: the person may still be fetching
+    # the hub from another room, so there is no deadline. What stops it is the
+    # caller leaving, and this hangs rather than fails if that does not work.
+    async with pb_client.connect(daemon_at, autostart=False) as daemon:
+        with anyio.fail_after(5):
+            async with daemon.scanning(seconds=None) as devices:
+                first = await anext(aiter(devices))
+    assert first.name in {FIRST, SECOND}
+
+
 async def test_a_scan_that_reports_nothing_still_ends(daemon_at: Endpoint) -> None:
     async with pb_client.connect(daemon_at, autostart=False) as daemon:
         with anyio.fail_after(10):
