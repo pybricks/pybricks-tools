@@ -7,6 +7,24 @@ Distinct from any package version. Because the daemon outlives the command that
 started it, a freshly installed client will sometimes meet a daemon started by
 an older install, so both sides state this in the opening handshake and the
 daemon refuses versions it cannot serve.
+
+**What moves this number.** An added method, field or named capability does
+not: capabilities are negotiated by name, so a client newer than the running
+service asks for the one feature it needs rather than failing over a number. A
+*changed meaning* for something that already exists does, because there is no
+way to ask about one -- both sides go on truthfully claiming the same version
+while meaning different things by it, and the failure is silent. That has
+happened once already: ``hub.use`` with no hub in the request meant "forget
+the chosen hub" and now means "report it", and a service left running from
+before the change threw away the answer to the question it was asked.
+
+**When it moves.** In the commit that changes the protocol, whether or not a
+release is anywhere near. A release is not the only way this code reaches
+anyone -- it can be installed from git, and then whatever is between releases
+is what somebody is running -- so the number has to be right at every commit
+rather than at every tag. It is cheap: nothing outside a checkout speaks an
+unreleased version, so the only effect of moving it is that a stale service
+says so instead of misbehaving.
 """
 
 from __future__ import annotations
@@ -23,11 +41,26 @@ __all__ = [
     "STDIO_CAPABILITY",
 ]
 
-PROTOCOL_VERSION: Final = 1
-"""The version this build speaks."""
+PROTOCOL_VERSION: Final = 2
+"""The version this build speaks.
 
-MIN_PROTOCOL_VERSION: Final = 1
-"""The oldest client version this build still accepts."""
+2 since the chosen hub became something the service remembers, which changed
+what ``hub.use`` and ``hub.list`` say.
+"""
+
+MIN_PROTOCOL_VERSION: Final = 2
+"""The oldest client version this build still accepts.
+
+Equal to :data:`PROTOCOL_VERSION` while the project is unreleased, and moved
+with it, so that a mismatch is refused in either direction rather than only
+when the client is the newer of the two. There is no released version to stay
+compatible with yet, and during development the service routinely outlives
+several changes to the wire in a day.
+
+At the first release this stops following: it stays at the oldest version the
+build genuinely serves, and the gap between the two numbers becomes the
+compatibility promise.
+"""
 
 HUB_FOUND: Final = "hub.found"
 """Notification sent to a session for each advertisement seen while it scans.
