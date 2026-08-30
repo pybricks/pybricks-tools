@@ -18,7 +18,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import sys
-from collections.abc import Generator, Mapping
+from collections.abc import Generator, Iterable, Mapping
 from pathlib import Path
 from typing import Annotated
 
@@ -36,7 +36,38 @@ logger = logging.getLogger(__name__)
 
 __all__ = ["app", "main"]
 
+SHOW_HUB_IDS: bool = False
+"""Whether to print hub ids.
+
+Off for now. A hub id is built from its Bluetooth address, which is not stable
+-- and on macOS is a per-machine UUID standing in for one -- so printing it
+invites users to write down something that will stop working. Ids remain in the
+wire protocol and are still accepted as arguments; only the display is off.
+
+Turn this on once a hub has a durable identifier worth showing. Annotated as
+``bool`` rather than left to inference so that the code behind it keeps being
+type-checked while it is switched off.
+"""
+
 _ID_PREFIXES = ("ble:", "fake:", "usb:", "rfcomm:")
+
+HUB_WARNINGS: Mapping[str, str] = {
+    "BATTERY_LOW_VOLTAGE_WARNING": "battery low",
+    "BATTERY_LOW_VOLTAGE_SHUTDOWN": "battery empty, the hub is switching off",
+    "BATTERY_HIGH_CURRENT": "drawing too much current",
+    "BATTERY_HIGH_TEMP_WARNING": "battery hot",
+    "BATTERY_HIGH_TEMP_SHUTDOWN": "battery too hot, the hub is switching off",
+    "BLE_LOW_SIGNAL": "weak Bluetooth signal",
+    "SHUTDOWN_REQUEST": "switching off",
+    "SHUTDOWN": "switching off",
+}
+"""Hub status flags that are worth saying out loud, in the user's words.
+
+Keyed on the wire name of the flag rather than on the bit, because the CLI
+deliberately knows nothing about the hub protocol. Flags that describe a normal
+state -- advertising, connected, a program running -- are missing on purpose:
+they are either uninteresting or already a line of their own.
+"""
 
 _HANDLED_HERE = (pb_client.PbClientError, BaseExceptionGroup)
 """What to catch when a command deals with a failure itself.
@@ -119,6 +150,25 @@ def _looks_like_id(value: str) -> bool:
     return value.startswith(_ID_PREFIXES)
 
 
+def hub_warnings(status_names: Iterable[str]) -> list[str]:
+    """Translate the hub's status flags into things worth telling the user.
+
+    Args:
+        status_names: Flag names as the hub reported them.
+
+    Returns:
+        The wording for each flag that says something actionable, in the order
+        given and without repeats -- two flags can mean the same thing to a
+        user, and saying it twice would look like a fault in the tool.
+    """
+    said: list[str] = []
+    for name in status_names:
+        warning = HUB_WARNINGS.get(name)
+        if warning is not None and warning not in said:
+            said.append(warning)
+    return said
+
+
 def _rows(out: Console, rows: list[tuple[str, str]]) -> None:
     """Render key/value rows, as a table on a terminal and tab-separated when piped."""
     if out.is_terminal:
@@ -167,15 +217,20 @@ async def _scan(seconds: float, name: str | None) -> int:
     if out.is_terminal:
         table = Table()
         table.add_column("Name")
-        table.add_column("Address", style="dim")
+        if SHOW_HUB_IDS:
+            table.add_column("Address", style="dim")
         table.add_column("Signal", justify="right")
         for device in devices:
             signal = f"{device.rssi} dBm" if device.rssi is not None else ""
-            table.add_row(device.name, device.id, signal)
+            row = [device.name, device.id, signal]
+            if not SHOW_HUB_IDS:
+                del row[1]
+            table.add_row(*row)
         out.print(table)
     else:
         for device in devices:
-            out.print(f"{device.name}\t{device.id}", highlight=False, markup=False)
+            line = f"{device.name}\t{device.id}" if SHOW_HUB_IDS else device.name
+            out.print(line, highlight=False, markup=False)
     return EXIT_OK
 
 
@@ -267,18 +322,19 @@ async def _list() -> int:
         err.print("No hubs connected. Use [bold]pb connect[/].")
         return EXIT_OK
 
+    # No state column: this lists what is connected, so it could only ever say
+    # "connected". It comes back when the service tracks hubs it knows about
+    # but is not holding.
     if out.is_terminal:
         table = Table()
         table.add_column("")
         table.add_column("Name")
-        table.add_column("State")
         table.add_column("Firmware")
-        table.add_column("Clients", justify="right")
+        table.add_column("Used by", justify="right")
         for info in hubs:
             table.add_row(
                 "*" if info.id == default else "",
                 info.name,
-                info.state,
                 info.firmware,
                 str(info.subscribers),
             )
@@ -286,43 +342,59 @@ async def _list() -> int:
     else:
         for info in hubs:
             marker = "*" if info.id == default else "-"
-            out.print(
-                f"{marker}\t{info.name}\t{info.id}\t{info.state}",
-                highlight=False,
-                markup=False,
-            )
+            fields = [marker, info.name, info.id, info.firmware]
+            if not SHOW_HUB_IDS:
+                del fields[2]
+            out.print("\t".join(fields), highlight=False, markup=False)
     return EXIT_OK
 
 
 @app.command(name="status")
-def status_cmd(hub: str | None = None, /, *, verbose: Verbose = 0) -> int:
-    """Show a hub's details and current status.
+def status_cmd(
+    hub: str | None = None, /, *, full: bool = False, verbose: Verbose = 0
+) -> int:
+    """Show what a hub is doing.
 
     Args:
         hub: Which hub, by name. Defaults to the one in use.
+        full: Show every detail, including the ones that only mean something
+            when you are debugging.
         verbose: Increase log detail.
     """
     _configure_logging(verbose)
-    return errors.run(_status, hub)
+    return errors.run(_status, hub, full)
 
 
-async def _status(hub: str | None) -> int:
+async def _status(hub: str | None, full: bool) -> int:
     out = _console()
     async with pb_client.connect(autostart=False) as daemon:
         info = await daemon.hub_info(hub)
 
-    rows = [
-        ("name", info.name),
-        ("id", info.id),
-        ("state", info.state),
-        ("firmware", info.firmware),
-        ("protocol", info.protocol),
-        ("slots", str(info.num_slots)),
-        ("program", "running" if info.program_running else "stopped"),
-        ("clients", str(info.subscribers)),
-    ]
-    if info.status_names:
+    rows = [("name", info.name)]
+    if SHOW_HUB_IDS:
+        rows.append(("id", info.id))
+    rows.append(("state", info.state))
+    rows.append(("firmware", info.firmware))
+    if full:
+        rows.append(("protocol", info.protocol))
+        # Firmware older than the multi-slot support reports none, and a hub
+        # with zero program slots would be a stranger thing to read than no
+        # line at all.
+        if info.num_slots:
+            rows.append(("slots", str(info.num_slots)))
+    rows.append(("program", "running" if info.program_running else "stopped"))
+    if full:
+        rows.append(("used by", str(info.subscribers)))
+
+    # The raw flag names are the firmware's vocabulary, not the user's. The few
+    # that say something actionable are worth translating; the rest are only
+    # interesting when something is being debugged, which is what --full is.
+    warnings = hub_warnings(info.status_names)
+    if warnings:
+        rows.append(("warnings", ", ".join(warnings)))
+    if full and info.status_names:
         rows.append(("flags", ", ".join(info.status_names)))
+
     _rows(out, rows)
     return EXIT_OK
 
