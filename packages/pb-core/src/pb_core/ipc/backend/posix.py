@@ -63,9 +63,16 @@ class PosixBackend(IpcBackend):
         # Blocking stat/mkdir, so off the event loop thread.
         await anyio.to_thread.run_sync(paths.ensure_private_dir, Path(socket.parent))
 
-        # Safe because the caller holds the single-instance lock before getting
-        # here: holding it proves no other daemon is serving this socket, so any
-        # file present is a leftover from a crash.
+        # A socket file on its own says nothing about whether anyone is behind
+        # it, and binding would replace a live daemon's socket with ours --
+        # leaving it running and unreachable. So ask: a connection that is
+        # accepted is proof, and anything else means the file is debris from a
+        # crash and can go. The daemon also holds the single-instance lock by
+        # this point, which is the real guard; this is what makes the backend
+        # honest on its own, and what makes "address already in use" mean the
+        # same thing on every transport.
+        if await _is_live(endpoint):
+            raise AddressInUseError(f"address already in use: {endpoint}")
         with suppress(FileNotFoundError):
             await socket.unlink()
 
@@ -83,3 +90,20 @@ class PosixBackend(IpcBackend):
             await listener.aclose()
             with suppress(FileNotFoundError):
                 await socket.unlink()
+
+
+async def _is_live(endpoint: Endpoint) -> bool:
+    """Whether something is already accepting connections on this socket.
+
+    Args:
+        endpoint: The socket to try.
+
+    Returns:
+        True if a connection was accepted, which only a running daemon can do.
+    """
+    try:
+        stream = await anyio.connect_unix(endpoint.target)
+    except (FileNotFoundError, ConnectionRefusedError, OSError):
+        return False
+    await stream.aclose()
+    return True
