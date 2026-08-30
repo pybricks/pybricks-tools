@@ -95,6 +95,26 @@ async def test_connect_and_describe(daemon_at: Endpoint) -> None:
         assert info.state == "connected"
         assert info.protocol == "1.5.0"
         assert info.num_slots == 5
+        # Read from the hub's PnP ID during the handshake, and named in the
+        # words Pybricks Code uses.
+        assert info.hub_type == "Prime hub"
+
+
+async def test_an_unfamiliar_hub_is_left_unnamed(
+    endpoint: Endpoint, tmp_path: Path
+) -> None:
+    # A hub this version has never heard of still works; it just does not get
+    # called anything, which is better than calling it the wrong thing.
+    hub = FakeHub(name=FIRST, address="00:11:22:33:44:55", hub_type=0x99)
+    async with (
+        daemon_module.run_daemon(
+            endpoint, idle_timeout=0, transport=FakeHubTransport(hub)
+        ),
+        pb_client.connect(endpoint, autostart=False) as daemon,
+    ):
+        info = await daemon.connect_hub(name=FIRST)
+    assert info.hub_type is None
+    assert info.state == "connected"
 
 
 async def test_a_hub_outlives_the_client_that_connected_it(

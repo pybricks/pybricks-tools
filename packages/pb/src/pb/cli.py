@@ -263,7 +263,10 @@ async def _connect(hub: str | None) -> int:
     # The protocol version belongs to pb status: it explains why a command was
     # refused, but on a successful connection it is one more number to read
     # past.
-    err.print(f"Connected to [bold]{info.name}[/] (firmware {info.firmware}).")
+    described = f"firmware {info.firmware}"
+    if info.hub_type:
+        described = f"{info.hub_type}, {described}"
+    err.print(f"Connected to [bold]{info.name}[/] ({described}).")
     return EXIT_OK
 
 
@@ -374,6 +377,8 @@ async def _status(hub: str | None, full: bool) -> int:
     if SHOW_HUB_IDS:
         rows.append(("id", info.id))
     rows.append(("state", info.state))
+    if info.hub_type:
+        rows.append(("type", info.hub_type))
     rows.append(("firmware", info.firmware))
     if full:
         rows.append(("protocol", info.protocol))

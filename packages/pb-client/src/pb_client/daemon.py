@@ -104,6 +104,9 @@ class HubInfo:
     id: str
     name: str
     state: str
+    hub_type: str | None
+    """What kind of hub it is, such as "Technic hub", if it is a known one."""
+
     firmware: str
     protocol: str
     address: str
@@ -129,6 +132,9 @@ class HubInfo:
             id=str(payload.get("id", "")),
             name=str(payload.get("name", "")),
             state=str(payload.get("state", "unknown")),
+            hub_type=(
+                str(payload["type"]) if payload.get("type") is not None else None
+            ),
             firmware=str(payload.get("firmware", "")),
             protocol=str(payload.get("protocol", "")),
             address=str(payload.get("address", "")),
