@@ -76,11 +76,19 @@ def _script(tmp_path: Path, source: str) -> Path:
 # ------------------------------------------------------------------ compiling
 
 
-async def test_compiles_a_script_to_mpy(tmp_path: Path) -> None:
+async def test_compiles_a_script_to_the_container_the_hub_reads(
+    tmp_path: Path,
+) -> None:
+    # Not a bare .mpy: the firmware reads a stored program as a run of
+    # (size, name, mpy) records and checks the MicroPython magic only after
+    # stepping over that header, so a bare .mpy is read as a garbage header
+    # and refused.
     program = await pb_client.compile_script(_script(tmp_path, "print('hi')\n"))
-    # The MicroPython bytecode container starts with 'M'.
-    assert program[:1] == b"M"
-    assert len(program) > 4
+    size = int.from_bytes(program[:4], "little")
+    name, _, mpy = program[4:].partition(b"\x00")
+    assert name == b"__main__"
+    assert len(mpy) == size
+    assert mpy[:1] == b"M"
 
 
 async def test_compile_error_carries_the_compiler_output(tmp_path: Path) -> None:
@@ -274,3 +282,34 @@ async def test_starting_a_slot_on_old_firmware_is_refused(
             await daemon.start_program(slot=2)
 
     assert info.value.code == ErrorCode.HUB_UNSUPPORTED
+
+
+async def test_a_hub_that_refuses_says_so(connected: Endpoint, hub: FakeHub) -> None:
+    # A refusal is an ordinary answer -- a busy hub, a slot with nothing in
+    # it -- and must not arrive as an internal error with the reason left in
+    # the daemon's log.
+    hub.reject_next = p.HubError.BUSY
+    async with pb_client.connect(connected, autostart=False) as daemon:
+        with pytest.raises(JsonRpcError) as info:
+            await daemon.start_program()
+
+    assert info.value.code == ErrorCode.HUB_BUSY
+    assert "would not start" in info.value.message
+    # The firmware's own code travels with it, so a client can be exact.
+    assert info.value.data["hub_error"] == int(p.HubError.BUSY)
+    assert info.value.data["hub_error_name"] == "BUSY"
+
+
+async def test_starting_names_the_program_on_new_firmware(
+    connected: Endpoint, hub: FakeHub, tmp_path: Path
+) -> None:
+    # The no-argument form of START_USER_PROGRAM was removed in profile
+    # v1.4.0, and a hub that speaks it refuses the legacy command outright, so
+    # "whichever is selected" has to be resolved to a real slot before asking.
+    async with pb_client.connect(connected, autostart=False) as daemon:
+        program = await pb_client.compile_script(_script(tmp_path, "x = 1\n"))
+        await daemon.download(program)
+        await daemon.start_program()
+
+    starts = [c for c in hub.commands if c[0] == p.Command.START_USER_PROGRAM]
+    assert starts[-1] == bytes([p.Command.START_USER_PROGRAM, 0])
