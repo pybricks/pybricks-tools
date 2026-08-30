@@ -53,6 +53,51 @@ def _program_to_start(connection: HubConnection, slot: Any) -> int | None:
     return 0
 
 
+def _download_slot(connection: HubConnection, slot: Any) -> int:
+    """Work out where a download will land, and check it is where it was sent.
+
+    The hub decides this, not the host. ``WRITE_USER_PROGRAM_META`` clears and
+    fills whichever slot the hub has selected -- with its own buttons -- and
+    there is no command in the protocol that selects one. So a caller naming a
+    slot is stating an expectation rather than giving an instruction, and the
+    only honest answer when it does not hold is to say so. The alternative is
+    the worst kind of quiet: the program is stored in one slot, the start
+    command names another, and what runs is whatever happened to be there
+    already.
+
+    Args:
+        connection: The hub being written to.
+        slot: The slot the caller expects, or ``None`` to accept the hub's.
+
+    Returns:
+        The slot the program will go into.
+
+    Raises:
+        JsonRpcError: If the hub has a different slot selected.
+    """
+    status = connection.status
+    selected = None if status is None else status.selected_slot
+    # A hub that holds one program at a time reports no selection, and that
+    # one program is slot 0.
+    destination = 0 if selected is None else selected
+    if slot is None or int(slot) == destination:
+        return destination
+
+    info = connection.info
+    if info is not None and info.capabilities.num_slots <= 1:
+        message = f"this hub holds one program at a time, so there is no slot {slot}"
+    else:
+        message = (
+            f"the hub has slot {destination} selected, and a program can only "
+            f"be downloaded into the selected slot"
+        )
+    raise JsonRpcError(
+        ErrorCode.PROGRAM_SLOT_NOT_SELECTED,
+        message,
+        {"selected": destination, "asked": int(slot)},
+    )
+
+
 async def _download(
     connection: HubConnection,
     program: bytes,
@@ -102,18 +147,26 @@ async def _download(
     params={
         "id": "The hub, by name or id. Defaults to the current hub.",
         "mpy": "The compiled program, base64 encoded.",
+        "slot": "The slot it is expected to land in, or null for the hub's own.",
     },
-    returns="The number of bytes written.",
+    returns="How many bytes were written, which slot they went into, and how "
+    "many slots the hub has.",
 )
 async def program_download(session: Session, params: dict[str, Any]) -> dict[str, Any]:
     """Download a program."""
     session.daemon.mark_activity()
     connection = hub_of(session, params)
     program = decode_binary(require(params, "mpy", str))
+    slot = _download_slot(connection, params.get("slot"))
     with hub_errors("store the program"):
         async with connection.abort_on_disconnect():
             await _download(connection, program)
-    return {"size": len(program)}
+    info = connection.info
+    return {
+        "size": len(program),
+        "slot": slot,
+        "slots": 1 if info is None else max(1, info.capabilities.num_slots),
+    }
 
 
 async def _start_and_watch(

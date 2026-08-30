@@ -26,7 +26,7 @@ from pb_client.errors import (
     DaemonUnavailable,
     PbClientError,
 )
-from pb_client.models import DaemonInfo, DeviceInfo, HubInfo
+from pb_client.models import DaemonInfo, DeviceInfo, Downloaded, HubInfo
 from pb_client.stdio import REPL_PROGRAM_ID, HubEvent, Output, State, Status
 from pb_core.jsonrpc import JsonRpcError
 
@@ -40,6 +40,7 @@ __all__ = [
     "DaemonTooOld",
     "DaemonUnavailable",
     "DeviceInfo",
+    "Downloaded",
     "HubEvent",
     "HubInfo",
     "JsonRpcError",

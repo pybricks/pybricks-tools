@@ -16,7 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-__all__ = ["DaemonInfo", "DeviceInfo", "HubInfo"]
+__all__ = ["DaemonInfo", "DeviceInfo", "Downloaded", "HubInfo"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,6 +87,36 @@ class DeviceInfo:
             hub_type=(
                 str(payload["type"]) if payload.get("type") is not None else None
             ),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class Downloaded:
+    """Where a program ended up on the hub."""
+
+    size: int
+    """How many bytes were written."""
+
+    slot: int
+    """Which slot it went into, which the hub chooses rather than the host."""
+
+    slots: int
+    """How many slots this hub has. One means it holds a single program."""
+
+    @classmethod
+    def from_wire(cls, payload: dict[str, Any]) -> Downloaded:
+        """Read one from a ``program.download`` result.
+
+        Args:
+            payload: The result object.
+
+        Returns:
+            The parsed result.
+        """
+        return cls(
+            size=int(payload.get("size", 0)),
+            slot=int(payload.get("slot", 0)),
+            slots=max(1, int(payload.get("slots", 1))),
         )
 
 

@@ -56,14 +56,24 @@ def hub() -> FakeHub:
     return FakeHub(name=HUB_NAME, address="00:11:22:33:44:55")
 
 
+def _endpoint(tmp_path: Path) -> Endpoint:
+    """A socket or pipe of this test's own.
+
+    Args:
+        tmp_path: Somewhere to put a socket, on the platforms that need one.
+
+    Returns:
+        Where a service for one test should listen.
+    """
+    unique = uuid.uuid4().hex[:12]
+    if sys.platform == "win32":
+        return Endpoint("pipe", f"pb-prog-{unique}")
+    return Endpoint("unix", str(tmp_path / f"{unique}.sock"))
+
+
 @pytest.fixture
 async def connected(tmp_path: Path, hub: FakeHub) -> AsyncGenerator[Endpoint, None]:
-    unique = uuid.uuid4().hex[:12]
-    endpoint = (
-        Endpoint("pipe", f"pb-prog-{unique}")
-        if sys.platform == "win32"
-        else Endpoint("unix", str(tmp_path / f"{unique}.sock"))
-    )
+    endpoint = _endpoint(tmp_path)
     async with daemon_module.run_daemon(
         endpoint, idle_timeout=0, transport=FakeHubTransport(hub)
     ):
@@ -142,11 +152,56 @@ async def test_download_puts_the_program_on_the_hub(
 ) -> None:
     program = await pb_client.compile_script(_script(tmp_path, "print('hi')\n"))
     async with pb_client.connect(connected, autostart=False) as daemon:
-        size = await daemon.download(program)
+        written = await daemon.download(program)
 
-    assert size == len(program)
+    assert written.size == len(program)
     assert bytes(hub.program[: len(program)]) == program
     assert hub.program_size == len(program)
+    # Where it went is part of the answer: the hub chooses the slot, so a
+    # caller that did not ask still has to be told which one it was.
+    assert written.slot == hub.selected_slot
+    assert written.slots == hub.num_slots
+
+
+async def test_a_download_goes_to_the_slot_the_hub_has_selected(
+    connected: Endpoint, hub: FakeHub, tmp_path: Path
+) -> None:
+    hub.selected_slot = 2
+    hub.send_status()
+    program = await pb_client.compile_script(_script(tmp_path, "print('hi')\n"))
+    async with pb_client.connect(connected, autostart=False) as daemon:
+        # Naming the slot the hub has selected is agreement rather than an
+        # instruction, and is carried out.
+        written = await daemon.download(program, slot=2)
+        assert written.slot == 2
+
+        # Naming another one cannot be carried out at all: nothing in the
+        # protocol selects a slot, so the program would land in slot 2 anyway
+        # and a later start of slot 4 would run whatever was already there.
+        with pytest.raises(JsonRpcError) as info:
+            await daemon.download(program, slot=4)
+    assert info.value.code == ErrorCode.PROGRAM_SLOT_NOT_SELECTED
+    assert "slot 2 selected" in str(info.value)
+
+
+async def test_a_single_slot_hub_says_so_rather_than_naming_a_slot(
+    tmp_path: Path,
+) -> None:
+    # How many slots a hub has is read once, when it is connected to, so this
+    # one has to be a single-slot hub from the start -- which is what a City,
+    # Technic or Move hub is.
+    hub = FakeHub(name=HUB_NAME, address="00:11:22:33:44:55", num_slots=1)
+    program = await pb_client.compile_script(_script(tmp_path, "print('hi')\n"))
+    endpoint = _endpoint(tmp_path)
+    async with (
+        daemon_module.run_daemon(
+            endpoint, idle_timeout=0, transport=FakeHubTransport(hub)
+        ),
+        pb_client.connect(endpoint, autostart=False) as daemon,
+    ):
+        await daemon.connect_hub(name=HUB_NAME)
+        with pytest.raises(JsonRpcError, match="one program at a time"):
+            await daemon.download(program, slot=3)
 
 
 async def test_download_clears_the_metadata_first(

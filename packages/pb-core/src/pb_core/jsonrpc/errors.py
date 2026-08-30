@@ -48,6 +48,12 @@ class ErrorCode(IntEnum):
     PROGRAM_TOO_LARGE = -32017
     COMPILE_FAILED = -32018
     POWER_BUTTON_PRESSED = -32019
+    PROGRAM_SLOT_NOT_SELECTED = -32022
+    """A download was asked for a slot other than the one the hub has chosen.
+
+    The hub decides where a program lands, and nothing on the wire can change
+    that, so naming a different slot is a request that cannot be carried out.
+    """
 
     # Transport and lifecycle.
     BLUETOOTH_UNAVAILABLE = -32020
