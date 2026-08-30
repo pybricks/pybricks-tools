@@ -323,6 +323,46 @@ async def test_a_hub_that_disconnects_ends_the_session(
     assert "disconnect" in screen.text or "no longer connected" in screen.text
 
 
+async def test_leaving_stops_the_interpreter_it_started(
+    service: FakeHub, terminal: list[_Screen]
+) -> None:
+    hub = service
+
+    async def talk(screen: _Screen) -> None:
+        await _when(lambda: hub.running_program_id == p.UserProgramId.REPL)
+        screen.go.set()
+
+    screen = _Screen(QUIT)
+    assert await _run(screen, terminal, talk) == errors.EXIT_OK
+
+    # A hub only advertises when nothing is running on it, so a session that
+    # left the interpreter going would leave a hub nothing could find.
+    assert not hub.status & p.StatusFlag.USER_PROGRAM_RUNNING
+    assert "can be found again" in screen.text
+
+
+async def test_an_interpreter_that_was_already_running_is_left_alone(
+    service: FakeHub, terminal: list[_Screen]
+) -> None:
+    hub = service
+    hub.running_program_id = p.UserProgramId.REPL
+
+    screen = _Screen(QUIT)
+    holder = terminal
+    holder.append(screen)
+    await hub_commands.connect_cmd(hub=HUB_NAME)
+    hub.set_program_running(True)
+    await anyio.sleep(0.1)
+    screen.go.set()
+
+    with anyio.fail_after(10):
+        assert await repl_command.repl_cmd() == errors.EXIT_OK
+
+    # Somebody else's session, so it is not ours to end.
+    assert hub.status & p.StatusFlag.USER_PROGRAM_RUNNING
+    assert "Joining the interpreter" in screen.text
+
+
 async def test_a_running_program_is_left_alone(
     service: FakeHub, terminal: list[_Screen]
 ) -> None:
