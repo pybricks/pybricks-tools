@@ -1,0 +1,416 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 The Pybricks Authors
+
+"""Turning a failure into something the user can act on.
+
+There are two kinds of failure and they are presented differently.
+
+An **expected** failure -- the hub is switched off, nothing is connected yet,
+the program is too big -- is something the user can do something about. It is
+reported as one plain sentence saying what happened, plus, where there is one, a
+suggestion of how to fix it. A traceback would only bury the sentence that
+matters. The wording follows Pybricks Code, which pairs every alert with a
+``suggestion`` for the same reason; where it has already phrased one of these
+well, its phrasing is reused so that the two tools tell users the same thing.
+
+An **unexpected** failure is a bug in this tool. Nothing is rewritten and
+nothing is swallowed: the original exception is re-raised and Python prints the
+whole traceback, which is the most useful thing that can be shown, both to the
+user and to whoever reads the bug report afterwards.
+
+The reason this module has to exist at all is ``ExceptionGroup``. A task group
+wraps whatever its body raised, so ``except JsonRpcError`` around an
+``async with pb_client.connect()`` block quietly stops matching -- the error
+arrives as a group of one. Everything here therefore starts by flattening.
+
+Dispatch is keyed on the JSON-RPC error *code*, never on message text, so the
+daemon's wording and the wording here stay independently editable and rephrasing
+a daemon message cannot silently turn a friendly error back into a traceback.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+from collections.abc import Awaitable, Callable, Mapping
+from dataclasses import dataclass
+from typing import TypeVar, TypeVarTuple, cast
+
+import anyio
+from rich.console import Console
+
+import pb_client
+from pb_core.ipc import ENDPOINT_ENV_VAR, EndpointError
+from pb_core.jsonrpc import ErrorCode, JsonRpcError
+
+logger = logging.getLogger(__name__)
+
+__all__ = [
+    "EXIT_ERROR",
+    "EXIT_HUB_ERROR",
+    "EXIT_INTERRUPTED",
+    "EXIT_NOTHING_CONNECTED",
+    "EXIT_OK",
+    "Problem",
+    "explain",
+    "find",
+    "flatten",
+    "render",
+    "run",
+]
+
+EXIT_OK = 0
+EXIT_ERROR = 1
+EXIT_HUB_ERROR = 3
+EXIT_NOTHING_CONNECTED = 4
+EXIT_INTERRUPTED = 130
+
+PosArgsT = TypeVarTuple("PosArgsT")
+ExcT = TypeVar("ExcT", bound=BaseException)
+
+
+@dataclass(frozen=True)
+class Problem:
+    """One failure, as the user should see it."""
+
+    message: str
+    """What went wrong, as a sentence."""
+
+    hint: str | None = None
+    """How to fix it, if there is anything useful to say."""
+
+    detail: str = ""
+    """Verbatim output to reproduce underneath, such as compiler diagnostics."""
+
+    exit_code: int = EXIT_ERROR
+    """What the process should exit with."""
+
+
+@dataclass(frozen=True)
+class _Rule:
+    """How to present one JSON-RPC error code."""
+
+    hint: str | None = None
+    exit_code: int = EXIT_HUB_ERROR
+    message: str | None = None
+    """Replaces the daemon's own wording. ``None`` keeps it."""
+
+
+_STALE = (
+    "The background service is left over from an older install. "
+    "Run [bold]pb service stop[/] and try again."
+)
+
+_RULES: Mapping[int, _Rule] = {
+    # Hubs. The daemon's own wording is specific -- "no connected hub named
+    # 'Spare Hub'" -- so it is usually kept as the headline and only the
+    # suggestion is added here.
+    ErrorCode.HUB_NOT_FOUND: _Rule(
+        "Run [bold]pb connect[/] first, or [bold]pb list[/] to see what is connected."
+    ),
+    ErrorCode.HUB_NOT_CONNECTED: _Rule(
+        "Check the hub is switched on and in range, then try again."
+    ),
+    ErrorCode.HUB_ALREADY_CONNECTED: _Rule(
+        "It is connected already -- [bold]pb list[/] shows it."
+    ),
+    ErrorCode.HUB_DISCONNECTED: _Rule(
+        "Run [bold]pb connect[/] to reconnect, then try again.",
+        message="The hub is no longer connected.",
+    ),
+    ErrorCode.HUB_BUSY: _Rule(
+        "Wait a moment, or stop what it is doing with [bold]pb stop[/]."
+    ),
+    ErrorCode.HUB_INVALID_COMMAND: _Rule(
+        "The hub's firmware may be too old. Install the latest version from "
+        "code.pybricks.com."
+    ),
+    ErrorCode.HUB_UNSUPPORTED: _Rule(
+        "This needs newer hub firmware. Install the latest version from "
+        "code.pybricks.com."
+    ),
+    # Programs.
+    ErrorCode.PROGRAM_TOO_LARGE: _Rule(
+        "Try removing unused code, or making names and strings smaller."
+    ),
+    ErrorCode.COMPILE_FAILED: _Rule(
+        "Fix the error the compiler reported and try again.",
+        exit_code=EXIT_ERROR,
+    ),
+    ErrorCode.POWER_BUTTON_PRESSED: _Rule(
+        "You may release the button on the hub now.",
+        message="The hub's button interrupted this.",
+    ),
+    # Transport and lifecycle.
+    ErrorCode.BLUETOOTH_UNAVAILABLE: _Rule(
+        "Connect or enable a Bluetooth Low Energy adapter, and check that this "
+        "computer has permission to use it.",
+        exit_code=EXIT_ERROR,
+        message="No Bluetooth adapter could be found, or permission to use it "
+        "has not been granted.",
+    ),
+    ErrorCode.SCAN_TIMEOUT: _Rule(
+        "Switch the hub on and press its button so that its light flashes."
+    ),
+    ErrorCode.REQUEST_CANCELLED: _Rule(exit_code=EXIT_ERROR, message="Cancelled."),
+    ErrorCode.DAEMON_SHUTTING_DOWN: _Rule(
+        "Try again in a moment.",
+        exit_code=EXIT_ERROR,
+        message="The background service is shutting down.",
+    ),
+    # A stale service is the one failure a user cannot guess their way out of,
+    # and it is likely whenever the tools are upgraded while a hub is being
+    # held open, so all four of its shapes name the same fix.
+    ErrorCode.NOT_AUTHENTICATED: _Rule(
+        _STALE,
+        exit_code=EXIT_ERROR,
+        message="Could not sign in to the background service.",
+    ),
+    ErrorCode.HELLO_REQUIRED: _Rule(_STALE, exit_code=EXIT_ERROR),
+    ErrorCode.UNSUPPORTED_PROTOCOL_VERSION: _Rule(_STALE, exit_code=EXIT_ERROR),
+    ErrorCode.METHOD_NOT_FOUND: _Rule(
+        _STALE,
+        exit_code=EXIT_ERROR,
+        message="The background service does not know that command.",
+    ),
+    # PARSE_ERROR, INVALID_REQUEST and INVALID_PARAMS are deliberately absent:
+    # each means this CLI sent the daemon something it could not use, which no
+    # user can act on and every developer wants a traceback for.
+    ErrorCode.INTERNAL_ERROR: _Rule(
+        "The service log has the details; [bold]pb service status[/] names the file.",
+        exit_code=EXIT_ERROR,
+        message="The background service hit an unexpected problem.",
+    ),
+}
+
+_LOST_CONNECTION = (
+    anyio.BrokenResourceError,
+    anyio.ClosedResourceError,
+    anyio.EndOfStream,
+)
+"""What a service that died mid-call looks like from here.
+
+Recognised, but usually only the wake of a more informative failure, so it is
+dropped whenever anything else survived the flattening.
+"""
+
+_CANCELLED = asyncio.CancelledError
+"""Cancellation, as the asyncio backend spells it.
+
+Deliberately not ``anyio.get_cancelled_exc_class()``, which needs a running
+event loop to answer: by the time a failure is being explained, ``anyio.run``
+has already returned and asking would itself raise. The repository pins the
+asyncio backend, so the answer is known statically anyway.
+"""
+
+_BUG = (
+    "This looks like a bug in pb. Please report it, including everything below "
+    "and what you were doing at the time."
+)
+
+
+def flatten(exc: BaseException) -> list[BaseException]:
+    """Return the leaves of a possibly nested exception group.
+
+    Args:
+        exc: An exception, which may be an :exc:`ExceptionGroup`.
+
+    Returns:
+        Every non-group exception it contains, in order. A plain exception
+        yields itself.
+    """
+    if not isinstance(exc, BaseExceptionGroup):
+        return [exc]
+    # The cast is only about generics: isinstance cannot tell pyright what a
+    # group contains, and the answer is always "exceptions".
+    group = cast("BaseExceptionGroup[BaseException]", exc)
+    return [leaf for child in group.exceptions for leaf in flatten(child)]
+
+
+def find(exc: BaseException, kind: type[ExcT]) -> ExcT | None:
+    """Return the first leaf of ``exc`` that is an instance of ``kind``.
+
+    Commands use this when they want to treat one particular failure as a
+    normal outcome. Catching the exception type alone is not enough, because a
+    task group will have wrapped it in a group.
+
+    Args:
+        exc: The exception to look inside.
+        kind: The type being looked for.
+
+    Returns:
+        The matching exception, or ``None``.
+    """
+    for leaf in flatten(exc):
+        if isinstance(leaf, kind):
+            return leaf
+    return None
+
+
+def _sentence(text: str) -> str:
+    """Render a wire message as a sentence."""
+    text = text.strip()
+    if not text:
+        return "Something went wrong."
+    text = text[0].upper() + text[1:]
+    return text if text[-1] in ".!?" else text + "."
+
+
+def _too_large(exc: JsonRpcError) -> str:
+    """Say how much too big a program is, following Pybricks Code's wording."""
+    payload: object = exc.data
+    if not isinstance(payload, Mapping):
+        return _sentence(exc.message)
+    # Cast the original rather than the narrowed local: isinstance can say
+    # that it is a mapping, but not of what.
+    data = cast("Mapping[str, object]", exc.data)
+    size, limit = data.get("size"), data.get("limit")
+    if not isinstance(size, int) or not isinstance(limit, int):
+        return _sentence(exc.message)
+    return (
+        f"This program is too big. Compiled size is {size} bytes "
+        f"but the hub can only fit {limit} bytes."
+    )
+
+
+def _describe_rpc(exc: JsonRpcError, hints: Mapping[int, str] | None) -> Problem | None:
+    """Present an error the daemon reported, or ``None`` if the code is unknown."""
+    rule = _RULES.get(exc.code)
+    if rule is None:
+        # An unknown code means the daemon and this CLI disagree about the
+        # protocol, which is a bug rather than something to paper over.
+        return None
+    if exc.code == ErrorCode.PROGRAM_TOO_LARGE:
+        message = _too_large(exc)
+    else:
+        message = rule.message or _sentence(exc.message)
+    hint = rule.hint if hints is None else hints.get(exc.code, rule.hint)
+    return Problem(message=message, hint=hint, exit_code=rule.exit_code)
+
+
+def _describe(exc: BaseException, hints: Mapping[int, str] | None) -> Problem | None:
+    """Present one leaf exception, or ``None`` if it is not one we know."""
+    if isinstance(exc, JsonRpcError):
+        return _describe_rpc(exc, hints)
+    if isinstance(exc, pb_client.CompileError):
+        # The compiler's own diagnostics name the offending line, which is a
+        # better suggestion than anything that could be written here.
+        return Problem(_sentence(str(exc)), detail=exc.output.rstrip())
+    if isinstance(exc, pb_client.DaemonUnavailable):
+        return Problem(
+            "No hub is connected.",
+            "Run [bold]pb connect[/] first.",
+            exit_code=EXIT_NOTHING_CONNECTED,
+        )
+    if isinstance(exc, pb_client.DaemonStartError):
+        return Problem(
+            "The background service would not start.",
+            f"Look in {exc.log_file} for what went wrong.",
+        )
+    if isinstance(exc, _LOST_CONNECTION):
+        return Problem(
+            "Lost the connection to the background service.",
+            "Run [bold]pb service status[/] to check on it, then try again.",
+        )
+    if isinstance(exc, EndpointError):
+        return Problem(
+            _sentence(str(exc)),
+            f"{ENDPOINT_ENV_VAR} should look like tcp://127.0.0.1:47823, "
+            "unix:///path/to/socket or pipe://name. Unset it to use the "
+            "default.",
+        )
+    if isinstance(exc, KeyboardInterrupt):
+        return Problem("Interrupted.", exit_code=EXIT_INTERRUPTED)
+    return None
+
+
+def explain(
+    exc: BaseException, hints: Mapping[int, str] | None = None
+) -> list[Problem] | None:
+    """Describe a failure for the user.
+
+    Args:
+        exc: What was raised, possibly an exception group.
+        hints: Suggestions replacing the default one, for particular JSON-RPC
+            error codes. A command knows something the table cannot: which fix
+            to suggest for a hub that was not found depends on whether the user
+            was trying to connect to one or to use one already connected.
+
+    Returns:
+        One :class:`Problem` per distinct failure, or ``None`` if any of them
+        is unrecognised -- in which case the caller must re-raise, so that the
+        traceback is not lost.
+    """
+    # Cancellation is control flow rather than failure: a task group cancels
+    # its remaining children as part of unwinding, so these are always noise.
+    leaves = [leaf for leaf in flatten(exc) if not isinstance(leaf, _CANCELLED)]
+    interesting = [leaf for leaf in leaves if not isinstance(leaf, _LOST_CONNECTION)]
+    leaves = interesting or leaves
+
+    problems: list[Problem] = []
+    seen: set[tuple[type[BaseException], str]] = set()
+    for leaf in leaves:
+        # Task groups routinely produce several copies of one failure, one for
+        # each task that noticed it.
+        key = (type(leaf), str(leaf))
+        if key in seen:
+            continue
+        seen.add(key)
+        problem = _describe(leaf, hints)
+        if problem is None:
+            logger.debug("no friendly wording for %r", leaf)
+            return None
+        problems.append(problem)
+    return problems or None
+
+
+def render(err: Console, problems: list[Problem]) -> int:
+    """Print problems to stderr and return the exit code to use.
+
+    Args:
+        err: A console writing to stderr. Nothing about a failure belongs on
+            stdout, which is reserved for data.
+        problems: What to print, most important first.
+
+    Returns:
+        The exit code of the first problem.
+    """
+    for problem in problems:
+        # Messages can carry text from the daemon or a file path, so markup is
+        # off for them; suggestions are our own literals and may use it.
+        err.print(problem.message, style="red", markup=False, highlight=False)
+        if problem.detail:
+            err.print(problem.detail, markup=False, highlight=False)
+        if problem.hint:
+            err.print(problem.hint, style="dim")
+    return problems[0].exit_code
+
+
+def run(
+    func: Callable[[*PosArgsT], Awaitable[int]],
+    *args: *PosArgsT,
+    hints: Mapping[int, str] | None = None,
+) -> int:
+    """Run a command body, reporting expected failures kindly.
+
+    This is where every command meets the outside world, and the only place a
+    broad ``except`` belongs: anything :func:`explain` does not recognise is
+    re-raised untouched, so that Python prints its traceback.
+
+    Args:
+        func: The async body of the command.
+        *args: Passed to ``func``.
+        hints: Per-code suggestions, as for :func:`explain`.
+
+    Returns:
+        The process exit code.
+    """
+    try:
+        return anyio.run(func, *args, backend="asyncio")
+    except BaseException as exc:
+        problems = explain(exc, hints)
+        if problems is None:
+            logger.debug("unhandled error", exc_info=exc)
+            Console(stderr=True).print(_BUG, style="yellow")
+            raise
+        return render(Console(stderr=True), problems)

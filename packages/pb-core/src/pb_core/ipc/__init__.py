@@ -17,12 +17,13 @@ from anyio.abc import ByteStream
 
 from pb_core.ipc.address import ENDPOINT_ENV_VAR, Endpoint, default, resolve
 from pb_core.ipc.backend import IpcBackend, IpcListener, StreamHandler, get_backend
-from pb_core.ipc.errors import AddressInUseError
+from pb_core.ipc.errors import AddressInUseError, EndpointError
 
 __all__ = [
     "ENDPOINT_ENV_VAR",
     "AddressInUseError",
     "Endpoint",
+    "EndpointError",
     "IpcBackend",
     "IpcListener",
     "StreamHandler",

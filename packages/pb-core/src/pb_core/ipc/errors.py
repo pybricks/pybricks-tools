@@ -15,9 +15,20 @@ from __future__ import annotations
 
 import errno
 
-__all__ = ["AddressInUseError", "is_address_in_use"]
+__all__ = ["AddressInUseError", "EndpointError", "is_address_in_use"]
 
 _WSAEADDRINUSE = 10048
+
+
+class EndpointError(ValueError):
+    """An endpoint URI is malformed or names an unknown transport.
+
+    Almost always a typo in ``PB_ENDPOINT``. It is named rather than a plain
+    :class:`ValueError` so that a command line can tell a mistyped address --
+    which the user can fix -- from a bug, which it must not pretend to
+    understand. A subclass of :class:`ValueError` so that existing handling
+    keeps working.
+    """
 
 
 class AddressInUseError(OSError):

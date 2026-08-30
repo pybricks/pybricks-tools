@@ -3,10 +3,14 @@
 
 """The ``pb`` command line.
 
-Two rules shape everything here. Data goes to stdout and everything else --
+Three rules shape everything here. Data goes to stdout and everything else --
 progress, spinners, logs, prompts -- goes to stderr, so piping a command into
-another program stays clean. And commands are thin: they parse arguments, call
-``pb_client``, and render. No protocol logic lives in this package.
+another program stays clean. Commands are thin: they parse arguments, call
+``pb_client``, and render; no protocol logic lives in this package. And no
+command catches its own failures, because a task group would have wrapped them
+in an ``ExceptionGroup`` anyway -- :mod:`pb.errors` does that in one place, for
+all of them. The only exceptions here are the few cases where a failure is a
+perfectly normal answer, such as listing hubs when nothing is connected.
 """
 
 from __future__ import annotations
@@ -14,29 +18,46 @@ from __future__ import annotations
 import contextlib
 import logging
 import sys
-from collections.abc import Iterator
+from collections.abc import Generator, Mapping
 from pathlib import Path
 from typing import Annotated
 
-import anyio
 import cyclopts
 from rich.console import Console
 from rich.table import Table
 
 import pb_client
-from pb import __version__
+from pb import __version__, errors
+from pb.errors import EXIT_HUB_ERROR, EXIT_OK
+from pb_core.jsonrpc import ErrorCode
 from pb_core.logging import TRACE, setup_logging
 
 logger = logging.getLogger(__name__)
 
 __all__ = ["app", "main"]
 
-EXIT_OK = 0
-EXIT_ERROR = 1
-EXIT_HUB_ERROR = 3
-EXIT_DAEMON_UNAVAILABLE = 4
-
 _ID_PREFIXES = ("ble:", "fake:", "usb:", "rfcomm:")
+
+_HANDLED_HERE = (pb_client.PbClientError, BaseExceptionGroup)
+"""What to catch when a command deals with a failure itself.
+
+Catching the error's own type is not enough: anything raised inside an
+``async with pb_client.connect()`` block comes back wrapped in a group of one,
+so the type to catch is not the type that was raised.
+"""
+
+_CONNECT_HINTS: Mapping[int, str] = {
+    ErrorCode.HUB_NOT_FOUND: (
+        "Switch the hub on and press its button so that its light flashes. "
+        "If it is new, is the Pybricks firmware installed?"
+    ),
+}
+"""What to suggest when it is a hub to connect to that could not be found.
+
+Everywhere else, a missing hub means one that was expected to be connected
+already, and the suggestion is to run [bold]pb connect[/] -- which would be
+silly advice for [bold]pb connect[/] itself.
+"""
 
 app = cyclopts.App(
     name="pb",
@@ -71,7 +92,7 @@ def _console(*, err: bool = False) -> Console:
 
 
 @contextlib.contextmanager
-def _null() -> Iterator[None]:
+def _null() -> Generator[None]:
     """Stand in for a spinner when output is not a terminal."""
     yield
 
@@ -96,11 +117,6 @@ def _configure_logging(verbose: int) -> None:
 def _looks_like_id(value: str) -> bool:
     """Whether a string is a hub id rather than a hub name."""
     return value.startswith(_ID_PREFIXES)
-
-
-def _report_hub_error(err: Console, exc: pb_client.JsonRpcError) -> int:
-    err.print(f"[red]{exc.message}[/]")
-    return EXIT_HUB_ERROR
 
 
 def _rows(out: Console, rows: list[tuple[str, str]]) -> None:
@@ -130,23 +146,19 @@ def scan_cmd(
         verbose: Increase log detail.
     """
     _configure_logging(verbose)
-    return anyio.run(_scan, timeout, name, backend="asyncio")
+    return errors.run(_scan, timeout, name)
 
 
 async def _scan(seconds: float, name: str | None) -> int:
     out, err = _console(), _console(err=True)
-    try:
-        async with pb_client.connect() as daemon:
-            spinner = (
-                err.status(f"Scanning for {seconds:.0f}s...")
-                if err.is_terminal
-                else _null()
-            )
-            with spinner:
-                devices = await daemon.scan(seconds=seconds, name=name)
-    except pb_client.DaemonStartError as exc:
-        err.print(f"[red]{exc}[/]")
-        return EXIT_ERROR
+    async with pb_client.connect() as daemon:
+        spinner = (
+            err.status(f"Scanning for {seconds:.0f}s...")
+            if err.is_terminal
+            else _null()
+        )
+        with spinner:
+            devices = await daemon.scan(seconds=seconds, name=name)
 
     if not devices:
         err.print("[yellow]No hubs found.[/] Is the hub switched on and in range?")
@@ -179,24 +191,18 @@ def connect_cmd(hub: str | None = None, *, verbose: Verbose = 0) -> int:
         verbose: Increase log detail.
     """
     _configure_logging(verbose)
-    return anyio.run(_connect, hub, backend="asyncio")
+    return errors.run(_connect, hub, hints=_CONNECT_HINTS)
 
 
 async def _connect(hub: str | None) -> int:
     err = _console(err=True)
-    try:
-        async with pb_client.connect() as daemon:
-            spinner = err.status("Connecting...") if err.is_terminal else _null()
-            with spinner:
-                info = await daemon.connect_hub(
-                    hub_id=hub if hub and _looks_like_id(hub) else None,
-                    name=hub if hub and not _looks_like_id(hub) else None,
-                )
-    except pb_client.JsonRpcError as exc:
-        return _report_hub_error(err, exc)
-    except pb_client.DaemonStartError as exc:
-        err.print(f"[red]{exc}[/]")
-        return EXIT_ERROR
+    async with pb_client.connect() as daemon:
+        spinner = err.status("Connecting...") if err.is_terminal else _null()
+        with spinner:
+            info = await daemon.connect_hub(
+                hub_id=hub if hub and _looks_like_id(hub) else None,
+                name=hub if hub and not _looks_like_id(hub) else None,
+            )
 
     err.print(
         f"Connected to [bold]{info.name}[/] "
@@ -214,7 +220,7 @@ def disconnect_cmd(hub: str | None = None, *, verbose: Verbose = 0) -> int:
         verbose: Increase log detail.
     """
     _configure_logging(verbose)
-    return anyio.run(_disconnect, hub, backend="asyncio")
+    return errors.run(_disconnect, hub)
 
 
 async def _disconnect(hub: str | None) -> int:
@@ -222,11 +228,13 @@ async def _disconnect(hub: str | None) -> int:
     try:
         async with pb_client.connect(autostart=False) as daemon:
             await daemon.disconnect_hub(hub)
-    except pb_client.DaemonUnavailable:
+    except _HANDLED_HERE as exc:
+        # Nothing connected means there is nothing to disconnect, which is the
+        # outcome the user asked for rather than a failure.
+        if errors.find(exc, pb_client.DaemonUnavailable) is None:
+            raise
         err.print("No hub is connected.")
         return EXIT_OK
-    except pb_client.JsonRpcError as exc:
-        return _report_hub_error(err, exc)
     err.print("Disconnected.")
     return EXIT_OK
 
@@ -239,7 +247,7 @@ def list_cmd(*, verbose: Verbose = 0) -> int:
         verbose: Increase log detail.
     """
     _configure_logging(verbose)
-    return anyio.run(_list, backend="asyncio")
+    return errors.run(_list)
 
 
 async def _list() -> int:
@@ -247,7 +255,10 @@ async def _list() -> int:
     try:
         async with pb_client.connect(autostart=False) as daemon:
             hubs, default = await daemon.list_hubs()
-    except pb_client.DaemonUnavailable:
+    except _HANDLED_HERE as exc:
+        # An empty list is a real answer to "what is connected?".
+        if errors.find(exc, pb_client.DaemonUnavailable) is None:
+            raise
         err.print("No hubs are connected.")
         return EXIT_OK
 
@@ -291,19 +302,13 @@ def status_cmd(hub: str | None = None, *, verbose: Verbose = 0) -> int:
         verbose: Increase log detail.
     """
     _configure_logging(verbose)
-    return anyio.run(_status, hub, backend="asyncio")
+    return errors.run(_status, hub)
 
 
 async def _status(hub: str | None) -> int:
-    out, err = _console(), _console(err=True)
-    try:
-        async with pb_client.connect(autostart=False) as daemon:
-            info = await daemon.hub_info(hub)
-    except pb_client.DaemonUnavailable:
-        err.print("No hub is connected. Run [bold]pb connect[/] first.")
-        return EXIT_DAEMON_UNAVAILABLE
-    except pb_client.JsonRpcError as exc:
-        return _report_hub_error(err, exc)
+    out = _console()
+    async with pb_client.connect(autostart=False) as daemon:
+        info = await daemon.hub_info(hub)
 
     rows = [
         ("name", info.name),
@@ -330,19 +335,13 @@ def stop_cmd(hub: str | None = None, *, verbose: Verbose = 0) -> int:
         verbose: Increase log detail.
     """
     _configure_logging(verbose)
-    return anyio.run(_stop, hub, backend="asyncio")
+    return errors.run(_stop, hub)
 
 
 async def _stop(hub: str | None) -> int:
     err = _console(err=True)
-    try:
-        async with pb_client.connect(autostart=False) as daemon:
-            await daemon.stop_program(hub)
-    except pb_client.DaemonUnavailable:
-        err.print("No hub is connected.")
-        return EXIT_DAEMON_UNAVAILABLE
-    except pb_client.JsonRpcError as exc:
-        return _report_hub_error(err, exc)
+    async with pb_client.connect(autostart=False) as daemon:
+        await daemon.stop_program(hub)
     err.print("Stopped.")
     return EXIT_OK
 
@@ -366,38 +365,24 @@ def run_cmd(
         verbose: Increase log detail.
     """
     _configure_logging(verbose)
-    return anyio.run(_run, script, hub, slot, wait, backend="asyncio")
+    return errors.run(_run, script, hub, slot, wait)
 
 
 async def _run(script: Path, hub: str | None, slot: int | None, wait: bool) -> int:
     err = _console(err=True)
 
-    try:
-        spinner = err.status("Compiling...") if err.is_terminal else _null()
-        with spinner:
-            program = await pb_client.compile_script(script)
-    except pb_client.CompileError as exc:
-        err.print(f"[red]{exc}[/]")
-        if exc.output:
-            err.print(exc.output.rstrip(), highlight=False, markup=False)
-        return EXIT_ERROR
+    spinner = err.status("Compiling...") if err.is_terminal else _null()
+    with spinner:
+        program = await pb_client.compile_script(script)
 
-    try:
-        async with pb_client.connect(autostart=False) as daemon:
-            spinner = (
-                err.status(f"Downloading {len(program)} bytes...")
-                if err.is_terminal
-                else _null()
-            )
-            with spinner:
-                reason = await daemon.run_program(
-                    program, hub_id=hub, slot=slot, wait=wait
-                )
-    except pb_client.DaemonUnavailable:
-        err.print("No hub is connected. Run [bold]pb connect[/] first.")
-        return EXIT_DAEMON_UNAVAILABLE
-    except pb_client.JsonRpcError as exc:
-        return _report_hub_error(err, exc)
+    async with pb_client.connect(autostart=False) as daemon:
+        spinner = (
+            err.status(f"Downloading {len(program)} bytes...")
+            if err.is_terminal
+            else _null()
+        )
+        with spinner:
+            reason = await daemon.run_program(program, hub_id=hub, slot=slot, wait=wait)
 
     if reason == "disconnected":
         err.print("[yellow]The hub disconnected while the program was running.[/]")
@@ -419,27 +404,15 @@ def download_cmd(script: Path, hub: str | None = None, *, verbose: Verbose = 0) 
         verbose: Increase log detail.
     """
     _configure_logging(verbose)
-    return anyio.run(_download, script, hub, backend="asyncio")
+    return errors.run(_download, script, hub)
 
 
 async def _download(script: Path, hub: str | None) -> int:
     err = _console(err=True)
-    try:
-        program = await pb_client.compile_script(script)
-    except pb_client.CompileError as exc:
-        err.print(f"[red]{exc}[/]")
-        if exc.output:
-            err.print(exc.output.rstrip(), highlight=False, markup=False)
-        return EXIT_ERROR
+    program = await pb_client.compile_script(script)
 
-    try:
-        async with pb_client.connect(autostart=False) as daemon:
-            size = await daemon.download(program, hub_id=hub)
-    except pb_client.DaemonUnavailable:
-        err.print("No hub is connected. Run [bold]pb connect[/] first.")
-        return EXIT_DAEMON_UNAVAILABLE
-    except pb_client.JsonRpcError as exc:
-        return _report_hub_error(err, exc)
+    async with pb_client.connect(autostart=False) as daemon:
+        size = await daemon.download(program, hub_id=hub)
 
     err.print(f"Downloaded {size} bytes.")
     return EXIT_OK
@@ -458,7 +431,7 @@ def service_status(*, verbose: Verbose = 0, start: bool = False) -> int:
             that it is not.
     """
     _configure_logging(verbose)
-    return anyio.run(_service_status, start, backend="asyncio")
+    return errors.run(_service_status, start)
 
 
 async def _service_status(start: bool) -> int:
@@ -466,13 +439,14 @@ async def _service_status(start: bool) -> int:
     try:
         async with pb_client.connect(autostart=start) as daemon:
             info = await daemon.info()
-    except pb_client.DaemonUnavailable:
+    except _HANDLED_HERE as exc:
+        # "It is not running" is the answer to the question, not a failure to
+        # answer it, so it is reported here rather than as an error.
+        if errors.find(exc, pb_client.DaemonUnavailable) is None:
+            raise
         err.print("[yellow]Not running.[/]")
         err.print("It starts by itself when needed, or run [bold]pb service start[/].")
-        return EXIT_DAEMON_UNAVAILABLE
-    except pb_client.DaemonStartError as exc:
-        err.print(f"[red]{exc}[/]")
-        return EXIT_ERROR
+        return errors.EXIT_NOTHING_CONNECTED
 
     _rows(
         out,
@@ -498,17 +472,13 @@ def service_start(*, verbose: Verbose = 0) -> int:
         verbose: Increase log detail.
     """
     _configure_logging(verbose)
-    return anyio.run(_service_start, backend="asyncio")
+    return errors.run(_service_start)
 
 
 async def _service_start() -> int:
     err = _console(err=True)
-    try:
-        async with pb_client.connect(autostart=True) as daemon:
-            info = await daemon.info()
-    except pb_client.DaemonStartError as exc:
-        err.print(f"[red]{exc}[/]")
-        return EXIT_ERROR
+    async with pb_client.connect(autostart=True) as daemon:
+        info = await daemon.info()
     err.print(f"Running (pid {info.pid}).")
     return EXIT_OK
 
@@ -521,7 +491,7 @@ def service_stop(*, verbose: Verbose = 0) -> int:
         verbose: Increase log detail.
     """
     _configure_logging(verbose)
-    return anyio.run(_service_stop, backend="asyncio")
+    return errors.run(_service_stop)
 
 
 async def _service_stop() -> int:
@@ -529,7 +499,10 @@ async def _service_stop() -> int:
     try:
         async with pb_client.connect(autostart=False) as daemon:
             await daemon.shutdown()
-    except pb_client.DaemonUnavailable:
+    except _HANDLED_HERE as exc:
+        # Stopping something that is already stopped succeeded.
+        if errors.find(exc, pb_client.DaemonUnavailable) is None:
+            raise
         err.print("Not running.")
         return EXIT_OK
     err.print("Stopping.")

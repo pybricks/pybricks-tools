@@ -94,9 +94,7 @@ class HubManager:
                 # Exactly one hub is unambiguous, so do not make the user say
                 # which one.
                 return next(iter(self._hubs.values()))
-            raise HubNotFoundError(
-                "no hub selected; connect one first, or name it explicitly"
-            )
+            raise HubNotFoundError("no hub selected")
         connection = self._hubs.get(wanted)
         if connection is None:
             raise HubNotFoundError(f"hub is not connected: {wanted}")

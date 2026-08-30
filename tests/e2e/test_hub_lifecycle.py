@@ -175,7 +175,7 @@ async def test_connecting_to_a_hub_that_is_not_there(daemon_at: Endpoint) -> Non
         with pytest.raises(JsonRpcError) as info:
             await daemon.connect_hub(name="No Such Hub")
         assert info.value.code == ErrorCode.HUB_NOT_FOUND
-        assert "switched on and in range" in info.value.message
+        assert info.value.message == "no hub found"
 
 
 async def test_stop_program_reaches_the_hub(

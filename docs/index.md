@@ -86,6 +86,23 @@ with anyio.move_on_after(30):
 Cancelling a run also stops the program on the hub, rather than leaving it
 running.
 
+## When something goes wrong
+
+`pb` tries to say what happened in one line and, where there is one, what to do
+about it:
+
+```console
+$ pb run demo.py
+No hub found.
+Switch the hub on and press its button so that its light flashes.
+```
+
+If you ever see a traceback instead, that is a bug in `pb` rather than something
+you did -- please report it, including the traceback and what you were doing.
+
+Commands exit `0` when they succeed, and non-zero when they do not: `3` if the
+hub or your program was the problem, `4` if no hub is connected, `1` otherwise.
+
 ## Where to next
 
 - [How it works](design.md) — what keeps a hub connected between commands, and

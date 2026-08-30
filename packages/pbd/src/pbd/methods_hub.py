@@ -148,10 +148,9 @@ async def hub_connect(session: Session, params: dict[str, Any]) -> dict[str, Any
                 break
 
     if device is None:
-        raise JsonRpcError(
-            ErrorCode.HUB_NOT_FOUND,
-            "no matching hub found; make sure it is switched on and in range",
-        )
+        # Just the fact. What to do about it depends on what the caller was
+        # trying to do, so the advice belongs to the client, not here.
+        raise JsonRpcError(ErrorCode.HUB_NOT_FOUND, "no hub found")
 
     try:
         with anyio.fail_after(CONNECT_SECONDS):
