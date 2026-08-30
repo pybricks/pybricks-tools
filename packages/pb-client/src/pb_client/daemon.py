@@ -352,7 +352,7 @@ async def connect(
         token = auth.load_token()
         if token is None:
             raise DaemonUnavailable(
-                "no authentication token found; the daemon has not run for this user"
+                "no saved credentials; the background service has not run for this user yet"
             )
 
         async with connect_peer(stream) as peer:

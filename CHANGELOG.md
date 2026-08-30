@@ -18,8 +18,8 @@ All notable changes to this project are documented here. The format is based on
   so a client-side deadline also stops the daemon working.
 - Daemon lifecycle: single-instance lock, shared-secret authentication,
   autostart on demand, hub-aware idle timeout.
-- `pb daemon start|stop|status`. The daemon outlives the command that starts
-  it, so a later `pb daemon status` reaches the same process.
+- `pb service start|stop|status`. The background service outlives the command
+  that starts it, so a later `pb service status` reaches the same process.
 - The Pybricks hub protocol, written against the firmware header, with the
   profile-version gating that `START_USER_PROGRAM`, `START_REPL` and the status
   report all need.

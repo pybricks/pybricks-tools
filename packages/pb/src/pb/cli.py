@@ -43,13 +43,16 @@ app = cyclopts.App(
     version=__version__,
     help=(
         "Talk to Pybricks hubs.\n\n"
-        "A background daemon holds hub connections open, so a hub stays "
-        "connected between commands."
+        "A hub stays connected between commands, so you only need to run "
+        "pb connect once."
     ),
 )
 
-daemon_app = cyclopts.App(name="daemon", help="Manage the background daemon.")
-app.command(daemon_app)
+service_app = cyclopts.App(
+    name="service",
+    help="Manage the background service that keeps hubs connected.",
+)
+app.command(service_app)
 
 
 Verbose = Annotated[
@@ -220,7 +223,7 @@ async def _disconnect(hub: str | None) -> int:
         async with pb_client.connect(autostart=False) as daemon:
             await daemon.disconnect_hub(hub)
     except pb_client.DaemonUnavailable:
-        err.print("No daemon is running, so no hub is connected.")
+        err.print("No hub is connected.")
         return EXIT_OK
     except pb_client.JsonRpcError as exc:
         return _report_hub_error(err, exc)
@@ -230,7 +233,7 @@ async def _disconnect(hub: str | None) -> int:
 
 @app.command(name="list")
 def list_cmd(*, verbose: Verbose = 0) -> int:
-    """List the hubs the daemon is holding open.
+    """List the hubs that are currently connected.
 
     Args:
         verbose: Increase log detail.
@@ -245,7 +248,7 @@ async def _list() -> int:
         async with pb_client.connect(autostart=False) as daemon:
             hubs, default = await daemon.list_hubs()
     except pb_client.DaemonUnavailable:
-        err.print("No daemon is running, so no hubs are connected.")
+        err.print("No hubs are connected.")
         return EXIT_OK
 
     if not hubs:
@@ -297,7 +300,7 @@ async def _status(hub: str | None) -> int:
         async with pb_client.connect(autostart=False) as daemon:
             info = await daemon.hub_info(hub)
     except pb_client.DaemonUnavailable:
-        err.print("No daemon is running.")
+        err.print("No hub is connected. Run [bold]pb connect[/] first.")
         return EXIT_DAEMON_UNAVAILABLE
     except pb_client.JsonRpcError as exc:
         return _report_hub_error(err, exc)
@@ -336,7 +339,7 @@ async def _stop(hub: str | None) -> int:
         async with pb_client.connect(autostart=False) as daemon:
             await daemon.stop_program(hub)
     except pb_client.DaemonUnavailable:
-        err.print("No daemon is running.")
+        err.print("No hub is connected.")
         return EXIT_DAEMON_UNAVAILABLE
     except pb_client.JsonRpcError as exc:
         return _report_hub_error(err, exc)
@@ -391,7 +394,7 @@ async def _run(script: Path, hub: str | None, slot: int | None, wait: bool) -> i
                     program, hub_id=hub, slot=slot, wait=wait
                 )
     except pb_client.DaemonUnavailable:
-        err.print("No daemon is running. Connect a hub first with [bold]pb connect[/].")
+        err.print("No hub is connected. Run [bold]pb connect[/] first.")
         return EXIT_DAEMON_UNAVAILABLE
     except pb_client.JsonRpcError as exc:
         return _report_hub_error(err, exc)
@@ -433,7 +436,7 @@ async def _download(script: Path, hub: str | None) -> int:
         async with pb_client.connect(autostart=False) as daemon:
             size = await daemon.download(program, hub_id=hub)
     except pb_client.DaemonUnavailable:
-        err.print("No daemon is running. Connect a hub first with [bold]pb connect[/].")
+        err.print("No hub is connected. Run [bold]pb connect[/] first.")
         return EXIT_DAEMON_UNAVAILABLE
     except pb_client.JsonRpcError as exc:
         return _report_hub_error(err, exc)
@@ -442,30 +445,30 @@ async def _download(script: Path, hub: str | None) -> int:
     return EXIT_OK
 
 
-# -------------------------------------------------------------------- daemon
+# ------------------------------------------------------------------- service
 
 
-@daemon_app.command(name="status")
-def daemon_status(*, verbose: Verbose = 0, start: bool = False) -> int:
-    """Show whether the daemon is running, and what it is doing.
+@service_app.command(name="status")
+def service_status(*, verbose: Verbose = 0, start: bool = False) -> int:
+    """Show whether the background service is running.
 
     Args:
         verbose: Increase log detail.
-        start: Start a daemon if none is running, instead of reporting that
-            none is.
+        start: Start the service if it is not running, instead of reporting
+            that it is not.
     """
     _configure_logging(verbose)
-    return anyio.run(_daemon_status, start, backend="asyncio")
+    return anyio.run(_service_status, start, backend="asyncio")
 
 
-async def _daemon_status(start: bool) -> int:
+async def _service_status(start: bool) -> int:
     out, err = _console(), _console(err=True)
     try:
         async with pb_client.connect(autostart=start) as daemon:
             info = await daemon.info()
     except pb_client.DaemonUnavailable:
-        err.print("[yellow]No daemon is running.[/]")
-        err.print("Start one with [bold]pb daemon start[/].")
+        err.print("[yellow]Not running.[/]")
+        err.print("It starts by itself when needed, or run [bold]pb service start[/].")
         return EXIT_DAEMON_UNAVAILABLE
     except pb_client.DaemonStartError as exc:
         err.print(f"[red]{exc}[/]")
@@ -487,18 +490,18 @@ async def _daemon_status(start: bool) -> int:
     return EXIT_OK
 
 
-@daemon_app.command(name="start")
-def daemon_start(*, verbose: Verbose = 0) -> int:
-    """Start the daemon if it is not already running.
+@service_app.command(name="start")
+def service_start(*, verbose: Verbose = 0) -> int:
+    """Start the background service if it is not already running.
 
     Args:
         verbose: Increase log detail.
     """
     _configure_logging(verbose)
-    return anyio.run(_daemon_start, backend="asyncio")
+    return anyio.run(_service_start, backend="asyncio")
 
 
-async def _daemon_start() -> int:
+async def _service_start() -> int:
     err = _console(err=True)
     try:
         async with pb_client.connect(autostart=True) as daemon:
@@ -506,30 +509,30 @@ async def _daemon_start() -> int:
     except pb_client.DaemonStartError as exc:
         err.print(f"[red]{exc}[/]")
         return EXIT_ERROR
-    err.print(f"Daemon running (pid {info.pid}) on {info.endpoint}.")
+    err.print(f"Running (pid {info.pid}).")
     return EXIT_OK
 
 
-@daemon_app.command(name="stop")
-def daemon_stop(*, verbose: Verbose = 0) -> int:
-    """Ask the daemon to exit.
+@service_app.command(name="stop")
+def service_stop(*, verbose: Verbose = 0) -> int:
+    """Stop the background service, disconnecting any hubs.
 
     Args:
         verbose: Increase log detail.
     """
     _configure_logging(verbose)
-    return anyio.run(_daemon_stop, backend="asyncio")
+    return anyio.run(_service_stop, backend="asyncio")
 
 
-async def _daemon_stop() -> int:
+async def _service_stop() -> int:
     err = _console(err=True)
     try:
         async with pb_client.connect(autostart=False) as daemon:
             await daemon.shutdown()
     except pb_client.DaemonUnavailable:
-        err.print("No daemon is running.")
+        err.print("Not running.")
         return EXIT_OK
-    err.print("Daemon stopping.")
+    err.print("Stopping.")
     return EXIT_OK
 
 

@@ -32,7 +32,8 @@ class DaemonStartError(PbClientError):
         # daemon has no terminal of its own, so its failure is invisible
         # otherwise.
         super().__init__(
-            f"the daemon did not start on {endpoint}; see the log at {log_file}"
+            f"could not start the background service ({endpoint}); "
+            f"see the log at {log_file}"
         )
         self.endpoint = endpoint
         self.log_file = log_file
