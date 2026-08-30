@@ -35,8 +35,9 @@ pb run demo.py      # again, without reconnecting
 | Command | What it does |
 | --- | --- |
 | `pb scan` | List hubs that are switched on and nearby |
-| `pb connect [HUB]` | Connect to a hub and keep it connected |
+| `pb connect` | Connect to a hub and keep it connected |
 | `pb run SCRIPT` | Compile a script, send it, and run it |
+| `pb run -c CODE` | Run a line or two of Python without a file |
 | `pb download SCRIPT` | Send a script without running it |
 | `pb start` | Start the program already on the hub |
 | `pb stop` | Stop the running program |
@@ -44,10 +45,11 @@ pb run demo.py      # again, without reconnecting
 | `pb list` | Show which hubs are connected |
 | `pb disconnect` | Disconnect a hub |
 
-With more than one hub connected, add the hub's name to any command:
+With more than one hub connected, name the one you mean with `--hub`, which
+every command takes:
 
 ```bash
-pb run demo.py "Spare Hub"
+pb run demo.py --hub "Spare Hub"
 ```
 
 Every command takes `-v` for more detail, and `-vv` or `-vvv` when something
