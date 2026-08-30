@@ -379,7 +379,6 @@ async def hub_info(session: Session, params: dict[str, Any]) -> dict[str, Any]:
     params={
         "id": "The hub to choose, by name or id, or null to forget the"
         " chosen one. A hub that is not connected may be chosen by name."
-        " Leave the field out to report the choice without changing it."
     },
     returns="The chosen hub's name, and whether it is connected.",
 )
@@ -400,8 +399,6 @@ async def hub_use(session: Session, params: dict[str, Any]) -> dict[str, Any]:
     """
     manager = session.daemon.hubs
     session.daemon.mark_activity()
-    if "id" not in params:
-        return _choice_json(manager, manager.selection.name)
     wanted = params.get("id")
     if wanted is None:
         manager.selection.choose(None)
@@ -434,22 +431,3 @@ def _acting_hub_id(manager: HubManager) -> str | None:
         return manager.get(None).id
     except HubNotFoundError:
         return None
-
-
-def _choice_json(manager: HubManager, name: str | None) -> dict[str, Any]:
-    """Describe the chosen hub.
-
-    Args:
-        manager: The daemon's hubs.
-        name: The chosen hub's name, if there is one.
-
-    Returns:
-        The name, and whether that hub is connected just now.
-    """
-    if name is None:
-        return {"default": None, "connected": False}
-    try:
-        manager.resolve(name)
-    except HubNotFoundError:
-        return {"default": name, "connected": False}
-    return {"default": name, "connected": True}
