@@ -546,6 +546,42 @@ async def test_a_program_that_ends_in_a_traceback_fails_the_command(
     assert await _run(screen, terminal, talk, command) == errors.EXIT_HUB_ERROR
 
 
+INTERRUPTED = (
+    b"Traceback (most recent call last):\r\n"
+    b'  File "__main__.py", line 3, in <module>\r\n'
+    b"KeyboardInterrupt: \r\n"
+)
+"""What the firmware prints when Ctrl-C reaches a running program.
+
+It is a traceback like any other, so telling it apart from a fault in the
+program is a matter of reading which exception ended it.
+"""
+
+
+async def test_an_interrupted_program_exits_the_way_cpython_does(
+    service: FakeHub, terminal: list[_Screen], tmp_path: Path
+) -> None:
+    hub = service
+
+    async def talk(screen: _Screen) -> None:
+        await _when(lambda: bool(hub.status & p.StatusFlag.USER_PROGRAM_RUNNING))
+        hub.send_stdout(INTERRUPTED)
+        await _when(lambda: "KeyboardInterrupt" in screen.text)
+        hub.set_program_running(False)
+
+    screen = _Screen()
+
+    async def command() -> int:
+        return await program_commands.run_cmd(
+            _script(tmp_path, "wait(10000)\n"), hub=HUB_NAME
+        )
+
+    # Interrupting a program is not a fault in it: it is what the user asked
+    # for. CPython exits 130 for a program ended by Ctrl-C and 1 for one that
+    # raised something else, and this keeps that distinction.
+    assert await _run(screen, terminal, talk, command) == errors.EXIT_INTERRUPTED
+
+
 async def test_a_program_that_prints_and_then_ends_well_does_not_fail(
     service: FakeHub, terminal: list[_Screen], tmp_path: Path
 ) -> None:

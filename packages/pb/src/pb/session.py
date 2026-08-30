@@ -38,7 +38,7 @@ import pb_client
 from pb import banner as banner_module
 from pb import console as console_module
 from pb import escape, ui
-from pb.errors import EXIT_HUB_ERROR, EXIT_OK
+from pb.errors import EXIT_HUB_ERROR, EXIT_INTERRUPTED, EXIT_OK
 from pb.escape import Action
 
 logger = logging.getLogger(__name__)
@@ -96,6 +96,14 @@ stop, and nothing at all for a program that simply ended.
 Matching on what the hub printed is a heuristic and is worth naming as one. It
 is here because the alternative is worse: a command that ran a program which
 died with an exception, in front of the user, and then reported success.
+"""
+
+INTERRUPT = b"KeyboardInterrupt"
+"""The exception a program ends with when somebody pressed Ctrl-C at it.
+
+Worth telling apart from every other exception, because it is not a fault in
+the program: it is what the user asked for. CPython exits 130 for it and 1 for
+anything else, and this follows that.
 """
 
 TAIL_BYTES = 4096
@@ -167,10 +175,36 @@ class Running:
         self._tail.extend(data)
         del self._tail[:-TAIL_BYTES]
 
+    def _final_exception(self) -> bytes:
+        """Name the exception the hub last reported, if it reported one.
+
+        Returns:
+            The line naming it, such as ``b"ZeroDivisionError: divide by
+            zero"``, or empty if the tail holds no traceback.
+        """
+        if not self._watch_for_crash:
+            return b""
+        start = self._tail.rfind(TRACEBACK)
+        if start < 0:
+            return b""
+        # A traceback's frames are indented and the exception that ends it is
+        # not, so the first unindented line after the header is the answer.
+        after = bytes(self._tail[start + len(TRACEBACK) :])
+        for line in after.splitlines():
+            if line and not line.startswith((b" ", b"\t")):
+                return line
+        return b""
+
     @property
     def crashed(self) -> bool:
         """Whether it ended by raising something nothing caught."""
-        return self._watch_for_crash and TRACEBACK in self._tail
+        ending = self._final_exception()
+        return bool(ending) and not ending.startswith(INTERRUPT)
+
+    @property
+    def interrupted(self) -> bool:
+        """Whether what ended it was Ctrl-C rather than a fault of its own."""
+        return self._final_exception().startswith(INTERRUPT)
 
     def note(self, status: pb_client.Status) -> None:
         """Take in what the hub says about itself.
@@ -309,7 +343,26 @@ async def _session(
                 "hub off and on."
             )
 
-    if ended.disconnected or running.crashed:
+    return _ending(ended.disconnected, running)
+
+
+def _ending(disconnected: bool, running: Running) -> int:
+    """Decide what the command should exit with.
+
+    Args:
+        disconnected: Whether the hub went away rather than the session ending.
+        running: What was on the other end, and how it ended.
+
+    Returns:
+        The exit code. Interrupting a program is not a failure of it -- it is
+        what the user asked for -- so it is told apart from an exception the
+        program did not catch, the way CPython tells them apart.
+    """
+    if disconnected:
+        return EXIT_HUB_ERROR
+    if running.interrupted:
+        return EXIT_INTERRUPTED
+    if running.crashed:
         return EXIT_HUB_ERROR
     return EXIT_OK
 
@@ -373,9 +426,7 @@ async def streamed(
             if running.ours and running.running and not disconnected:
                 await _stop_quietly(daemon, hub, running.noun)
 
-    if disconnected or running.crashed:
-        return EXIT_HUB_ERROR
-    return EXIT_OK
+    return _ending(disconnected, running)
 
 
 async def _stop_quietly(daemon: pb_client.Daemon, hub: str | None, noun: str) -> None:
