@@ -155,7 +155,9 @@ async def open_connection(
             stream = await stack.enter_async_context(ipc.connect(endpoint))
         except _NOT_LISTENING:
             if not autostart:
-                raise DaemonUnavailable(f"no daemon at {endpoint}") from None
+                raise DaemonUnavailable(
+                    f"the background service is not running ({endpoint})"
+                ) from None
             logger.debug("no daemon at %s; starting one", endpoint)
             spawn_daemon(endpoint)
             stream = await _enter_with_retry(stack, endpoint)

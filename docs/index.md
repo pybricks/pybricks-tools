@@ -63,12 +63,12 @@ import pb_client
 
 
 async def main() -> None:
-    async with pb_client.connect() as daemon:
-        hub = await daemon.connect_hub(name="Pybricks Hub")
+    async with pb_client.connect() as pybricks:
+        hub = await pybricks.connect_hub(name="Pybricks Hub")
         print(f"connected to {hub.name}, firmware {hub.firmware}")
 
         program = await pb_client.compile_script(Path("demo.py"))
-        reason = await daemon.run_program(program)
+        reason = await pybricks.run_program(program)
         print(f"program {reason}")
 
 
@@ -80,7 +80,7 @@ scope instead, which bounds the whole operation rather than one step inside it:
 
 ```python
 with anyio.move_on_after(30):
-    await daemon.run_program(program)
+    await pybricks.run_program(program)
 ```
 
 Cancelling a run also stops the program on the hub, rather than leaving it

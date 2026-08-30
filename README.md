@@ -28,10 +28,10 @@ The same things are available as a library, so you can drive a hub from your
 own program:
 
 ```python
-async with pb_client.connect() as daemon:
-    hub = await daemon.connect_hub(name="Pybricks Hub")
+async with pb_client.connect() as pybricks:
+    hub = await pybricks.connect_hub(name="Pybricks Hub")
     program = await pb_client.compile_script(Path("demo.py"))
-    await daemon.run_program(program)
+    await pybricks.run_program(program)
 ```
 
 > **Status:** early development. Nothing is stable yet.
