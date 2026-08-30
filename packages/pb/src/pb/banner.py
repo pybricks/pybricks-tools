@@ -275,7 +275,7 @@ class Banner:
         if self._notice:
             parts.append(self._notice)
         left = _SEPARATOR.join(parts)
-        right = f"{escape.describe()} ? for help"
+        right = f"{escape.describe()} h for help"
         columns, _rows = self._size
         return _Layout(left, right).fit(columns)
 

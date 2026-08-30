@@ -115,3 +115,13 @@ def test_the_help_spells_out_what_to_type() -> None:
     # Including how to send the escape key itself, which is otherwise the one
     # key a user cannot work out.
     assert ("Ctrl-] Ctrl-]", "send Ctrl-] to the hub") in lines
+    # Help is advertised as the key a hand can reach without a shift.
+    assert ("Ctrl-] h", "show this help") in lines
+
+
+def test_help_answers_to_the_key_the_other_tools_use_as_well() -> None:
+    # h is what is advertised, but ? is what a user of screen or telnet will
+    # try first, and refusing it would be a needless surprise.
+    for key in (b"h", b"H", b"?"):
+        _, actions = escape.Filter().feed(bytes([escape.ESCAPE_KEY]) + key)
+        assert actions == [escape.Action.HELP]

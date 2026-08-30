@@ -126,7 +126,7 @@ def test_the_line_never_fills_the_last_cell() -> None:
 
 
 def test_a_long_name_pushes_the_help_off_rather_than_wrapping() -> None:
-    line = banner._Layout("x" * 100, "Ctrl-] ? for help").fit(40)
+    line = banner._Layout("x" * 100, "Ctrl-] h for help").fit(40)
     assert len(line) == 39
     assert "Ctrl-]" not in line
 

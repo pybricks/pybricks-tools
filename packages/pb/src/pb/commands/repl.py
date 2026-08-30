@@ -78,8 +78,11 @@ async def repl_cmd(
 
     Everything typed goes to the hub, Ctrl-C included -- which is how a
     running program is interrupted. The one key that does not is Ctrl-],
-    which introduces a command for pb itself: Ctrl-] q leaves, and Ctrl-] ?
+    which introduces a command for pb itself: Ctrl-] q leaves, and Ctrl-] h
     lists the rest.
+
+    Ctrl-D ends the interpreter, and so ends the session. A hub already busy
+    with a program of its own is left alone rather than interrupted.
 
     A status line along the bottom says which hub is being talked to, whether
     anything is listening, and whether its battery is about to end the
@@ -98,8 +101,12 @@ async def repl_cmd(
 async def _repl(hub: str | None, replay: int) -> int:
     problem = console_module.why_unavailable()
     if problem is not None:
+        # No markup in the message: an error's headline is printed literally,
+        # because it can carry a hub's name or a file path and a stray bracket
+        # in one of those would either vanish or colour the rest of the line.
+        # Suggestions are our own words, so those may still use it.
         return ui.usage(
-            f"[bold]pb repl[/] needs a terminal, and {problem}.",
+            f"pb repl needs a terminal, and {problem}.",
             "Run it in Windows Terminal, PowerShell or cmd."
             if problem.endswith("cannot do this)")
             else "Run it in a terminal rather than through a pipe.",
@@ -107,11 +114,52 @@ async def _repl(hub: str | None, replay: int) -> int:
 
     async with pb_client.connect(autostart=False) as daemon:
         info = await daemon.hub_info(hub)
+        busy = _refuse_if_busy(info)
+        if busy is not None:
+            return busy
         # Attached before the interpreter is started, so that its greeting is
         # already being listened for by the time it is printed.
         async with daemon.attach(hub_id=hub, replay_bytes=replay) as events:
             with console_module.raw_console() as console:
                 return await _session(daemon, info, console, events, hub)
+
+
+def _refuse_if_busy(info: pb_client.HubInfo) -> int | None:
+    """Refuse the session if the hub is busy with a program of its own.
+
+    A hub runs one thing at a time, so starting the interpreter would stop
+    whatever is running -- a poor way to answer "let me look at this hub".
+    Nor is there anything that could put things back afterwards: there is no
+    equivalent of CPython's ``-i`` here, so a program stopped to make room for
+    the interpreter cannot be handed back to.
+
+    Attaching and waiting for the program to end was the other possibility,
+    and is worse than refusing. It looks exactly like a session that has hung,
+    and the one thing the user asked for -- a prompt -- is the one thing it
+    cannot give them.
+
+    Args:
+        info: The hub as it was when the session was asked for.
+
+    Returns:
+        The exit code to use, or ``None`` if there is nothing in the way.
+    """
+    if not info.program_running:
+        return None
+    if info.running_program_id == pb_client.REPL_PROGRAM_ID:
+        # The interpreter itself, which is what this session came for.
+        return None
+    return errors.render(
+        ui.console(err=True),
+        [
+            errors.Problem(
+                "A program is running on the hub, so the interpreter cannot start.",
+                "Wait for it to finish, or stop it with [bold]pb stop[/] or "
+                "the hub's button.",
+                exit_code=EXIT_HUB_ERROR,
+            )
+        ],
+    )
 
 
 async def _session(
@@ -134,28 +182,29 @@ async def _session(
         The exit code: zero unless the hub went away.
     """
     ended = _Ending()
+    interpreter = _Interpreter()
     keys = escape.Filter()
     sender, receiver = anyio.create_memory_object_stream[bytes](INPUT_QUEUE)
 
     with banner_module.Banner(console, info) as bar:
-        bar.line(f"{escape.describe()} q to leave, {escape.describe()} ? for help.")
+        bar.line(f"{escape.describe()} q to leave, {escape.describe()} h for help.")
         # Before the tasks, not inside them, so that leaving in the same breath
         # as starting cannot race the decision about what to leave running.
         # Nothing is missed by starting it here: the hub was attached to before
         # this session began, so its greeting is already queued.
-        started = await _start_if_idle(daemon, info, bar, hub)
+        await _join_or_start(daemon, info, bar, hub, interpreter)
 
         async with anyio.create_task_group() as tg:
-            tg.start_soon(_show_hub, events, bar, ended, tg.cancel_scope)
+            tg.start_soon(_show_hub, events, bar, ended, interpreter, tg.cancel_scope)
             tg.start_soon(_send_input, daemon, hub, receiver, bar, ended)
             tg.start_soon(
                 _read_keys, daemon, hub, console, keys, sender, bar, ended, tg
             )
             tg.start_soon(_tick, bar)
 
-        if started and not ended.disconnected:
+        if interpreter.ours and interpreter.running and not ended.disconnected:
             await _stop_what_we_started(daemon, hub, bar)
-        elif started and ended.still_running:
+        elif interpreter.ours and interpreter.running:
             # Nothing can be sent to a hub that has gone, so whatever it was
             # doing, it is still doing -- and a hub with something running does
             # not advertise. Why it went is not knowable from here: switched
@@ -216,62 +265,89 @@ class _Ending:
         self.disconnected = False
         """Set when the hub went away rather than the user leaving."""
 
-        self.still_running = True
-        """Whether the hub last said something was running on it.
-
-        True to begin with, because this only matters to a session that
-        started the interpreter, and it was running when it did. What it is
-        for is the difference between a hub that was disconnected on purpose
-        -- where the service stops a built-in program first, and the hub is
-        back to advertising -- and one that stopped answering, where whatever
-        was running still is.
-        """
-
         self.flushed = anyio.Event()
         """Set once everything typed has reached the hub, or failed to."""
 
 
-async def _start_if_idle(
+class _Interpreter:
+    """What the session knows about the interpreter it came to talk to.
+
+    The hub runs one thing at a time and says so in every status report, which
+    makes this the answer to both of the questions the session keeps asking:
+    is stopping the interpreter on the way out ours to do, and is there still
+    anything to type at.
+    """
+
+    def __init__(self) -> None:
+        """Start out expecting an interpreter that has not reported in yet."""
+        self.ours = False
+        """Whether this session started it, and so should stop it again."""
+
+        self.arrived = False
+        """Whether the interpreter has been seen running during this session.
+
+        Until it has, a hub reporting nothing running is the moment before the
+        start command took effect rather than the end of the session.
+        """
+
+        self.running = True
+        """Whether the hub last said anything was running on it.
+
+        True to begin with: a session only gets this far with the interpreter
+        either started or already going.
+        """
+
+        self.gone = False
+        """Whether the interpreter ran and has since stopped."""
+
+    def note(self, status: pb_client.Status) -> None:
+        """Take in what the hub says about itself.
+
+        Args:
+            status: The hub's latest report.
+        """
+        self.running = status.program_running
+        if status.repl_running:
+            self.arrived = True
+        elif not status.program_running and self.arrived:
+            self.gone = True
+
+
+async def _join_or_start(
     daemon: pb_client.Daemon,
     info: pb_client.HubInfo,
     bar: banner_module.Banner,
     hub: str | None,
-) -> bool:
-    """Start the interpreter, unless something is already running.
+    interpreter: _Interpreter,
+) -> None:
+    """Start the interpreter, or join the one already running.
 
-    A hub runs one thing at a time, so starting the interpreter stops whatever
-    else was going. Doing that to a program somebody deliberately started
-    would be a poor way to answer "let me look at this hub", and restarting an
-    interpreter that is already running would throw away the session it holds.
-    Both cases are therefore left alone and said out loud instead.
+    Restarting an interpreter that is already going would throw away the
+    session it holds, so an existing one is joined instead -- and left running
+    afterwards, since it was not ours to stop. A hub busy with a program of
+    its own never reaches here: that is refused before the terminal is
+    touched.
 
     Args:
         daemon: The connected service.
         info: The hub as it was when the session began.
         bar: The status line, for saying what was decided.
         hub: Which hub.
-
-    Returns:
-        True if this session started the interpreter, and so should stop it
-        again on the way out.
+        interpreter: Where to record what was done.
     """
     if info.running_program_id == pb_client.REPL_PROGRAM_ID and info.program_running:
         bar.line("Joining the interpreter that is already running.")
-        return False
-    if info.program_running:
-        bar.line(
-            f"A program is running, so the interpreter was not started. "
-            f"{escape.describe()} r starts it, stopping that program."
-        )
-        return False
+        interpreter.arrived = True
+        return
     await daemon.start_repl(hub)
-    return True
+    interpreter.ours = True
 
 
 async def _show_hub(
     events: AsyncIterator[pb_client.HubEvent],
     bar: banner_module.Banner,
     ended: _Ending,
+    interpreter: _Interpreter,
     scope: anyio.CancelScope,
 ) -> None:
     """Put everything the hub says on the screen, and notice when it stops.
@@ -280,6 +356,7 @@ async def _show_hub(
         events: The hub's output, status and state.
         bar: The status line and the screen above it.
         ended: Where to record that the hub went away.
+        interpreter: What is running on the hub, kept up to date here.
         scope: The session's scope, cancelled when there is nothing left to
             listen to.
     """
@@ -287,8 +364,16 @@ async def _show_hub(
         if isinstance(event, pb_client.Output):
             bar.write(event.data)
         elif isinstance(event, pb_client.Status):
-            ended.still_running = event.program_running
+            interpreter.note(event)
             bar.update(event)
+            if interpreter.gone:
+                # Ctrl-D at the prompt ends the interpreter, and so does
+                # stopping it from anywhere else. Either way there is nothing
+                # left to type at, and a session sitting at a prompt that is
+                # not there would be the tool pretending otherwise.
+                bar.line("The interpreter stopped, so the session is over.")
+                scope.cancel()
+                return
         elif not event.connected and event.state == "disconnected":
             bar.line(f"The hub disconnected ({event.reason or 'no reason given'}).")
             ended.disconnected = True
@@ -426,18 +511,22 @@ async def _act(
     if action is Action.QUIT:
         return True
     if action is Action.STOP:
-        await daemon.stop_program(hub)
-        bar.notice("stopped")
-    elif action is Action.RESTART:
-        await daemon.start_repl(hub)
-        bar.notice("restarted")
+        try:
+            await daemon.stop_program(hub)
+        except pb_client.JsonRpcError as exc:
+            # A refusal is worth a word in the status line and nothing more:
+            # the session is still perfectly usable.
+            logger.info("the hub would not stop the program: %s", exc)
+            bar.notice(str(exc))
+        else:
+            bar.notice("stopped")
     elif action is Action.HELP:
         bar.line("")
         for keystrokes, what in escape.help_lines():
             bar.line(f"  {keystrokes:<16} {what}")
         bar.line("")
     else:
-        bar.notice(f"no such command; {escape.describe()} ? for help")
+        bar.notice(f"no such command; {escape.describe()} h for help")
     return False
 
 
