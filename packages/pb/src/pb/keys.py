@@ -40,7 +40,14 @@ import sys
 from collections.abc import Generator
 from enum import Enum
 
-__all__ = ["Key", "keys_available", "poll_key", "read_ready", "reading_keys"]
+__all__ = [
+    "Key",
+    "keys_available",
+    "poll_key",
+    "read_ready",
+    "read_second",
+    "reading_keys",
+]
 
 
 class Key(Enum):
@@ -95,8 +102,11 @@ def poll_key() -> Key | None:
     if char is None:
         return None
     if char in _WINDOWS_PREFIXES:
-        # A Windows special key. Its scan code is already in the buffer.
-        return _WINDOWS_SCAN_CODES.get(read_ready() or "", Key.OTHER)
+        # A Windows special key, which arrives as a prefix and then its
+        # scan code. read_second rather than read_ready: the two halves
+        # are not both in the console buffer, so asking whether anything
+        # is waiting gets the wrong answer. See read_second.
+        return _WINDOWS_SCAN_CODES.get(read_second() or "", Key.OTHER)
     if char == "\x1b":
         # Escape either stands alone or opens a sequence such as "\x1b[A" for
         # the up arrow. Telling those apart is the classic trap here, and
@@ -133,6 +143,30 @@ if sys.platform == "win32":
         import msvcrt
 
         return msvcrt.getwch() if msvcrt.kbhit() else None
+
+    def read_second() -> str | None:
+        """Read the second half of a special key, which is already held.
+
+        A special key reaches a program as two characters: a prefix,
+        and then the key's scan code. The runtime hands over the first
+        and keeps the second, and -- measured, by writing a down arrow
+        into a real console with ``WriteConsoleInputW`` -- ``kbhit``
+        then says nothing is waiting, because nothing is: the second
+        half is in the runtime rather than in the console's buffer.
+
+        Guarding this read with ``kbhit`` therefore loses every arrow
+        key, and strands its scan code to be read back later as a
+        keystroke of its own -- so the next key pressed is misread as
+        well.
+
+        Returns:
+            The second character. The read is unguarded, which is safe
+            precisely because a prefix means the runtime is holding it:
+            it returned in under a millisecond when measured.
+        """
+        import msvcrt
+
+        return msvcrt.getwch()
 
     def _is_console() -> bool:
         """Whether standard input really is a console.
@@ -180,6 +214,19 @@ else:
         finally:
             # TCSADRAIN so that anything already written is not cut off.
             termios.tcsetattr(fd, termios.TCSADRAIN, saved)
+
+    def read_second() -> str | None:
+        """Read the next character of a sequence, if one is waiting.
+
+        The counterpart of the Windows version, and here it is simply
+        another read: every byte of an escape sequence is in the
+        terminal's own buffer, so asking whether one is waiting is the
+        right question.
+
+        Returns:
+            The character, or ``None`` if nothing more has arrived.
+        """
+        return read_ready()
 
     def read_ready() -> str | None:
         """Read one character if the terminal has one waiting.
