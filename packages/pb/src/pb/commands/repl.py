@@ -3,71 +3,25 @@
 
 """An interactive session with the interpreter on a hub.
 
-Four things happen at once and each is a task of its own: the hub's output goes
-to the screen, the keyboard goes to the hub, a timer keeps the status line
-honest about the window size, and the whole thing ends when any one of them
-decides it should. They share one cancel scope, so whichever finishes first
-takes the others with it -- there is no way for the session to half-end.
-
-Two orderings in here are load-bearing rather than incidental. The terminal is
-put into raw mode **last**, so it is restored **first**: anything printed while
-the connection is being taken down lands on a terminal that works. And the hub
-is attached to **before** the interpreter is started, so its greeting is
-already being listened for when it arrives.
+The session itself lives in :mod:`pb.session`, which is shared with the
+interactive form of ``pb run`` and ``pb start``. What belongs here is only what
+is particular to talking to the interpreter: deciding whether to start one,
+join one, or refuse.
 """
 
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncIterator
-
-import anyio
-from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 
 import pb_client
 from pb import banner as banner_module
-from pb import console as console_module
-from pb import errors, escape, ui
+from pb import errors, session, ui
 from pb.app import PROGRAM_COMMANDS, Verbose, app, configure_logging
-from pb.errors import EXIT_HUB_ERROR, EXIT_OK
-from pb.escape import Action
+from pb.errors import EXIT_HUB_ERROR
 
 logger = logging.getLogger(__name__)
 
 __all__ = ["repl_cmd"]
-
-KEY_POLL_SECONDS = 0.01
-"""How often to look for a keystroke.
-
-Far below the speed anyone types, so a key never feels late, and a poll that
-finds nothing costs one system call. This is a poll rather than a blocking read
-because a blocking read of a console cannot be cancelled on either platform,
-and a reader thread that outlives its session goes on eating the keys meant for
-the next command.
-"""
-
-TICK_SECONDS = 0.25
-"""How often to check for things nothing announces, such as a resized window."""
-
-FLUSH_SECONDS = 2.0
-"""How long leaving waits for what was already typed to reach the hub.
-
-Typing a line and leaving in the same breath is an ordinary thing to do, and
-throwing that line away because the session ended a few milliseconds before the
-radio finished with it would be silently wrong. Bounded, because the other
-possibility is a hub that has stopped reading, and then leaving has to win.
-"""
-
-STOP_SECONDS = 3.0
-"""How long leaving waits for the hub to confirm the interpreter has stopped."""
-
-INPUT_QUEUE = 256
-"""Reads of the keyboard that may be waiting to reach the hub.
-
-Keystrokes go to the hub through a queue rather than directly, so that a hub
-which is slow to take input -- or has stopped taking it altogether -- cannot
-stop ``pb`` from noticing the key that ends the session.
-"""
 
 
 @app.command(name="repl", group=PROGRAM_COMMANDS, sort_key=1)
@@ -99,29 +53,52 @@ async def repl_cmd(
 
 
 async def _repl(hub: str | None, replay: int) -> int:
-    problem = console_module.why_unavailable()
-    if problem is not None:
-        # No markup in the message: an error's headline is printed literally,
-        # because it can carry a hub's name or a file path and a stray bracket
-        # in one of those would either vanish or colour the rest of the line.
-        # Suggestions are our own words, so those may still use it.
-        return ui.usage(
-            f"pb repl needs a terminal, and {problem}.",
-            "Run it in Windows Terminal, PowerShell or cmd."
-            if problem.endswith("cannot do this)")
-            else "Run it in a terminal rather than through a pipe.",
-        )
+    no_terminal = session.needs_terminal("pb repl")
+    if no_terminal is not None:
+        return no_terminal
 
     async with pb_client.connect(autostart=False) as daemon:
         info = await daemon.hub_info(hub)
         busy = _refuse_if_busy(info)
         if busy is not None:
             return busy
-        # Attached before the interpreter is started, so that its greeting is
-        # already being listened for by the time it is printed.
-        async with daemon.attach(hub_id=hub, replay_bytes=replay) as events:
-            with console_module.raw_console() as console:
-                return await _session(daemon, info, console, events, hub)
+
+        joining = _is_the_interpreter(info)
+        running = session.Running("interpreter", arrived=joining)
+
+        async def start(bar: banner_module.Banner) -> None:
+            """Start the interpreter, or join the one already running.
+
+            Restarting an interpreter that is already going would throw away
+            the session it holds, so an existing one is joined instead -- and
+            left running afterwards, since it was not ours to stop.
+
+            Args:
+                bar: The status line, for saying what was decided.
+            """
+            if joining:
+                bar.line("Joining the interpreter that is already running.")
+                return
+            await daemon.start_repl(hub)
+            running.ours = True
+
+        return await session.attached(
+            daemon, info, hub, replay=replay, running=running, start=start
+        )
+
+
+def _is_the_interpreter(info: pb_client.HubInfo) -> bool:
+    """Whether what the hub is running is its own interpreter.
+
+    Args:
+        info: The hub as it was when the session was asked for.
+
+    Returns:
+        True if there is an interpreter to join.
+    """
+    return bool(
+        info.program_running and info.running_program_id == pb_client.REPL_PROGRAM_ID
+    )
 
 
 def _refuse_if_busy(info: pb_client.HubInfo) -> int | None:
@@ -144,10 +121,7 @@ def _refuse_if_busy(info: pb_client.HubInfo) -> int | None:
     Returns:
         The exit code to use, or ``None`` if there is nothing in the way.
     """
-    if not info.program_running:
-        return None
-    if info.running_program_id == pb_client.REPL_PROGRAM_ID:
-        # The interpreter itself, which is what this session came for.
+    if not info.program_running or _is_the_interpreter(info):
         return None
     return errors.render(
         ui.console(err=True),
@@ -160,382 +134,3 @@ def _refuse_if_busy(info: pb_client.HubInfo) -> int | None:
             )
         ],
     )
-
-
-async def _session(
-    daemon: pb_client.Daemon,
-    info: pb_client.HubInfo,
-    console: console_module.Console,
-    events: AsyncIterator[pb_client.HubEvent],
-    hub: str | None,
-) -> int:
-    """Run one session, returning when it ends.
-
-    Args:
-        daemon: The connected service.
-        info: The hub being talked to.
-        console: The terminal, already raw.
-        events: Everything the hub says.
-        hub: Which hub, as the user named it.
-
-    Returns:
-        The exit code: zero unless the hub went away.
-    """
-    ended = _Ending()
-    interpreter = _Interpreter()
-    keys = escape.Filter()
-    sender, receiver = anyio.create_memory_object_stream[bytes](INPUT_QUEUE)
-
-    with banner_module.Banner(console, info) as bar:
-        bar.line(f"{escape.describe()} q to leave, {escape.describe()} h for help.")
-        # Before the tasks, not inside them, so that leaving in the same breath
-        # as starting cannot race the decision about what to leave running.
-        # Nothing is missed by starting it here: the hub was attached to before
-        # this session began, so its greeting is already queued.
-        await _join_or_start(daemon, info, bar, hub, interpreter)
-
-        async with anyio.create_task_group() as tg:
-            tg.start_soon(_show_hub, events, bar, ended, interpreter, tg.cancel_scope)
-            tg.start_soon(_send_input, daemon, hub, receiver, bar, ended)
-            tg.start_soon(
-                _read_keys, daemon, hub, console, keys, sender, bar, ended, tg
-            )
-            tg.start_soon(_tick, bar)
-
-        if interpreter.ours and interpreter.running and not ended.disconnected:
-            await _stop_what_we_started(daemon, hub, bar)
-        elif interpreter.ours and interpreter.running:
-            # Nothing can be sent to a hub that has gone, so whatever it was
-            # doing, it is still doing -- and a hub with something running does
-            # not advertise. Why it went is not knowable from here: switched
-            # off, carried out of range, or its battery flat. Only the first of
-            # those needs no rescuing, so the sentence says which case it is
-            # about rather than asserting the hub is still on. The gentler fix
-            # comes first: the hub's button stops the program, and only a hub
-            # that will not answer that needs the power cycle.
-            bar.line(
-                "If the hub is still switched on, the interpreter is still "
-                "running on it, and a hub with something running does not "
-                "advertise. Press the hub's button to stop it, or switch the "
-                "hub off and on."
-            )
-
-    if ended.disconnected:
-        return EXIT_HUB_ERROR
-    return EXIT_OK
-
-
-async def _stop_what_we_started(
-    daemon: pb_client.Daemon, hub: str | None, bar: banner_module.Banner
-) -> None:
-    """Stop the interpreter this session started, on the way out.
-
-    A hub only advertises when nothing is running on it, and the interpreter is
-    a running program as far as the hub is concerned. So a session that walks
-    away and leaves it running leaves a hub that nothing can find -- not the
-    next command, not another machine, not the user wondering why their hub has
-    apparently switched itself off. Whoever started it puts it back.
-
-    An interpreter this session merely joined, or a program somebody else
-    started, is left alone: it was not ours to stop.
-
-    Args:
-        daemon: The connected service.
-        hub: Which hub.
-        bar: The status line, for saying what was done and why.
-    """
-    # Shielded and bounded: this runs while the session is already unwinding,
-    # and a hub that will not answer must not hold the command open.
-    with anyio.move_on_after(STOP_SECONDS, shield=True):
-        try:
-            await daemon.stop_program(hub)
-        except pb_client.JsonRpcError as exc:
-            logger.info("could not stop the interpreter: %s", exc)
-            return
-        bar.line("Interpreter stopped, so the hub can be found again.")
-        return
-    logger.info("the hub did not confirm the interpreter had stopped")
-
-
-class _Ending:
-    """How the session is going to stop, shared by the tasks that decide it."""
-
-    def __init__(self) -> None:
-        """Start out having ended for no reason yet."""
-        self.disconnected = False
-        """Set when the hub went away rather than the user leaving."""
-
-        self.flushed = anyio.Event()
-        """Set once everything typed has reached the hub, or failed to."""
-
-
-class _Interpreter:
-    """What the session knows about the interpreter it came to talk to.
-
-    The hub runs one thing at a time and says so in every status report, which
-    makes this the answer to both of the questions the session keeps asking:
-    is stopping the interpreter on the way out ours to do, and is there still
-    anything to type at.
-    """
-
-    def __init__(self) -> None:
-        """Start out expecting an interpreter that has not reported in yet."""
-        self.ours = False
-        """Whether this session started it, and so should stop it again."""
-
-        self.arrived = False
-        """Whether the interpreter has been seen running during this session.
-
-        Until it has, a hub reporting nothing running is the moment before the
-        start command took effect rather than the end of the session.
-        """
-
-        self.running = True
-        """Whether the hub last said anything was running on it.
-
-        True to begin with: a session only gets this far with the interpreter
-        either started or already going.
-        """
-
-        self.gone = False
-        """Whether the interpreter ran and has since stopped."""
-
-    def note(self, status: pb_client.Status) -> None:
-        """Take in what the hub says about itself.
-
-        Args:
-            status: The hub's latest report.
-        """
-        self.running = status.program_running
-        if status.repl_running:
-            self.arrived = True
-        elif not status.program_running and self.arrived:
-            self.gone = True
-
-
-async def _join_or_start(
-    daemon: pb_client.Daemon,
-    info: pb_client.HubInfo,
-    bar: banner_module.Banner,
-    hub: str | None,
-    interpreter: _Interpreter,
-) -> None:
-    """Start the interpreter, or join the one already running.
-
-    Restarting an interpreter that is already going would throw away the
-    session it holds, so an existing one is joined instead -- and left running
-    afterwards, since it was not ours to stop. A hub busy with a program of
-    its own never reaches here: that is refused before the terminal is
-    touched.
-
-    Args:
-        daemon: The connected service.
-        info: The hub as it was when the session began.
-        bar: The status line, for saying what was decided.
-        hub: Which hub.
-        interpreter: Where to record what was done.
-    """
-    if info.running_program_id == pb_client.REPL_PROGRAM_ID and info.program_running:
-        bar.line("Joining the interpreter that is already running.")
-        interpreter.arrived = True
-        return
-    await daemon.start_repl(hub)
-    interpreter.ours = True
-
-
-async def _show_hub(
-    events: AsyncIterator[pb_client.HubEvent],
-    bar: banner_module.Banner,
-    ended: _Ending,
-    interpreter: _Interpreter,
-    scope: anyio.CancelScope,
-) -> None:
-    """Put everything the hub says on the screen, and notice when it stops.
-
-    Args:
-        events: The hub's output, status and state.
-        bar: The status line and the screen above it.
-        ended: Where to record that the hub went away.
-        interpreter: What is running on the hub, kept up to date here.
-        scope: The session's scope, cancelled when there is nothing left to
-            listen to.
-    """
-    async for event in events:
-        if isinstance(event, pb_client.Output):
-            bar.write(event.data)
-        elif isinstance(event, pb_client.Status):
-            interpreter.note(event)
-            bar.update(event)
-            if interpreter.gone:
-                # Ctrl-D at the prompt ends the interpreter, and so does
-                # stopping it from anywhere else. Either way there is nothing
-                # left to type at, and a session sitting at a prompt that is
-                # not there would be the tool pretending otherwise.
-                bar.line("The interpreter stopped, so the session is over.")
-                scope.cancel()
-                return
-        elif not event.connected and event.state == "disconnected":
-            bar.line(f"The hub disconnected ({event.reason or 'no reason given'}).")
-            ended.disconnected = True
-
-    # The stream only ends when the hub has gone, so there is nothing left to
-    # type at.
-    if not ended.disconnected:
-        bar.line("The hub is no longer connected.")
-        ended.disconnected = True
-    scope.cancel()
-
-
-async def _send_input(
-    daemon: pb_client.Daemon,
-    hub: str | None,
-    keystrokes: MemoryObjectReceiveStream[bytes],
-    bar: banner_module.Banner,
-    ended: _Ending,
-) -> None:
-    """Pass what was typed to the hub, one queued read at a time.
-
-    Its own task because a write can take a while: a hub whose input buffer is
-    full makes the service wait for the program to read. Reading the keyboard
-    must not wait behind that, or the key that ends the session would be the
-    one key that could not get through.
-
-    Args:
-        daemon: The connected service.
-        hub: Which hub.
-        keystrokes: What has been typed and not yet sent.
-        bar: The status line, for saying when the hub would not take it.
-        ended: Where to report that the queue has run dry.
-    """
-    async with keystrokes:
-        async for data in keystrokes:
-            try:
-                await daemon.write_stdin(data, hub_id=hub)
-            except pb_client.JsonRpcError as exc:
-                logger.info("the hub would not take input: %s", exc)
-                bar.notice(str(exc))
-    # Nothing more is coming and everything that came has gone, so leaving no
-    # longer risks throwing away something that was typed.
-    ended.flushed.set()
-
-
-async def _read_keys(
-    daemon: pb_client.Daemon,
-    hub: str | None,
-    console: console_module.Console,
-    keys: escape.Filter,
-    keystrokes: MemoryObjectSendStream[bytes],
-    bar: banner_module.Banner,
-    ended: _Ending,
-    tg: anyio.abc.TaskGroup,
-) -> None:
-    """Read the keyboard, sorting keys for the hub from commands for us.
-
-    Args:
-        daemon: The connected service.
-        hub: Which hub.
-        console: The terminal.
-        keys: The escape filter, which holds what a half-typed command needs.
-        keystrokes: Where to put the bytes bound for the hub.
-        bar: The status line.
-        ended: How the session is ending.
-        tg: The session's task group, cancelled when the user leaves.
-    """
-    try:
-        await _keys_until_done(daemon, hub, console, keys, keystrokes, bar)
-    finally:
-        # Closed before waiting, so that what is queued is what gets sent and
-        # the writer knows nothing more is coming.
-        await keystrokes.aclose()
-
-    with anyio.move_on_after(FLUSH_SECONDS):
-        await ended.flushed.wait()
-    tg.cancel_scope.cancel()
-
-
-async def _keys_until_done(
-    daemon: pb_client.Daemon,
-    hub: str | None,
-    console: console_module.Console,
-    keys: escape.Filter,
-    keystrokes: MemoryObjectSendStream[bytes],
-    bar: banner_module.Banner,
-) -> None:
-    """Read the keyboard until the user asks to leave.
-
-    Args:
-        daemon: The connected service.
-        hub: Which hub.
-        console: The terminal.
-        keys: The escape filter.
-        keystrokes: Where to put the bytes bound for the hub.
-        bar: The status line.
-    """
-    while True:
-        typed = console.read()
-        if not typed:
-            await anyio.sleep(KEY_POLL_SECONDS)
-            continue
-
-        for_hub, actions = keys.feed(typed)
-        for action in actions:
-            if await _act(action, daemon, hub, bar):
-                return
-        if for_hub:
-            try:
-                keystrokes.send_nowait(for_hub)
-            except anyio.WouldBlock:
-                # The hub is far enough behind that hundreds of reads are
-                # already waiting. Losing keys is bad; saying nothing about it
-                # is worse.
-                bar.notice("the hub is not keeping up; input was dropped")
-
-
-async def _act(
-    action: Action,
-    daemon: pb_client.Daemon,
-    hub: str | None,
-    bar: banner_module.Banner,
-) -> bool:
-    """Carry out one escape command.
-
-    Args:
-        action: What was asked for.
-        daemon: The connected service.
-        hub: Which hub.
-        bar: The status line and the screen above it.
-
-    Returns:
-        True if the session should end.
-    """
-    if action is Action.QUIT:
-        return True
-    if action is Action.STOP:
-        try:
-            await daemon.stop_program(hub)
-        except pb_client.JsonRpcError as exc:
-            # A refusal is worth a word in the status line and nothing more:
-            # the session is still perfectly usable.
-            logger.info("the hub would not stop the program: %s", exc)
-            bar.notice(str(exc))
-        else:
-            bar.notice("stopped")
-    elif action is Action.HELP:
-        bar.line("")
-        for keystrokes, what in escape.help_lines():
-            bar.line(f"  {keystrokes:<16} {what}")
-        bar.line("")
-    else:
-        bar.notice(f"no such command; {escape.describe()} h for help")
-    return False
-
-
-async def _tick(bar: banner_module.Banner) -> None:
-    """Keep the status line right about the things nothing announces.
-
-    Args:
-        bar: The status line.
-    """
-    while True:
-        await anyio.sleep(TICK_SECONDS)
-        bar.tick()
