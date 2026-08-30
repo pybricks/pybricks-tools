@@ -168,6 +168,10 @@ class StatusFlag(IntFlag):
     BATTERY_HIGH_TEMP_WARNING = 1 << 11
 
 
+NO_STATUS: Final = StatusFlag(0)
+"""No status bits set."""
+
+
 BATTERY_ALERT_FLAGS: Final = (
     StatusFlag.BATTERY_LOW_VOLTAGE_WARNING
     | StatusFlag.BATTERY_LOW_VOLTAGE_SHUTDOWN

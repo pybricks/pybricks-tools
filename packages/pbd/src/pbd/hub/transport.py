@@ -1,0 +1,154 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 The Pybricks Authors
+
+"""The seam between hub logic and the physical link.
+
+Everything above this file speaks the Pybricks protocol in terms of reading and
+writing characteristics. Bluetooth is only one way to carry that: the USB
+interface deliberately mirrors the same characteristics, and RFCOMM will too, so
+adding a transport later should mean adding a file here and changing nothing
+above it.
+
+The vocabulary is GATT's because that is the protocol's own vocabulary, not
+because Bluetooth is assumed.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from contextlib import AbstractAsyncContextManager
+from dataclasses import dataclass, field
+from typing import Protocol, runtime_checkable
+
+__all__ = [
+    "DeviceInfo",
+    "HubLink",
+    "HubTransport",
+    "NotificationHandler",
+    "ScanFilter",
+]
+
+NotificationHandler = Callable[[bytes], None]
+"""Called when the hub sends a notification.
+
+Synchronous and non-blocking by contract. A transport may invoke this from
+outside any task, so it must not await, must not start tasks, and must not
+block: on Bluetooth it runs on the event loop thread, and blocking there stalls
+the radio for every hub.
+"""
+
+
+@dataclass(frozen=True, slots=True)
+class DeviceInfo:
+    """A hub seen while scanning."""
+
+    id: str
+    """Stable identifier, prefixed by transport, for example ``ble:AA:BB:...``.
+
+    Prefixed because the same physical hub can be reachable more than one way,
+    and because it leaves room for ``usb:`` and ``rfcomm:`` without a migration.
+    """
+
+    name: str
+    address: str
+    """The transport's own address.
+
+    A Bluetooth address on Linux and Windows, but an opaque per-machine UUID on
+    macOS, so it is neither stable across machines nor worth showing to users.
+    """
+
+    rssi: int | None = None
+    transport: str = "ble"
+
+
+@dataclass(frozen=True, slots=True)
+class ScanFilter:
+    """Which hubs a scan should report."""
+
+    name: str | None = None
+    """Match this advertised name, or any name when ``None``."""
+
+    exclude: frozenset[str] = field(default_factory=frozenset[str])
+    """Ids to skip, typically ones already connected."""
+
+
+@runtime_checkable
+class HubLink(Protocol):
+    """An open connection to one hub."""
+
+    async def read_characteristic(self, uuid: str) -> bytes:
+        """Read a characteristic value.
+
+        Args:
+            uuid: The characteristic to read.
+
+        Returns:
+            Its current value.
+        """
+        ...
+
+    async def write_characteristic(
+        self, uuid: str, data: bytes, *, response: bool = True
+    ) -> None:
+        """Write a characteristic value.
+
+        Args:
+            uuid: The characteristic to write.
+            data: The bytes to write.
+            response: Whether to wait for the hub to acknowledge. Commands that
+                can fail need this, because the acknowledgement is what carries
+                the error code.
+        """
+        ...
+
+    async def start_notify(self, uuid: str, handler: NotificationHandler) -> None:
+        """Subscribe to notifications from a characteristic.
+
+        Args:
+            uuid: The characteristic to subscribe to.
+            handler: Called for each notification. See
+                :data:`NotificationHandler` for what it may not do.
+        """
+        ...
+
+    @property
+    def is_connected(self) -> bool:
+        """Whether the link is still up."""
+        ...
+
+
+@runtime_checkable
+class HubTransport(Protocol):
+    """Discovers hubs and opens connections to them."""
+
+    @property
+    def scheme(self) -> str:
+        """Identifier prefix for hubs on this transport, such as ``ble``."""
+        ...
+
+    async def scan(self, scan_filter: ScanFilter) -> list[DeviceInfo]:
+        """Look for hubs.
+
+        There is no timeout argument by design: callers bound this with a
+        cancel scope, so a deadline covers the whole operation rather than one
+        call inside it.
+
+        Args:
+            scan_filter: Which hubs to report.
+
+        Returns:
+            The hubs seen before the caller stopped the scan.
+        """
+        ...
+
+    def open(self, device_id: str) -> AbstractAsyncContextManager[HubLink]:
+        """Connect to a hub.
+
+        Args:
+            device_id: An id previously returned by :meth:`scan`.
+
+        Returns:
+            An async context manager yielding the open link, which disconnects
+            on exit.
+        """
+        ...
