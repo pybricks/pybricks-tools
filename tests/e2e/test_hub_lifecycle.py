@@ -88,6 +88,45 @@ async def test_scan_can_filter_by_name(daemon_at: Endpoint) -> None:
     assert [device.name for device in devices] == [SECOND]
 
 
+async def test_scanning_reports_a_hub_long_before_the_scan_ends(
+    daemon_at: Endpoint,
+) -> None:
+    # The whole point of the streaming form: a hub is in hand as soon as it is
+    # heard. The deadline here is a hundredth of the scan it asks for, so this
+    # cannot pass by accident of waiting it out.
+    async with pb_client.connect(daemon_at, autostart=False) as daemon:
+        with anyio.fail_after(5):
+            async with daemon.scanning(seconds=500) as devices:
+                first = await anext(aiter(devices))
+    assert first.name in {FIRST, SECOND}
+    assert first.rssi is not None
+    # Known without connecting: the hub advertises its Plug and Play ID in the
+    # scan response, which is what lets a scan tell two hubs of different kinds
+    # apart when they have the same name.
+    assert first.hub_type == "Prime hub"
+
+
+async def test_scanning_ends_by_itself_when_the_scan_is_over(
+    daemon_at: Endpoint,
+) -> None:
+    # Nothing tells the caller's loop to stop except the scan finishing, so if
+    # that signal is missing this hangs rather than fails -- hence the deadline.
+    names: set[str] = set()
+    async with pb_client.connect(daemon_at, autostart=False) as daemon:
+        with anyio.fail_after(10):
+            async with daemon.scanning(seconds=0.5) as devices:
+                async for device in devices:
+                    names.add(device.name)
+    assert names == {FIRST, SECOND}
+
+
+async def test_a_scan_that_reports_nothing_still_ends(daemon_at: Endpoint) -> None:
+    async with pb_client.connect(daemon_at, autostart=False) as daemon:
+        with anyio.fail_after(10):
+            async with daemon.scanning(seconds=0.3, name="No Such Hub") as devices:
+                assert [device async for device in devices] == []
+
+
 async def test_connect_and_describe(daemon_at: Endpoint) -> None:
     async with pb_client.connect(daemon_at, autostart=False) as daemon:
         info = await daemon.connect_hub(name=FIRST)

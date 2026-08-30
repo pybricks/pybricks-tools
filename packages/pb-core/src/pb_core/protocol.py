@@ -13,10 +13,20 @@ from __future__ import annotations
 
 from typing import Final
 
-__all__ = ["MIN_PROTOCOL_VERSION", "PROTOCOL_VERSION"]
+__all__ = ["HUB_FOUND", "MIN_PROTOCOL_VERSION", "PROTOCOL_VERSION"]
 
 PROTOCOL_VERSION: Final = 1
 """The version this build speaks."""
 
 MIN_PROTOCOL_VERSION: Final = 1
 """The oldest client version this build still accepts."""
+
+HUB_FOUND: Final = "hub.found"
+"""Notification sent to a session for each advertisement seen while it scans.
+
+Its parameters are one entry of ``hub.scan``'s result. The daemon sends one per
+advertisement rather than one per hub, so the signal strength in it is current;
+the same hub arrives many times during a scan. The name lives here because both
+ends have to agree on it, and a notification whose name drifts is not an error
+anywhere -- it simply stops arriving, which is the worst way to find out.
+"""
