@@ -45,7 +45,19 @@ app = cyclopts.App(
 )
 
 HUB_COMMANDS = cyclopts.Group("Hubs", sort_key=0)
-"""Finding a hub, holding on to one, and asking what it is doing."""
+"""Finding a hub, holding on to one, and asking what it is doing.
+
+Ordered by what someone actually has to do, which is why each command carries
+an explicit ``sort_key`` rather than falling back to alphabetical. ``connect``
+comes first, because it is the one command nobody gets anywhere without, with
+its opposite ``disconnect`` beside it.
+
+The rest are things a user may want rather than steps they must take, so they
+come after: ``status`` and ``list`` report on what is already connected, and
+``scan`` comes last because nobody has to run it at all -- ``connect`` does its
+own looking, and ``connect --scan`` shows the same list when the choice
+matters.
+"""
 
 PROGRAM_COMMANDS = cyclopts.Group("Programs", sort_key=1)
 """Getting a program onto a hub and controlling it once it is there."""
