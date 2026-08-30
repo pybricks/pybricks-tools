@@ -1,42 +1,52 @@
-# Pybricks Tools
+<h1 align="center">Pybricks Tools</h1>
 
-Run Python programs on your [Pybricks](https://pybricks.com) hub from your
-computer — from the command line, or from your own Python code.
+<p align="center">
+  Run Python on your <a href="https://pybricks.com">Pybricks</a> hub,
+  from your computer.
+</p>
+
+<p align="center">
+  <img src="docs/assets/pb.svg" alt="A terminal running pb connect, pb run and pb status" width="720">
+</p>
 
 ```bash
 uv tool install pybricks-cli
-
-pb connect          # find a hub and connect to it
-pb run demo.py      # compile the script, send it, and run it
 ```
 
-`pb connect` only needs doing once. Later commands reuse the connection, so
-repeating `pb run` while you work on a program is quick.
+Then switch a hub on and:
 
-| Command | What it does |
-| --- | --- |
-| `pb scan` | List hubs that are switched on and nearby |
-| `pb connect [HUB]` | Connect to a hub and keep it connected |
-| `pb run SCRIPT` | Compile a script, send it, and run it |
-| `pb download SCRIPT` | Send a script without running it |
-| `pb stop` | Stop the running program |
-| `pb status` | Show what a hub is doing |
-| `pb list` | Show which hubs are connected |
-| `pb disconnect` | Disconnect a hub |
+```bash
+pb connect
+pb run -c "
+from pybricks.hubs import ThisHub
+from pybricks.parameters import Color
+from pybricks.tools import wait
 
-The same things are available as a library, so you can drive a hub from your
-own program:
+hub = ThisHub()
+for hue in range(0, 360, 2):
+    hub.light.on(Color(hue))
+    wait(20)
+"
+```
+
+**The hub stays connected after the command finishes.** So the second `pb run`
+starts instantly, and so does the hundredth — edit, run, edit, run, with no
+waiting for Bluetooth in between.
+
+Once a program outgrows one command, put it in a file:
+
+```bash
+pb run rainbow.py
+```
+
+And the same hub is there from your own Python:
 
 ```python
 async with pb_client.connect() as pybricks:
-    hub = await pybricks.connect_hub(name="Pybricks Hub")
-    program = await pb_client.compile_script(Path("demo.py"))
-    await pybricks.run_program(program)
+    await pybricks.connect_hub(name="Pybricks Hub")
+    await pybricks.run_program(await pb_client.compile_script(Path("rainbow.py")))
 ```
 
 > **Status:** early development. Nothing is stable yet.
 
-## Documentation
-
-Full documentation, including how the tools are put together, is in `docs/`.
-See [CONTRIBUTING.md](CONTRIBUTING.md) to get set up.
+[Documentation](docs/index.md) · [Contributing](CONTRIBUTING.md)

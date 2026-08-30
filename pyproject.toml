@@ -127,9 +127,11 @@ exclude_also = [
 [tool.pyright]
 include = ["packages/*/src", "packages/*/tests", "tests"]
 # "ignore" rather than "exclude": an excluded file still gets red squiggles in
-# the editor when it is open, and examples/ is MicroPython for a hub, whose
-# imports cannot resolve here and never will.
-ignore = ["examples"]
+# the editor when it is open. examples/ is MicroPython for a hub, whose imports
+# cannot resolve here and never will; tools/ is developer glue that reaches into
+# the CLI's private seams on purpose, which is the only way to record what a
+# command prints.
+ignore = ["examples", "tools"]
 typeCheckingMode = "strict"
 pythonVersion = "3.11"
 venvPath = "."
