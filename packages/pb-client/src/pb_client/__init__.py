@@ -12,4 +12,19 @@ argument. Callers scope cancellation with :func:`anyio.fail_after` or
 
 __version__ = "0.1.0"
 
-__all__ = ["__version__"]
+from pb_client.daemon import Daemon, DaemonInfo, connect
+from pb_client.errors import (
+    DaemonStartError,
+    DaemonUnavailable,
+    PbClientError,
+)
+
+__all__ = [
+    "Daemon",
+    "DaemonInfo",
+    "DaemonStartError",
+    "DaemonUnavailable",
+    "PbClientError",
+    "__version__",
+    "connect",
+]
