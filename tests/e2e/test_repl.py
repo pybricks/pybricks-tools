@@ -609,7 +609,7 @@ async def test_leaving_an_interactive_run_stops_the_program(
     assert not hub.status & p.StatusFlag.USER_PROGRAM_RUNNING
 
 
-async def test_start_interactive_runs_what_is_already_on_the_hub(
+async def test_start_stays_with_what_is_already_on_the_hub(
     service: FakeHub, terminal: list[_Screen]
 ) -> None:
     hub = service
@@ -625,7 +625,7 @@ async def test_start_interactive_runs_what_is_already_on_the_hub(
     screen = _Screen()
 
     async def command() -> int:
-        return await program_commands.start_cmd(hub=HUB_NAME, interactive=True)
+        return await program_commands.start_cmd(hub=HUB_NAME)
 
     assert await _run(screen, terminal, talk, command) == errors.EXIT_OK
     assert "again" in screen.text
