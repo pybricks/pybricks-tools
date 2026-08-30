@@ -121,7 +121,15 @@ def console(*, err: bool = False) -> Console:
         given a different one -- which is how the session in the README is
         recorded.
     """
-    return Console(stderr=err)
+    # Highlighting off. Rich's default highlighter reads a string as a Python
+    # repr and colours what it finds there, which is right for a value dumped
+    # to a terminal and wrong for a sentence: "firmware 4.1.0b3-134-gb4bd99edd"
+    # came out with "4.1" and "134" in cyan and everything between them plain,
+    # as though the version were two numbers with debris around them, and every
+    # bracketed aside was drawn in bold. Nothing printed here is a repr -- data
+    # goes to stdout through `plain` and `rows`, which do not use print at all
+    # -- so any emphasis in this output should be markup we chose.
+    return Console(stderr=err, highlight=False)
 
 
 @contextlib.contextmanager

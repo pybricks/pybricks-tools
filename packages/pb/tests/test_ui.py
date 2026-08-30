@@ -168,3 +168,20 @@ def test_a_spinner_is_only_a_spinner_on_a_terminal() -> None:
 @pytest.mark.parametrize("err", [False, True])
 def test_the_error_console_is_the_one_that_writes_to_stderr(err: bool) -> None:
     assert ui.console(err=err).stderr is err
+
+
+@pytest.mark.parametrize("err", [False, True])
+def test_a_version_in_a_message_is_drawn_in_one_piece(err: bool) -> None:
+    # Rich's default highlighter reads a string as a Python repr, so a firmware
+    # version arrived as "4.1" in cyan, then ".0b3-" plain, then "134" in cyan
+    # again -- one thing drawn as three, which reads as though the tool were
+    # confused about what it was saying. Messages are sentences, so nothing in
+    # them is coloured unless we said to colour it.
+    sentence = "Connected to Hub (City hub, firmware 4.1.0b3-134-gb4bd99edd)."
+    drawn = [
+        segment
+        for segment in ui.console(err=err).render(sentence)
+        if segment.text.strip()
+    ]
+    assert [segment.text for segment in drawn] == [sentence]
+    assert not any(segment.style for segment in drawn)
