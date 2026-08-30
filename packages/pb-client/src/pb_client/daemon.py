@@ -29,7 +29,7 @@ from pb_core.protocol import PROTOCOL_VERSION
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["Daemon", "DaemonInfo", "connect"]
+__all__ = ["Daemon", "DaemonInfo", "DeviceInfo", "HubInfo", "connect"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,6 +67,79 @@ class DaemonInfo:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class DeviceInfo:
+    """A hub seen while scanning."""
+
+    id: str
+    name: str
+    address: str
+    rssi: int | None
+    transport: str
+
+    @classmethod
+    def from_wire(cls, payload: dict[str, Any]) -> DeviceInfo:
+        """Build from a scan result entry.
+
+        Args:
+            payload: One entry from ``hub.scan``.
+
+        Returns:
+            The parsed device.
+        """
+        rssi = payload.get("rssi")
+        return cls(
+            id=str(payload.get("id", "")),
+            name=str(payload.get("name", "")),
+            address=str(payload.get("address", "")),
+            rssi=int(rssi) if isinstance(rssi, int) else None,
+            transport=str(payload.get("transport", "ble")),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class HubInfo:
+    """A connected hub."""
+
+    id: str
+    name: str
+    state: str
+    firmware: str
+    protocol: str
+    address: str
+    num_slots: int
+    max_program_size: int
+    subscribers: int
+    program_running: bool
+    status_names: tuple[str, ...]
+
+    @classmethod
+    def from_wire(cls, payload: dict[str, Any]) -> HubInfo:
+        """Build from a hub description.
+
+        Args:
+            payload: A hub object from ``hub.list``, ``hub.info`` or
+                ``hub.connect``.
+
+        Returns:
+            The parsed hub.
+        """
+        names = payload.get("status_names") or []
+        return cls(
+            id=str(payload.get("id", "")),
+            name=str(payload.get("name", "")),
+            state=str(payload.get("state", "unknown")),
+            firmware=str(payload.get("firmware", "")),
+            protocol=str(payload.get("protocol", "")),
+            address=str(payload.get("address", "")),
+            num_slots=int(payload.get("num_slots", 0)),
+            max_program_size=int(payload.get("max_program_size", 0)),
+            subscribers=int(payload.get("subscribers", 0)),
+            program_running=bool(payload.get("program_running", False)),
+            status_names=tuple(str(name) for name in names),
+        )
+
+
 class Daemon:
     """A connected daemon.
 
@@ -99,6 +172,98 @@ class Daemon:
     async def shutdown(self) -> None:
         """Ask the daemon to exit."""
         await self._peer.call("daemon.shutdown")
+
+    async def scan(
+        self, *, seconds: float = 10.0, name: str | None = None
+    ) -> list[DeviceInfo]:
+        """Look for hubs that are advertising.
+
+        Args:
+            seconds: How long the daemon should look. This bounds the scan
+                itself rather than this call; wrap the call in a cancel scope
+                to bound the wait.
+            name: Only report hubs with this name.
+
+        Returns:
+            The hubs seen.
+        """
+        params: dict[str, Any] = {"timeout_s": seconds}
+        if name:
+            params["name"] = name
+        result = await self._peer.call("hub.scan", params)
+        return [DeviceInfo.from_wire(item) for item in result.get("devices", [])]
+
+    async def connect_hub(
+        self, *, hub_id: str | None = None, name: str | None = None
+    ) -> HubInfo:
+        """Connect to a hub and leave it connected.
+
+        The connection outlives this client: that is the point of the daemon.
+
+        Args:
+            hub_id: The hub's id, from :meth:`scan`.
+            name: Connect to the first hub with this name instead.
+
+        Returns:
+            The connected hub.
+        """
+        params: dict[str, Any] = {}
+        if hub_id:
+            params["id"] = hub_id
+        if name:
+            params["name"] = name
+        return HubInfo.from_wire(await self._peer.call("hub.connect", params))
+
+    async def disconnect_hub(self, hub_id: str | None = None) -> None:
+        """Disconnect a hub.
+
+        Args:
+            hub_id: Which hub, or ``None`` for the current one.
+        """
+        await self._peer.call("hub.disconnect", {"id": hub_id} if hub_id else {})
+
+    async def list_hubs(self) -> tuple[list[HubInfo], str | None]:
+        """List the hubs the daemon is holding open.
+
+        Returns:
+            The connected hubs, and the id of the current default.
+        """
+        result = await self._peer.call("hub.list")
+        hubs = [HubInfo.from_wire(item) for item in result.get("hubs", [])]
+        return hubs, result.get("default")
+
+    async def hub_info(self, hub_id: str | None = None) -> HubInfo:
+        """Describe one hub.
+
+        Args:
+            hub_id: Which hub, or ``None`` for the current one.
+
+        Returns:
+            The hub's details and status.
+        """
+        return HubInfo.from_wire(
+            await self._peer.call("hub.info", {"id": hub_id} if hub_id else {})
+        )
+
+    async def use_hub(self, hub_id: str | None) -> str | None:
+        """Choose the hub later commands act on by default.
+
+        Args:
+            hub_id: The hub to select, or ``None`` to clear the selection.
+
+        Returns:
+            The selected hub id.
+        """
+        result = await self._peer.call("hub.use", {"id": hub_id})
+        return result.get("default")
+
+    async def stop_program(self, hub_id: str | None = None) -> None:
+        """Stop the program running on a hub.
+
+        Args:
+            hub_id: Which hub, or ``None`` for the current one.
+        """
+        await self._peer.call("hub.stop_program", {"id": hub_id} if hub_id else {})
 
 
 @asynccontextmanager

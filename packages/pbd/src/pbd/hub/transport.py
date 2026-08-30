@@ -15,7 +15,7 @@ because Bluetooth is assumed.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
@@ -126,18 +126,20 @@ class HubTransport(Protocol):
         """Identifier prefix for hubs on this transport, such as ``ble``."""
         ...
 
-    async def scan(self, scan_filter: ScanFilter) -> list[DeviceInfo]:
-        """Look for hubs.
+    def discover(self, scan_filter: ScanFilter) -> AsyncIterator[DeviceInfo]:
+        """Report hubs as they are seen, until the caller stops listening.
 
-        There is no timeout argument by design: callers bound this with a
-        cancel scope, so a deadline covers the whole operation rather than one
-        call inside it.
+        A stream rather than a list, and with no timeout argument, because a
+        scan has no natural end: it runs until the caller has seen enough. That
+        also means a caller whose cancel scope fires keeps the hubs found so
+        far, which returning a list could not offer.
 
         Args:
             scan_filter: Which hubs to report.
 
         Returns:
-            The hubs seen before the caller stopped the scan.
+            An async iterator of hubs, which may repeat a hub as its
+            advertisement is seen again.
         """
         ...
 

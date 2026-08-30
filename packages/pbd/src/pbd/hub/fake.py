@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 import struct
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass, field
 from typing import final
@@ -304,33 +304,32 @@ class FakeHubTransport:
         """Identifier prefix for simulated hubs."""
         return "fake"
 
-    async def scan(self, scan_filter: ScanFilter) -> list[DeviceInfo]:
-        """Report the simulated hubs that match.
+    async def discover(self, scan_filter: ScanFilter) -> AsyncIterator[DeviceInfo]:
+        """Report the simulated hubs that match, then wait to be stopped.
 
         Args:
             scan_filter: Which hubs to report.
 
-        Returns:
+        Yields:
             The matching hubs.
         """
         if self.scan_delay:
             await anyio.sleep(self.scan_delay)
-        found: list[DeviceInfo] = []
         for hub in self.hubs:
             if scan_filter.name is not None and hub.name != scan_filter.name:
                 continue
             if hub.device_id in scan_filter.exclude:
                 continue
-            found.append(
-                DeviceInfo(
-                    id=hub.device_id,
-                    name=hub.name,
-                    address=hub.address,
-                    rssi=-50,
-                    transport=self.scheme,
-                )
+            yield DeviceInfo(
+                id=hub.device_id,
+                name=hub.name,
+                address=hub.address,
+                rssi=-50,
+                transport=self.scheme,
             )
-        return found
+        # A real scan keeps running until the caller stops it, so this does
+        # too; otherwise tests would not exercise the cancellation path.
+        await anyio.sleep_forever()
 
     def open(self, device_id: str) -> AbstractAsyncContextManager[HubLink]:
         """Connect to a simulated hub.

@@ -12,7 +12,7 @@ operations rather than leaving them hanging.
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
-from contextlib import suppress
+from contextlib import aclosing, suppress
 
 import anyio
 import anyio.lowlevel
@@ -45,12 +45,21 @@ def hub() -> FakeHub:
     return FakeHub()
 
 
+async def _find(transport: FakeHubTransport, device_id: str) -> DeviceInfo:
+    """Scan until the wanted hub appears, then stop scanning."""
+    with anyio.fail_after(5):
+        async with aclosing(transport.discover(ScanFilter())) as stream:
+            async for device in stream:
+                if device.id == device_id:
+                    return device
+    raise AssertionError(f"never saw {device_id}")
+
+
 async def _start(
     tg: TaskGroup, transport: FakeHubTransport, hub: FakeHub
 ) -> tuple[HubConnection, HubInfo]:
     """Connect to a fake hub, with the task owned by ``tg``."""
-    devices = await transport.scan(ScanFilter())
-    device = next(d for d in devices if d.id == hub.device_id)
+    device = await _find(transport, hub.device_id)
     connection = HubConnection(transport, device)
     info = await tg.start(connection.run)
     assert isinstance(info, HubInfo)

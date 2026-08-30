@@ -23,6 +23,12 @@ All notable changes to this project are documented here. The format is based on
 - The Pybricks hub protocol, written against the firmware header, with the
   profile-version gating that `START_USER_PROGRAM`, `START_REPL` and the status
   report all need.
+- Hub connections, event fan-out to several clients at once, and a simulated
+  hub so the whole daemon can be exercised without a radio.
+- Bluetooth transport built on bleak, behind a seam that USB and RFCOMM can
+  reuse.
+- `pb scan`, `pb connect`, `pb disconnect`, `pb list`, `pb status` and
+  `pb stop`. A hub connected by one command stays connected for the next.
 
 ### Notes
 
