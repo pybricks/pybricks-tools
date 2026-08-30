@@ -28,6 +28,7 @@ part of ``pb repl``.
 from __future__ import annotations
 
 import logging
+import sys
 from collections.abc import AsyncIterator, Awaitable, Callable
 
 import anyio
@@ -42,7 +43,7 @@ from pb.escape import Action
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["Running", "attached", "needs_terminal"]
+__all__ = ["Running", "attached", "have_terminal", "needs_terminal", "streamed"]
 
 KEY_POLL_SECONDS = 0.01
 """How often to look for a keystroke.
@@ -77,7 +78,10 @@ which is slow to take input -- or has stopped taking it altogether -- cannot
 stop ``pb`` from noticing the key that ends the session.
 """
 
-StartFunc = Callable[[banner_module.Banner], Awaitable[None]]
+Announce = Callable[[str], None]
+"""Says one line to the user, wherever this session's lines go."""
+
+StartFunc = Callable[[Announce], Awaitable[None]]
 """Starts whatever the session is here to talk to, once the screen is ready."""
 
 TRACEBACK = b"Traceback (most recent call last):"
@@ -182,6 +186,17 @@ class Running:
             self.gone = True
 
 
+def have_terminal() -> bool:
+    """Whether there is a terminal to run a session on.
+
+    Returns:
+        True if one is available. Asked rather than assumed, because staying
+        with the program is what ``pb run`` does by default and the same
+        command has to keep working in a pipeline, a build or an editor pane.
+    """
+    return console_module.why_unavailable() is None
+
+
 def needs_terminal(command: str) -> int | None:
     """Refuse a session that has nowhere to draw itself.
 
@@ -266,7 +281,7 @@ async def _session(
         bar.line(f"{escape.describe()} q to leave, {escape.describe()} h for help.")
         # Before the tasks, not inside them, so that leaving in the same breath
         # as starting cannot race the decision about what to leave running.
-        await start(bar)
+        await start(bar.line)
 
         async with anyio.create_task_group() as tg:
             tg.start_soon(_show_hub, events, bar, ended, running, tg.cancel_scope)
@@ -297,6 +312,87 @@ async def _session(
     if ended.disconnected or running.crashed:
         return EXIT_HUB_ERROR
     return EXIT_OK
+
+
+async def streamed(
+    daemon: pb_client.Daemon,
+    info: pb_client.HubInfo,
+    hub: str | None,
+    *,
+    replay: int = 0,
+    running: Running,
+    start: StartFunc,
+) -> int:
+    """Stay with a program when there is no terminal to do it on.
+
+    What is left of a session when there is nowhere to draw and nothing to type
+    at: the program's output as it is printed, and how it ended. This is what a
+    command in a pipeline or a build gets, and it is why that output goes to
+    stdout -- ``pb run demo.py > log.txt`` should capture what the program
+    printed and nothing else.
+
+    Args:
+        daemon: The connected service.
+        info: The hub being talked to. Unused, but taken so that this and
+            :func:`attached` can stand in for one another.
+        hub: Which hub.
+        replay: How much earlier output to print first, in bytes.
+        running: What the session expects to be talking to.
+        start: Starts it, once the output is being listened for.
+
+    Returns:
+        The exit code: zero unless the hub went away or the program failed.
+    """
+    del info
+    err = ui.console(err=True)
+    out = sys.stdout.buffer
+    disconnected = False
+
+    async with daemon.attach(hub_id=hub, replay_bytes=replay) as events:
+        try:
+            await start(err.print)
+            async for event in events:
+                if isinstance(event, pb_client.Output):
+                    running.saw(event.data)
+                    out.write(event.data)
+                    out.flush()
+                elif isinstance(event, pb_client.Status):
+                    running.note(event)
+                    if running.gone:
+                        break
+                elif not event.connected and event.state == "disconnected":
+                    err.print(
+                        f"The hub disconnected ({event.reason or 'no reason given'})."
+                    )
+                    disconnected = True
+                    break
+        finally:
+            # However this ends -- the program finishing, Ctrl-C, a broken pipe
+            # -- a program this command started must not be left running on a
+            # hub that then cannot be found.
+            if running.ours and running.running and not disconnected:
+                await _stop_quietly(daemon, hub, running.noun)
+
+    if disconnected or running.crashed:
+        return EXIT_HUB_ERROR
+    return EXIT_OK
+
+
+async def _stop_quietly(daemon: pb_client.Daemon, hub: str | None, noun: str) -> None:
+    """Stop what we started, saying nothing about it.
+
+    Args:
+        daemon: The connected service.
+        hub: Which hub.
+        noun: What is being stopped, for the log.
+    """
+    # Shielded and bounded, because the likeliest reason to be here is that the
+    # command was interrupted, and stopping the program is the whole point.
+    with anyio.CancelScope(shield=True), anyio.move_on_after(STOP_SECONDS):
+        try:
+            await daemon.stop_program(hub)
+        except pb_client.JsonRpcError as exc:
+            logger.info("could not stop the %s: %s", noun, exc)
 
 
 async def _stop_what_we_started(
