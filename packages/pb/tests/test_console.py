@@ -212,6 +212,30 @@ def test_a_real_windows_console_gives_back_what_was_typed(tmp_path: Path) -> Non
     assert report["mode_after"] == report["mode_before"]
 
 
+def _wait_for(fd: int, marker: bytes, seconds: float = 30.0) -> None:
+    """Read from a terminal until it says what we are waiting for.
+
+    Args:
+        fd: The controlling end of the pseudo-terminal.
+        marker: What the other end will write when it is ready.
+        seconds: How long to wait before giving up.
+
+    Raises:
+        AssertionError: If the marker never arrived.
+    """
+    import os
+    import select
+    import time
+
+    seen = b""
+    deadline = time.monotonic() + seconds
+    while marker not in seen and time.monotonic() < deadline:
+        readable, _, _ = select.select([fd], [], [], 0.1)
+        if readable:
+            seen += os.read(fd, 4096)
+    assert marker in seen, f"the probe never said it was ready: {seen!r}"
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="a POSIX pseudo-terminal")
 def test_a_real_pty_gives_back_what_was_typed(tmp_path: Path) -> None:
     import os
@@ -229,6 +253,12 @@ def test_a_real_pty_gives_back_what_was_typed(tmp_path: Path) -> None:
             stderr=subprocess.PIPE,
         ) as process:
             os.close(follower)
+            # Not a moment sooner: until the probe has entered raw mode the
+            # line discipline is still buffering whole lines and turning
+            # Ctrl-C into a signal, so anything typed now would be answered by
+            # the terminal rather than by the code under test. The probe
+            # writing to the terminal is what says it is ready.
+            _wait_for(controller, b"written by the probe")
             os.write(controller, TYPED.encode())
             _stdout, stderr = process.communicate(timeout=60)
             assert process.returncode == 0, stderr.decode()
