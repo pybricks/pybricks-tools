@@ -11,6 +11,11 @@ An advisory file lock is used rather than a PID file because the kernel releases
 it when the process dies, however it dies. A PID file has to be validated
 against a process that may have exited, or worse, whose id has been reused.
 
+On POSIX the lock is ``flock`` rather than ``lockf``, which is not a detail:
+``lockf`` locks on behalf of the *process*, so it would grant a second daemon
+in the same process the very lock it exists to refuse, and it is released as
+soon as any descriptor for the file is closed anywhere in the process.
+
 The lock also makes it safe to remove a stale AF_UNIX socket: holding it proves
 no other daemon is serving, so any socket left on disk is debris from a crash.
 """
@@ -55,7 +60,13 @@ def _try_lock(handle: IO[str]) -> bool:
     import fcntl
 
     try:
-        fcntl.lockf(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        # flock, not lockf. POSIX record locks belong to the process rather
+        # than to the open file, so a second daemon started inside the same
+        # process would be handed the lock it was meant to be refused, and
+        # closing any other descriptor for this file anywhere in the process
+        # would silently drop it. flock belongs to the open file description,
+        # which is the ownership this needs.
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
         return False
     return True
@@ -72,7 +83,7 @@ def _unlock(handle: IO[str]) -> None:
         else:
             import fcntl
 
-            fcntl.lockf(handle.fileno(), fcntl.LOCK_UN)
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
     except OSError:  # pragma: no cover - teardown only
         logger.debug("could not release the lock file cleanly", exc_info=True)
 
