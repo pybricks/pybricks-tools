@@ -88,6 +88,19 @@ def _unlock(handle: IO[str]) -> None:
         logger.debug("could not release the lock file cleanly", exc_info=True)
 
 
+def _private_opener(path: str, flags: int) -> int:
+    """Open a file that only its owner can read.
+
+    Args:
+        path: What to open.
+        flags: The flags :func:`open` chose.
+
+    Returns:
+        The file descriptor.
+    """
+    return os.open(path, flags, 0o600)
+
+
 @contextmanager
 def single_instance(path: Path | None = None) -> Generator[Path, None, None]:
     """Hold the daemon's single-instance lock for the duration of the block.
@@ -108,7 +121,15 @@ def single_instance(path: Path | None = None) -> Generator[Path, None, None]:
     lock_path = path or paths.lock_file()
     paths.ensure_private_dir(lock_path.parent)
 
-    handle = lock_path.open("a+", encoding="ascii")
+    # 0600 like everything else in the runtime directory. Only a pid goes in
+    # it, and the directory is already private, but a file in there that is
+    # readable by anyone invites the next one to be too.
+    # Not a with block: the lock has to outlive this line and is released in
+    # the finally below. The builtin rather than Path.open, which takes no
+    # opener.
+    handle = open(  # noqa: SIM115
+        lock_path, "a+", encoding="ascii", opener=_private_opener
+    )
     try:
         # msvcrt locks a single byte, so the file must not be empty. The first
         # byte is reserved for the lock and never carries information.
