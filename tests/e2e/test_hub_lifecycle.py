@@ -175,6 +175,23 @@ async def test_choosing_the_default_hub(daemon_at: Endpoint) -> None:
         assert info.name == FIRST
 
 
+async def test_a_hub_can_be_named_by_name(daemon_at: Endpoint) -> None:
+    # A name is all "pb --hub" ever passes, because a hub id is built from the
+    # Bluetooth address, which is not stable and is not shown to anyone. Every
+    # method that takes a hub has to accept one.
+    async with pb_client.connect(daemon_at, autostart=False) as daemon:
+        await daemon.connect_hub(name=FIRST)
+        await daemon.connect_hub(name=SECOND)
+
+        info = await daemon.hub_info(FIRST)
+        assert info.name == FIRST
+
+        # Not merely the default: SECOND was connected last and holds it.
+        await daemon.disconnect_hub(FIRST)
+        hubs, _ = await daemon.list_hubs()
+        assert [hub.name for hub in hubs] == [SECOND]
+
+
 async def test_disconnect_removes_the_hub(daemon_at: Endpoint) -> None:
     async with pb_client.connect(daemon_at, autostart=False) as daemon:
         info = await daemon.connect_hub(name=FIRST)

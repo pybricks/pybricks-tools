@@ -162,7 +162,7 @@ async def hub_connect(session: Session, params: dict[str, Any]) -> dict[str, Any
 @method(
     "hub.disconnect",
     "Disconnect a hub.",
-    params={"id": "The hub to disconnect. Defaults to the current hub."},
+    params={"id": "The hub to disconnect, by name or id. Defaults to the current hub."},
     returns="An empty object.",
 )
 async def hub_disconnect(session: Session, params: dict[str, Any]) -> dict[str, Any]:
@@ -196,7 +196,7 @@ async def hub_list(session: Session, params: dict[str, Any]) -> dict[str, Any]:
 @method(
     "hub.info",
     "Report one hub's details and current status.",
-    params={"id": "The hub to describe. Defaults to the current hub."},
+    params={"id": "The hub to describe, by name or id. Defaults to the current hub."},
     returns="The hub's identity, capabilities and status flags.",
 )
 async def hub_info(session: Session, params: dict[str, Any]) -> dict[str, Any]:
@@ -213,7 +213,7 @@ async def hub_info(session: Session, params: dict[str, Any]) -> dict[str, Any]:
 @method(
     "hub.use",
     "Choose the hub that later commands act on by default.",
-    params={"id": "The hub to select, or null to clear the selection."},
+    params={"id": "The hub to select, by name or id, or null to clear the selection."},
     returns="The selected hub id.",
 )
 async def hub_use(session: Session, params: dict[str, Any]) -> dict[str, Any]:

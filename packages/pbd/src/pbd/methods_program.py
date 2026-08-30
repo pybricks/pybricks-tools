@@ -108,7 +108,7 @@ async def _download(
     "program.download",
     "Send a compiled program to a hub without starting it.",
     params={
-        "id": "The hub. Defaults to the current hub.",
+        "id": "The hub, by name or id. Defaults to the current hub.",
         "mpy": "The compiled program, base64 encoded.",
     },
     returns="The number of bytes written.",
@@ -165,7 +165,7 @@ async def _start_and_watch(
     "program.start",
     "Start a program that is already on the hub.",
     params={
-        "id": "The hub. Defaults to the current hub.",
+        "id": "The hub, by name or id. Defaults to the current hub.",
         "slot": "Which program slot, or null for the one the hub has selected.",
         "wait": "Wait for the program to stop before replying. Default false.",
     },
@@ -193,7 +193,7 @@ async def program_start(session: Session, params: dict[str, Any]) -> dict[str, A
 @method(
     "program.stop",
     "Stop the program running on a hub.",
-    params={"id": "The hub. Defaults to the current hub."},
+    params={"id": "The hub, by name or id. Defaults to the current hub."},
     returns="An empty object.",
 )
 async def program_stop(session: Session, params: dict[str, Any]) -> dict[str, Any]:
@@ -209,7 +209,7 @@ async def program_stop(session: Session, params: dict[str, Any]) -> dict[str, An
     "program.run",
     "Download a program, start it, and optionally wait for it to finish.",
     params={
-        "id": "The hub. Defaults to the current hub.",
+        "id": "The hub, by name or id. Defaults to the current hub.",
         "mpy": "The compiled program, base64 encoded.",
         "slot": "Which program slot to use.",
         "wait": "Wait for the program to stop before replying. Default true.",
