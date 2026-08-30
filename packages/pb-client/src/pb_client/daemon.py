@@ -24,7 +24,7 @@ from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStre
 from pb_client import __version__, stdio
 from pb_client.autostart import open_connection
 from pb_client.errors import DaemonTooOld, DaemonUnavailable
-from pb_client.models import DaemonInfo, DeviceInfo, HubInfo
+from pb_client.models import DaemonInfo, DeviceInfo, Downloaded, HubInfo
 from pb_client.stdio import HubEvent
 from pb_core import auth, ipc
 from pb_core.ipc import Endpoint
@@ -339,21 +339,33 @@ class Daemon:
         result = await self._peer.call("hub.use", {"id": hub_id})
         return result.get("default")
 
-    async def download(self, program: bytes, *, hub_id: str | None = None) -> int:
+    async def download(
+        self,
+        program: bytes,
+        *,
+        hub_id: str | None = None,
+        slot: int | None = None,
+    ) -> Downloaded:
         """Send a compiled program to a hub without starting it.
 
         Args:
             program: The compiled program.
             hub_id: Which hub, or ``None`` for the current one.
+            slot: The slot it is expected to land in, or ``None`` to accept
+                whichever the hub has selected. The hub decides where a
+                program goes, so naming one that is not selected is refused
+                rather than quietly ignored.
 
         Returns:
-            The number of bytes written.
+            What was written and where.
         """
         params: dict[str, Any] = {"mpy": encode_binary(program)}
         if hub_id:
             params["id"] = hub_id
+        if slot is not None:
+            params["slot"] = slot
         result = await self._peer.call("program.download", params)
-        return int(result.get("size", 0))
+        return Downloaded.from_wire(result)
 
     async def run_program(
         self,

@@ -118,7 +118,7 @@ async def _run(
     # that said "Downloading" for as long as the program ran.
     async with pb_client.connect(autostart=False) as daemon:
         with ui.spinner(err, f"Downloading {len(program)} bytes..."):
-            await daemon.download(program, hub_id=hub)
+            await daemon.download(program, hub_id=hub, slot=slot)
         if interactive:
             return await _interactively(daemon, hub, slot)
         with ui.spinner(err, "Running..." if wait else "Starting..."):
@@ -136,27 +136,43 @@ async def _run(
 
 @app.command(name="download", group=PROGRAM_COMMANDS, sort_key=2)
 async def download_cmd(
-    script: Path, /, *, hub: str | None = None, verbose: Verbose = 0
+    script: Path,
+    /,
+    *,
+    hub: str | None = None,
+    slot: int | None = None,
+    verbose: Verbose = 0,
 ) -> int:
     """Compile a script and send it to a hub without running it.
+
+    A program goes into whichever slot the hub has selected -- the hub
+    decides, and its buttons are what change the selection. Naming a slot here
+    says which one you expect, and the download is refused rather than put
+    somewhere else if the hub disagrees.
 
     Args:
         script: The Python file to send.
         hub: Which hub, by name. Defaults to the one in use.
+        slot: The slot it should land in. Defaults to whichever the hub has
+            selected.
         verbose: Increase log detail.
     """
     configure_logging(verbose)
-    return await errors.run(_download, script, hub)
+    return await errors.run(_download, script, hub, slot)
 
 
-async def _download(script: Path, hub: str | None) -> int:
+async def _download(script: Path, hub: str | None, slot: int | None) -> int:
     err = ui.console(err=True)
     program = await pb_client.compile_script(script)
 
     async with pb_client.connect(autostart=False) as daemon:
-        size = await daemon.download(program, hub_id=hub)
+        written = await daemon.download(program, hub_id=hub, slot=slot)
 
-    err.print(f"Downloaded {size} bytes.")
+    # Which slot is only worth saying on a hub that has more than one, where
+    # it is also the thing most worth saying: it is the hub's choice, not
+    # ours, and the answer to "where did my program go?".
+    where = f" into slot {written.slot}" if written.slots > 1 else ""
+    err.print(f"Downloaded {written.size} bytes{where}.")
     return EXIT_OK
 
 

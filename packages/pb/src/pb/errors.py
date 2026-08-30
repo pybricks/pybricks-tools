@@ -130,6 +130,10 @@ _RULES: Mapping[int, _Rule] = {
         "code.pybricks.com."
     ),
     # Programs.
+    ErrorCode.PROGRAM_SLOT_NOT_SELECTED: _Rule(
+        "The hub chooses the slot, with the buttons on the hub itself. Select "
+        "it there, or leave [bold]--slot[/] out to accept the one it has.",
+    ),
     ErrorCode.PROGRAM_TOO_LARGE: _Rule(
         "Try removing unused code, or making names and strings smaller."
     ),
