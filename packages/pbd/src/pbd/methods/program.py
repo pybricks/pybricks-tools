@@ -84,7 +84,8 @@ def _download_slot(connection: HubConnection, slot: Any) -> int:
         return destination
 
     info = connection.info
-    if info is not None and info.capabilities.num_slots <= 1:
+    slots = 1 if info is None else max(1, info.capabilities.num_slots)
+    if slots == 1:
         message = f"this hub holds one program at a time, so there is no slot {slot}"
     else:
         message = (
@@ -94,7 +95,9 @@ def _download_slot(connection: HubConnection, slot: Any) -> int:
     raise JsonRpcError(
         ErrorCode.PROGRAM_SLOT_NOT_SELECTED,
         message,
-        {"selected": destination, "asked": int(slot)},
+        # How many slots there are decides what the caller can usefully be
+        # told to do about it, and only the hub knows.
+        {"selected": destination, "asked": int(slot), "slots": slots},
     )
 
 

@@ -134,6 +134,8 @@ _RULES: Mapping[int, _Rule] = {
         "The hub chooses the slot, with the buttons on the hub itself. Select "
         "it there, or leave [bold]--slot[/] out to accept the one it has.",
     ),
+    # A hub with one slot has no buttons to choose it with, so the suggestion
+    # above would send the user looking for something that is not there.
     ErrorCode.PROGRAM_TOO_LARGE: _Rule(
         "Try removing unused code, or making names and strings smaller."
     ),
@@ -284,6 +286,26 @@ def _too_large(exc: JsonRpcError) -> str:
     )
 
 
+_ONE_SLOT = "Leave [bold]--slot[/] out, or ask for slot 0."
+
+
+def _slot_hint(exc: JsonRpcError, default: str | None) -> str | None:
+    """Suggest what to do about a slot, which depends on how many there are.
+
+    Args:
+        exc: The error the daemon sent.
+        default: The suggestion for a hub with slots to choose between.
+
+    Returns:
+        The suggestion to print.
+    """
+    payload: object = exc.data
+    if not isinstance(payload, Mapping):
+        return default
+    data = cast("Mapping[str, object]", exc.data)
+    return _ONE_SLOT if data.get("slots") == 1 else default
+
+
 def _describe_rpc(exc: JsonRpcError, hints: Mapping[int, str] | None) -> Problem | None:
     """Present an error the daemon reported, or ``None`` if the code is unknown."""
     rule = _RULES.get(exc.code)
@@ -296,6 +318,8 @@ def _describe_rpc(exc: JsonRpcError, hints: Mapping[int, str] | None) -> Problem
     else:
         message = rule.message or _sentence(exc.message)
     hint = rule.hint if hints is None else hints.get(exc.code, rule.hint)
+    if exc.code == ErrorCode.PROGRAM_SLOT_NOT_SELECTED:
+        hint = _slot_hint(exc, hint)
     return Problem(message=message, hint=hint, exit_code=rule.exit_code)
 
 
