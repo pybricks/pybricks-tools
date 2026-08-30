@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import signal
 import sys
 from typing import Any
@@ -151,6 +152,16 @@ def main(argv: list[str] | None = None) -> int:
         level=level,
         style="plain" if args.foreground else "file",
         log_file=None if args.foreground else log_file(),
+    )
+
+    # The first thing written, before anything that could fail or block.
+    # A process that gets no further than here still leaves evidence that
+    # it existed, which is exactly what a leftover service with nothing in
+    # the log did not.
+    logger.info(
+        "pbd starting (pid=%d, argv=%s)",
+        os.getpid(),
+        argv if argv is not None else sys.argv[1:],
     )
 
     try:

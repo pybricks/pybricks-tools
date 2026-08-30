@@ -236,11 +236,20 @@ def plain(out: Console, line: str) -> None:
     folded in half. Both quietly break ``cut -f2`` and everything like it, and
     neither shows up until somebody pipes the output somewhere.
 
+    Flushed, because some of what is written this way is written while a
+    command is still running -- hubs as a scan hears them, lines as the service
+    logs them -- and a pipe buffers in blocks. Without this, ``pb scan |
+    head -1`` waits for the scan to end rather than answering the moment there
+    is an answer, and ``pb service log -f`` piped anywhere shows nothing at all
+    until it is stopped. The cost is nothing at these volumes: a hub's own
+    output does not come this way.
+
     Args:
         out: The stdout console. Only data is written this way.
         line: Exactly what to write, without its newline.
     """
     out.file.write(line + "\n")
+    out.file.flush()
 
 
 def rows(out: Console, pairs: list[tuple[str, str]]) -> None:

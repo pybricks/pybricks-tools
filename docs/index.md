@@ -52,6 +52,7 @@ pb run demo.py      # again, without reconnecting
 | `pb disconnect` | Disconnect a hub |
 | `pb check` | Check a program compiles, with no hub involved |
 | `pb scan` | Watch for hubs that are switched on and nearby |
+| `pb service log` | Show what the background service has been doing |
 
 You never have to run `pb scan`: `pb connect` does its own looking. It is there
 for when you want to know what is out there without connecting to any of it. It
