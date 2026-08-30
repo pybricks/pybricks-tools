@@ -16,6 +16,7 @@ from pb_core.protocol import HUB_FOUND
 from pbd.errors import HUB_FAILURES, as_wire_error
 from pbd.hub import protocol as p
 from pbd.hub.connection import HubConnection, HubDisconnectedError
+from pbd.hub.events import Channel, StatusEvent
 from pbd.hub.manager import HubAlreadyConnectedError, HubNotFoundError
 from pbd.hub.transport import DeviceInfo, ScanFilter
 from pbd.methods import method
@@ -273,7 +274,8 @@ async def _stop_builtin_program(connection: HubConnection) -> None:
     attached: none of them means anything once nobody is. Worse, a hub only
     advertises when nothing is running on it, so disconnecting from one of
     these and leaving it going produces a hub that nothing can find afterwards
-    -- recoverable only by switching the hub off and on.
+    -- recoverable only at the hub itself, by pressing its button or switching
+    it off and on.
 
     A user's own program is left alone, because setting one going and walking
     away is a thing people deliberately do.
@@ -291,8 +293,24 @@ async def _stop_builtin_program(connection: HubConnection) -> None:
     # Best effort and bounded: the connection is going either way, and a hub
     # that will not answer must not hold up the disconnect.
     try:
-        with anyio.move_on_after(STOP_BUILTIN_SECONDS):
-            await connection.send_command(p.encode_stop_user_program())
+        # Subscribed before the command is sent, so the hub's answer cannot
+        # arrive in the gap between the two. Waiting for that answer rather
+        # than only sending the command is what puts "the program stopped"
+        # ahead of "the hub disconnected" for everyone else attached: a
+        # session watching both would otherwise have to guess whether the
+        # interpreter it started is still running, and guessing wrong means
+        # telling the user to go and rescue a hub that is perfectly fine.
+        async with connection.subscribe(frozenset({Channel.STATUS})) as watcher:
+            with anyio.move_on_after(STOP_BUILTIN_SECONDS) as bounded:
+                await connection.send_command(p.encode_stop_user_program())
+                async for event in connection.events(watcher):
+                    if isinstance(event, StatusEvent) and not (
+                        event.report.program_running
+                    ):
+                        break
+        if bounded.cancel_called:
+            logger.info("the hub did not confirm the built-in program had stopped")
+        else:
             logger.info("stopped the built-in program before disconnecting")
     except HUB_FAILURES:
         logger.info("could not stop the built-in program", exc_info=True)
