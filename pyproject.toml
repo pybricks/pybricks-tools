@@ -1,0 +1,126 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 The Pybricks Authors
+#
+# Virtual workspace root: intentionally has no [project] table, so there is no
+# root package to build or publish. Use `uv sync --all-packages` to install
+# every member editable.
+
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[dependency-groups]
+lint = ["ruff>=0.16.5"]
+typecheck = ["pyright>=1.1.400"]
+test = [
+    "pytest>=8.3",
+    "pytest-timeout>=2.3",
+    "coverage[toml]>=7.6",
+    "anyio>=4.14",
+]
+docs = [
+    # Pinned below 2.0 deliberately. MkDocs 2.0 removes the plugin system and
+    # the theming system with no migration path, which would break Material,
+    # mkdocstrings, gen-files and literate-nav all at once. Revisit once the
+    # ecosystem settles: https://squidfunk.github.io/mkdocs-material/blog/2026/02/18/mkdocs-2.0/
+    "mkdocs>=1.6,<2.0",
+    "mkdocs-material>=9.5",
+    "mkdocstrings[python]>=0.27",
+    "mkdocs-gen-files>=0.5",
+    "mkdocs-literate-nav>=0.6",
+]
+dev = [
+    { include-group = "lint" },
+    { include-group = "typecheck" },
+    { include-group = "test" },
+    { include-group = "docs" },
+]
+
+# ---------------------------------------------------------------- ruff
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+extend-exclude = [".venv"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",   # pycodestyle
+    "F",        # pyflakes
+    "I",        # isort
+    "UP",       # pyupgrade
+    "B",        # flake8-bugbear
+    "SIM",      # flake8-simplify
+    "C4",       # flake8-comprehensions
+    "PTH",      # flake8-use-pathlib
+    "RUF",      # ruff-specific
+    "TID",      # flake8-tidy-imports
+    "ASYNC",    # flake8-async -- enforces the structured concurrency rules
+    "LOG",      # flake8-logging
+    "G",        # flake8-logging-format
+    "BLE",      # flake8-blind-except -- enforces "never swallow cancellation"
+    "D",        # pydocstyle
+]
+ignore = [
+    "E501",           # line length is the formatter's job
+    "D203", "D213",   # mutually exclusive with the google convention pair
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.isort]
+known-first-party = ["pb", "pb_client", "pb_core", "pbd"]
+
+# Structured concurrency, enforced mechanically. See CONTRIBUTING.md.
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"asyncio.create_task".msg = "Use an anyio task group (structured concurrency rule)."
+"asyncio.ensure_future".msg = "Use an anyio task group (structured concurrency rule)."
+"asyncio.gather".msg = "Use an anyio task group."
+"asyncio.wait".msg = "Use an anyio task group plus a cancel scope."
+"asyncio.set_event_loop_policy".msg = "Never change the loop policy; Windows named pipes require the Proactor loop."
+
+[tool.ruff.lint.per-file-ignores]
+# Docstrings are required on the library surface, not on CLI/daemon internals.
+"packages/pb/src/**" = ["D100", "D101", "D102", "D103", "D104", "D105", "D107"]
+"packages/pbd/src/**" = ["D100", "D101", "D102", "D103", "D104", "D105", "D107"]
+"**/tests/**" = ["D"]
+"docs/**" = ["D"]
+
+[tool.ruff.format]
+docstring-code-format = true
+
+# ---------------------------------------------------------------- pytest
+[tool.pytest.ini_options]
+testpaths = ["packages", "tests"]
+# importlib mode: lets each package have its own tests/test_smoke.py without
+# __init__.py files or globally unique basenames. Correct default for src layout.
+addopts = "-ra --strict-markers --strict-config --import-mode=importlib"
+timeout = 30
+markers = [
+    "hardware: requires a real Pybricks hub (deselected in CI)",
+    "console: requires a real OS console (Win32 console or POSIX pty)",
+]
+filterwarnings = ["error"]
+
+# ---------------------------------------------------------------- coverage
+[tool.coverage.run]
+branch = true
+source = ["pb", "pb_client", "pb_core", "pbd"]
+parallel = true
+
+[tool.coverage.report]
+show_missing = true
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "@overload",
+    "if sys.platform ==",
+]
+
+# ---------------------------------------------------------------- pyright
+[tool.pyright]
+include = ["packages/*/src", "packages/*/tests", "tests"]
+typeCheckingMode = "strict"
+pythonVersion = "3.11"
+venvPath = "."
+venv = ".venv"
+reportMissingTypeStubs = false

@@ -1,0 +1,53 @@
+site_name: Pybricks Tools
+site_description: A daemon, library and CLI for talking to Pybricks hubs
+repo_url: https://github.com/pybricks/pybricks-tools
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+    - search.suggest
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle: { icon: material/brightness-7, name: Switch to dark mode }
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle: { icon: material/brightness-4, name: Switch to light mode }
+
+plugins:
+  - search
+  - gen-files:
+      scripts:
+        - docs/gen_api_pages.py
+  - literate-nav:
+      nav_file: SUMMARY.md
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            docstring_style: google
+            show_source: false
+            show_root_heading: true
+            separate_signature: true
+            signature_crossrefs: true
+          inventories:
+            - https://docs.python.org/3/objects.inv
+            - https://anyio.readthedocs.io/en/stable/objects.inv
+
+markdown_extensions:
+  - admonition
+  - pymdownx.snippets:
+      base_path: [.]
+      check_paths: true
+  - pymdownx.details
+  - pymdownx.superfences
+  - toc: { permalink: true }
+
+nav:
+  - Home: index.md
+  - Contributing: contributing.md
+  - API reference: reference/

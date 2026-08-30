@@ -1,0 +1,20 @@
+[project]
+name = "pybricks-core"
+version = "0.1.0"
+description = "Shared protocol, IPC transport and logging for the Pybricks tools"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "The Pybricks Authors", email = "dev@pybricks.com" }]
+maintainers = [{ name = "David Lechner", email = "david@pybricks.com" }]
+requires-python = ">=3.11"
+dependencies = [
+    "anyio>=4.14",
+    "typing-extensions>=4.15",
+]
+
+[build-system]
+requires = ["uv_build>=0.11.8,<0.12.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "pb_core"

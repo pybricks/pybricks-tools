@@ -1,0 +1,48 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "pbd: foreground (trace)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "pbd",
+      "console": "integratedTerminal",
+      "justMyCode": false,
+      "args": ["--foreground", "-vv"]
+    },
+    {
+      "name": "pbd: attach to running daemon",
+      "type": "debugpy",
+      "request": "attach",
+      "justMyCode": false,
+      "connect": { "host": "127.0.0.1", "port": 5678 }
+    },
+    {
+      "name": "pb: scan",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "pb",
+      "console": "integratedTerminal",
+      "args": ["-vv", "scan"]
+    },
+    {
+      "name": "pb: run current file",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "pb",
+      "console": "integratedTerminal",
+      "args": ["-vv", "run", "${file}"]
+    },
+    {
+      // MUST be integratedTerminal or externalTerminal. The debugpy default
+      // "internalConsole" is not a TTY, so raw mode cannot be entered there.
+      "name": "pb: terminal",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "pb",
+      "console": "integratedTerminal",
+      "args": ["terminal"],
+      "env": { "PB_LOG_FILE": "${workspaceFolder}/pb-debug.log" }
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    { "label": "sync", "type": "shell", "command": "uv sync --all-packages --all-groups" },
+    { "label": "format", "type": "shell", "command": "uv run ruff format ." },
+    { "label": "lint", "type": "shell", "command": "uv run ruff check --fix ." },
+    { "label": "typecheck", "type": "shell", "command": "uv run pyright" },
+    {
+      "label": "test",
+      "type": "shell",
+      "command": "uv run pytest",
+      "group": { "kind": "test", "isDefault": true }
+    },
+    { "label": "docs", "type": "shell", "command": "uv run mkdocs serve" }
+  ]
+}
