@@ -164,39 +164,43 @@ async def start_cmd(
     *,
     hub: str | None = None,
     slot: int | None = None,
-    interactive: Annotated[
-        bool, cyclopts.Parameter(name=["-i", "--interactive"])
-    ] = False,
+    wait: bool | None = None,
     verbose: Verbose = 0,
 ) -> int:
     """Start a program that is already on the hub.
 
     Nothing is sent to the hub, so this is the quick way to run the same
-    program again, and the way to run one put there by another tool.
-
-    With --interactive the command stays with the program, showing its output
-    and passing the keyboard to it, instead of returning as soon as it starts.
+    program again, and the way to run one put there by another tool. What
+    happens after it starts is exactly what happens for pb run.
 
     Args:
         hub: Which hub, by name. Defaults to the one in use.
         slot: Which program slot. Defaults to the one the hub has selected.
-        interactive: Stay with the program, showing its output and passing
-            the keyboard to it.
+        wait: How long to stay with the program, and how much of the terminal
+            to use while doing it. Left out, the session takes the terminal
+            when there is one and returns straight away when there is not,
+            since a script starting a stored program is setting a robot going.
+            --wait stays either way, leaving the terminal alone and printing
+            only the output. --no-wait always returns as soon as it starts.
         verbose: Increase log detail.
     """
     configure_logging(verbose)
-    return await errors.run(_start, hub, slot, interactive, hints=_START_HINTS)
+    return await errors.run(_start, hub, slot, wait, hints=_START_HINTS)
 
 
-async def _start(hub: str | None, slot: int | None, interactive: bool) -> int:
+async def _start(hub: str | None, slot: int | None, wait: bool | None) -> int:
     err = ui.console(err=True)
-    if interactive:
-        no_terminal = session.needs_terminal("pb start --interactive")
-        if no_terminal is not None:
-            return no_terminal
+    if wait is None and not session.have_terminal():
+        # The one place this differs from pb run. Starting a program that is
+        # already on the hub, from something that is not a terminal, is what a
+        # script does to set a robot going -- so it starts it and returns,
+        # rather than holding the script open for as long as the robot runs.
+        # At a terminal the opposite is true: somebody typing pb start wants
+        # to see what it does.
+        wait = False
     async with pb_client.connect(autostart=False) as daemon:
-        if interactive:
-            return await _stay_with_it(daemon, hub, slot, terminal=True)
+        if wait is not False:
+            return await _stay_with_it(daemon, hub, slot, terminal=wait is None)
         await daemon.start_program(hub_id=hub, slot=slot)
     err.print("Program started.")
     return EXIT_OK

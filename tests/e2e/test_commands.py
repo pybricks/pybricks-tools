@@ -297,6 +297,23 @@ async def test_download_then_start_then_stop(
     assert "Stopped" in capsys.readouterr().err
 
 
+async def test_start_without_a_terminal_sets_it_going_and_returns(
+    service: FakeHub, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    hub = service
+    await hub_commands.connect_cmd(hub=HUB_NAME)
+    assert await program_commands.download_cmd(_script(tmp_path)) == errors.EXIT_OK
+    capsys.readouterr()
+
+    # The one place pb start differs from pb run: a script starting a program
+    # that is already on the hub is setting a robot going, so it returns
+    # rather than holding the script open for as long as the robot runs. At a
+    # terminal it would stay, which is what somebody typing it wants.
+    assert await program_commands.start_cmd() == errors.EXIT_OK
+    assert "Program started" in capsys.readouterr().err
+    assert hub.status & p.StatusFlag.USER_PROGRAM_RUNNING
+
+
 async def test_a_hub_that_refuses_to_start_says_what_to_do(
     service: FakeHub, capsys: pytest.CaptureFixture[str]
 ) -> None:
