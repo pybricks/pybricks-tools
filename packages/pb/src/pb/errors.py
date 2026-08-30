@@ -386,7 +386,7 @@ def render(err: Console, problems: list[Problem]) -> int:
     return problems[0].exit_code
 
 
-def run(
+async def run(
     func: Callable[[*PosArgsT], Awaitable[int]],
     *args: *PosArgsT,
     hints: Mapping[int, str] | None = None,
@@ -397,6 +397,12 @@ def run(
     broad ``except`` belongs: anything :func:`explain` does not recognise is
     re-raised untouched, so that Python prints its traceback.
 
+    Async, and it starts no event loop of its own. Cyclopts runs an ``async
+    def`` command itself, so the whole program enters its loop exactly once, at
+    the outermost edge. A second entry point here would be a second boundary,
+    and every sync-to-async boundary turns up later as a helper thread, a
+    blocking portal, or a test that cannot be written the obvious way.
+
     Args:
         func: The async body of the command.
         *args: Passed to ``func``.
@@ -406,7 +412,7 @@ def run(
         The process exit code.
     """
     try:
-        return anyio.run(func, *args, backend="asyncio")
+        return await func(*args)
     except BaseException as exc:
         problems = explain(exc, hints)
         if problems is None:
