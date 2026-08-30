@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 The Pybricks Authors
 
+import contextvars
 import io
 import logging
 from collections.abc import Iterator
@@ -67,3 +68,34 @@ def test_quiet_loggers_are_held_above_level() -> None:
         assert logging.getLogger("noisy_dep").level > logging.DEBUG
     finally:
         logging.getLogger().removeHandler(handler)
+
+
+def test_a_context_left_in_another_context_does_not_raise(
+    captured: io.StringIO,
+) -> None:
+    """Entered in one context, left in another, which really happens.
+
+    A hub connection is handed over with ``task_group.start()``, and one
+    failed connect left the block in a different context from the one it was
+    entered in. Resetting a token then raises -- from ``__exit__``, so it
+    replaces whatever error was already on its way out, and a hub that would
+    not answer its GATT request was reported to the user as an unexpected
+    fault in the service.
+    """
+    block = pb_logging.log_context(hub="ble:AA")
+    contextvars.copy_context().run(block.__enter__)
+
+    assert block.__exit__(None, None, None) is not True
+
+    # And the fields really are gone from the context it was left in, so the
+    # next hub's logs cannot inherit this one's name.
+    logging.getLogger(__name__).info("after")
+    assert "hub=ble:AA" not in captured.getvalue()
+
+
+def test_a_context_restores_what_was_there_before(captured: io.StringIO) -> None:
+    with pb_logging.log_context(client="c1"):
+        with pb_logging.log_context(hub="ble:AA"):
+            pass
+        logging.getLogger(__name__).info("still the client")
+    assert "[client=c1] still the client" in captured.getvalue()

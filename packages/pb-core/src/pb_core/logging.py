@@ -85,12 +85,29 @@ def log_context(**fields: object) -> Generator[None, None, None]:
     Yields:
         ``None``. The context is restored on exit.
     """
-    merged = {**_CONTEXT.get({}), **fields}
+    previous = _CONTEXT.get({})
+    merged = {**previous, **fields}
     token = _CONTEXT.set(merged)
     try:
         yield
     finally:
-        _CONTEXT.reset(token)
+        try:
+            _CONTEXT.reset(token)
+        except ValueError:
+            # A block can be entered in one context and left in another --
+            # observed when a hub connection handed over with
+            # ``task_group.start()`` failed during its handshake -- and a
+            # token cannot be reset anywhere but the context that made it.
+            # Putting the previous value back comes to the same thing here
+            # and cannot fail.
+            #
+            # Whatever the cause, this must not raise. It is a logging helper
+            # wrapped around real work, and raising from __exit__ replaced the
+            # error already on its way out: a hub that would not answer its
+            # GATT request was reported to the user as "the background service
+            # hit an unexpected problem" rather than as a hub it could not
+            # connect to.
+            _CONTEXT.set(previous)
 
 
 def elide(data: object, limit: int = _MAX_TRACE_CHARS) -> str:
