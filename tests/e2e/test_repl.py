@@ -325,8 +325,30 @@ async def test_a_hub_that_disconnects_ends_the_session(
     assert "stopped answering" in screen.text
     # And it says what that leaves behind: the interpreter is still running on
     # a hub that can no longer be told to stop it, so nothing will find that
-    # hub until somebody switches it off and on.
-    assert "switched off and on" in screen.text
+    # hub until somebody stops it at the hub. Said conditionally, because a hub
+    # that has gone may have gone by being switched off already, and the fix
+    # offered is the button rather than the power, because stopping the program
+    # is all that is actually needed.
+    assert "If the hub is still switched on" in screen.text
+    assert "Press the hub's button" in screen.text
+
+
+async def test_a_hub_disconnected_on_purpose_needs_no_rescuing(
+    service: FakeHub, terminal: list[_Screen]
+) -> None:
+    hub = service
+
+    async def talk(screen: _Screen) -> None:
+        await _when(lambda: hub.running_program_id == p.UserProgramId.REPL)
+        await hub_commands.disconnect_cmd(hub=HUB_NAME)
+
+    screen = _Screen()
+    assert await _run(screen, terminal, talk) == errors.EXIT_HUB_ERROR
+    # Disconnecting stops a built-in program on the way out, so this hub is
+    # advertising again and there is nothing for anyone to go and do to it.
+    # Saying otherwise would send the user to fetch a hub that is fine.
+    assert not hub.status & p.StatusFlag.USER_PROGRAM_RUNNING
+    assert "Press the hub's button" not in screen.text
 
 
 async def test_leaving_stops_the_interpreter_it_started(
