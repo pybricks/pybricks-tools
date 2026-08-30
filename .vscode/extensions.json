@@ -1,0 +1,16 @@
+{
+  "recommendations": [
+    "charliermarsh.ruff",
+    "ms-python.python",
+    "tamasfe.even-better-toml",
+    "github.vscode-github-actions"
+  ],
+  // Not decoration: pybricksdev's workspace recommends these, and if it is open
+  // in the same window they fight ruff over organizeImports and formatting.
+  "unwantedRecommendations": [
+    "ms-python.black-formatter",
+    "ms-python.isort",
+    "ms-python.flake8",
+    "ms-python.pylint"
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "[python]": {
+    "editor.formatOnSave": true,
+    "editor.defaultFormatter": "charliermarsh.ruff",
+    "editor.codeActionsOnSave": {
+      // Extension-scoped IDs on purpose: the generic "source.organizeImports"
+      // becomes ambiguous if ms-python.isort is installed in any profile.
+      "source.organizeImports.ruff": "explicit",
+      "source.fixAll.ruff": "explicit"
+    }
+  },
+
+  // Use the ruff pinned in the workspace, never the extension's bundled copy,
+  // so the editor and CI can never disagree about a lint result.
+  "ruff.importStrategy": "fromEnvironment",
+
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
+  "python.terminal.activateEnvironment": true,
+
+  // typeCheckingMode lives in pyproject.toml [tool.pyright]: a pyright config
+  // overrides python.analysis.* anyway, and CI reads the same file.
+  "python.analysis.diagnosticMode": "workspace",
+
+  "python.testing.pytestEnabled": true,
+  "python.testing.unittestEnabled": false,
+  "python.testing.pytestArgs": ["packages", "tests"],
+
+  "files.exclude": {
+    "**/__pycache__": true,
+    "**/*.egg-info": true,
+    "**/.ruff_cache": true,
+    "**/.pytest_cache": true
+  },
+  "files.watcherExclude": { "**/.venv/**": true },
+
+  "[toml]": { "editor.formatOnSave": false },
+  "[markdown]": { "editor.formatOnSave": false }
+}

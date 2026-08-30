@@ -1,0 +1,101 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Fail if uv.lock is stale rather than silently resolving something else.
+  UV_FROZEN: "1"
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with: { enable-cache: true }
+      - run: uv sync --all-packages --group lint
+      - run: uv run ruff format --check --diff .
+        id: fmt
+      # Report both failures rather than stopping at the first.
+      - run: uv run ruff check --output-format=github .
+        if: success() || steps.fmt.conclusion == 'failure'
+
+  lock:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv lock --check
+
+  typecheck:
+    # Three OSes because the IPC and console backends are different code on
+    # each; a single OS only type-checks part of the tree.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with: { enable-cache: true }
+      - run: uv sync --all-packages --all-groups
+      - run: uv run pyright
+
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15, windows-2025, windows-11-arm]
+        python: ["3.11", "3.12", "3.13"]
+        exclude:
+          # ARM64 Windows is the primary dev machine; smoke one version.
+          - { os: windows-11-arm, python: "3.11" }
+          - { os: windows-11-arm, python: "3.12" }
+    runs-on: ${{ matrix.os }}
+    env:
+      PYTHONDEVMODE: "1"
+      PYTHONWARNDEFAULTENCODING: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          python-version: ${{ matrix.python }}
+      - run: uv sync --all-packages --all-groups
+      - run: uv run coverage run -m pytest -v -m "not hardware"
+      - run: uv run coverage combine
+        if: always()
+      - run: uv run coverage xml
+        if: always()
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-${{ matrix.os }}-${{ matrix.python }}
+          path: coverage.xml
+          if-no-files-found: ignore
+
+  docs:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with: { enable-cache: true }
+      - run: uv sync --all-packages --all-groups
+      - run: uv run mkdocs build --strict
+
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv build --all-packages
+      - uses: actions/upload-artifact@v4
+        with: { name: dist, path: dist/ }
