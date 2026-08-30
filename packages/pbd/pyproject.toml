@@ -13,7 +13,6 @@ dependencies = [
     "bleak>=1.1.0",
     "mpy-cross-v6>=1.1.1",
     "packaging>=22",
-    "platformdirs>=4",
     "semver>=3",
     "typing-extensions>=4.15",
 ]
