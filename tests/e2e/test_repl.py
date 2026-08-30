@@ -1,7 +1,12 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 The Pybricks Authors
 
-"""A session with a hub, end to end against a simulated one.
+"""An interactive session with a hub, end to end against a simulated one.
+
+Both ways in are here: ``pb repl``, which talks to the hub's interpreter, and
+``pb run --interactive`` / ``pb start --interactive``, which talk to a program.
+They share everything below the command, so they are tested against the same
+scripted terminal.
 
 The whole path a user takes runs here: the command, a real service over a real
 socket or named pipe, the attach subscription, keystrokes going back, and the
@@ -36,8 +41,9 @@ import pbd.methods.hub  # pyright: ignore[reportUnusedImport]
 import pbd.methods.program  # pyright: ignore[reportUnusedImport]
 import pbd.methods.stdio  # noqa: F401  # pyright: ignore[reportUnusedImport]
 from pb import console as console_module
-from pb import errors, escape
+from pb import errors, escape, session
 from pb.commands import hub as hub_commands
+from pb.commands import program as program_commands
 from pb.commands import repl as repl_command
 from pb_core.ipc import Endpoint
 from pbd import daemon as daemon_module
@@ -138,16 +144,20 @@ def terminal(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[_Screen]]:
     monkeypatch.setattr(console_module, "raw_console", raw_console)
     monkeypatch.setattr(console_module, "why_unavailable", lambda: None)
     # Nothing should wait a hundredth of a second for a scripted keystroke.
-    monkeypatch.setattr(repl_command, "KEY_POLL_SECONDS", 0)
-    monkeypatch.setattr(repl_command, "TICK_SECONDS", 0.01)
+    monkeypatch.setattr(session, "KEY_POLL_SECONDS", 0)
+    monkeypatch.setattr(session, "TICK_SECONDS", 0.01)
     yield holder
 
 
 Prelude = Callable[[_Screen], Coroutine[Any, Any, None]]
+Command = Callable[[], Coroutine[Any, Any, int]]
 
 
 async def _run(
-    screen: _Screen, holder: list[_Screen], prelude: Prelude | None = None
+    screen: _Screen,
+    holder: list[_Screen],
+    prelude: Prelude | None = None,
+    command: Command | None = None,
 ) -> int:
     """Connect, then run one session.
 
@@ -156,6 +166,7 @@ async def _run(
         holder: Where the terminal fixture looks for it.
         prelude: Runs alongside the session and is responsible for releasing
             its keystrokes. Without one they are released immediately.
+        command: Which command opens the session. Defaults to ``pb repl``.
 
     Returns:
         The command's exit code.
@@ -169,8 +180,8 @@ async def _run(
             screen.go.set()
         else:
             tg.start_soon(prelude, screen)
-        with anyio.fail_after(10):
-            code = await repl_command.repl_cmd()
+        with anyio.fail_after(20):
+            code = await (command or repl_command.repl_cmd)()
         tg.cancel_scope.cancel()
 
     return code
@@ -463,3 +474,91 @@ async def test_input_is_cut_to_fit_a_hub_with_a_small_buffer(
     assert bytes(hub.stdin) == typed
     assert len(hub.stdin_writes) > 1
     assert max(len(write) for write in hub.stdin_writes) <= 21
+
+
+# ------------------------------------------------- the same session, a program
+
+
+def _script(tmp_path: Path, source: str) -> Path:
+    path = tmp_path / "demo.py"
+    path.write_text(source, encoding="utf-8")
+    return path
+
+
+async def test_run_interactive_shows_what_the_program_prints(
+    service: FakeHub, terminal: list[_Screen], tmp_path: Path
+) -> None:
+    hub = service
+
+    async def talk(screen: _Screen) -> None:
+        await _when(lambda: bool(hub.status & p.StatusFlag.USER_PROGRAM_RUNNING))
+        hub.send_stdout(b"counting\r\n")
+        await _when(lambda: "counting" in screen.text)
+        # A program ends by itself, which ends the session with it.
+        hub.set_program_running(False)
+
+    screen = _Screen()
+
+    async def command() -> int:
+        return await program_commands.run_cmd(
+            _script(tmp_path, "print('counting')\n"), hub=HUB_NAME, interactive=True
+        )
+
+    assert await _run(screen, terminal, talk, command) == errors.EXIT_OK
+    assert "counting" in screen.text
+    assert "The program stopped" in screen.text
+
+
+async def test_leaving_an_interactive_run_stops_the_program(
+    service: FakeHub, terminal: list[_Screen], tmp_path: Path
+) -> None:
+    hub = service
+
+    async def talk(screen: _Screen) -> None:
+        await _when(lambda: bool(hub.status & p.StatusFlag.USER_PROGRAM_RUNNING))
+        screen.go.set()
+
+    screen = _Screen(QUIT)
+
+    async def command() -> int:
+        return await program_commands.run_cmd(
+            _script(tmp_path, "print('hi')\n"), hub=HUB_NAME, interactive=True
+        )
+
+    assert await _run(screen, terminal, talk, command) == errors.EXIT_OK
+    # A hub only advertises when nothing is running on it, so a program this
+    # command started is stopped on the way out, exactly as the interpreter is.
+    assert not hub.status & p.StatusFlag.USER_PROGRAM_RUNNING
+
+
+async def test_start_interactive_runs_what_is_already_on_the_hub(
+    service: FakeHub, terminal: list[_Screen]
+) -> None:
+    hub = service
+    # Stands for a program downloaded earlier, or put there by another tool.
+    hub.program_size = 8
+
+    async def talk(screen: _Screen) -> None:
+        await _when(lambda: bool(hub.status & p.StatusFlag.USER_PROGRAM_RUNNING))
+        hub.send_stdout(b"again\r\n")
+        await _when(lambda: "again" in screen.text)
+        hub.set_program_running(False)
+
+    screen = _Screen()
+
+    async def command() -> int:
+        return await program_commands.start_cmd(hub=HUB_NAME, interactive=True)
+
+    assert await _run(screen, terminal, talk, command) == errors.EXIT_OK
+    assert "again" in screen.text
+
+
+async def test_interactive_and_no_wait_are_refused_together(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    # Two answers to the same question -- how long to stay with the program.
+    code = await program_commands.run_cmd(
+        _script(tmp_path, "print('hi')\n"), interactive=True, wait=False
+    )
+    assert code == errors.EXIT_ERROR
+    assert "--no-wait" in capsys.readouterr().err
