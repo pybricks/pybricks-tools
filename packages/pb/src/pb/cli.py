@@ -167,7 +167,7 @@ async def _scan(seconds: float, name: str | None) -> int:
     if out.is_terminal:
         table = Table()
         table.add_column("Name")
-        table.add_column("Id", style="dim")
+        table.add_column("Address", style="dim")
         table.add_column("Signal", justify="right")
         for device in devices:
             signal = f"{device.rssi} dBm" if device.rssi is not None else ""
@@ -180,14 +180,15 @@ async def _scan(seconds: float, name: str | None) -> int:
 
 
 @app.command(name="connect")
-def connect_cmd(hub: str | None = None, *, verbose: Verbose = 0) -> int:
+def connect_cmd(hub: str | None = None, /, *, verbose: Verbose = 0) -> int:
     """Connect to a hub and keep it connected.
 
     The connection outlives this command, so later commands reuse it rather
     than reconnecting.
 
     Args:
-        hub: The hub's name or id. Defaults to the first one found.
+        hub: The hub's name, as shown by pb scan. Defaults to the first
+            hub found.
         verbose: Increase log detail.
     """
     _configure_logging(verbose)
@@ -212,11 +213,11 @@ async def _connect(hub: str | None) -> int:
 
 
 @app.command(name="disconnect")
-def disconnect_cmd(hub: str | None = None, *, verbose: Verbose = 0) -> int:
+def disconnect_cmd(hub: str | None = None, /, *, verbose: Verbose = 0) -> int:
     """Disconnect a hub.
 
     Args:
-        hub: Which hub. Defaults to the current one.
+        hub: Which hub, by name. Defaults to the one in use.
         verbose: Increase log detail.
     """
     _configure_logging(verbose)
@@ -294,11 +295,11 @@ async def _list() -> int:
 
 
 @app.command(name="status")
-def status_cmd(hub: str | None = None, *, verbose: Verbose = 0) -> int:
+def status_cmd(hub: str | None = None, /, *, verbose: Verbose = 0) -> int:
     """Show a hub's details and current status.
 
     Args:
-        hub: Which hub. Defaults to the current one.
+        hub: Which hub, by name. Defaults to the one in use.
         verbose: Increase log detail.
     """
     _configure_logging(verbose)
@@ -327,11 +328,11 @@ async def _status(hub: str | None) -> int:
 
 
 @app.command(name="stop")
-def stop_cmd(hub: str | None = None, *, verbose: Verbose = 0) -> int:
+def stop_cmd(hub: str | None = None, /, *, verbose: Verbose = 0) -> int:
     """Stop the program running on a hub.
 
     Args:
-        hub: Which hub. Defaults to the current one.
+        hub: Which hub, by name. Defaults to the one in use.
         verbose: Increase log detail.
     """
     _configure_logging(verbose)
@@ -350,6 +351,7 @@ async def _stop(hub: str | None) -> int:
 def run_cmd(
     script: Path,
     hub: str | None = None,
+    /,
     *,
     slot: int | None = None,
     wait: bool = True,
@@ -359,7 +361,7 @@ def run_cmd(
 
     Args:
         script: The Python file to run.
-        hub: Which hub. Defaults to the current one.
+        hub: Which hub, by name. Defaults to the one in use.
         slot: Which program slot to use.
         wait: Wait for the program to finish before returning.
         verbose: Increase log detail.
@@ -395,12 +397,14 @@ async def _run(script: Path, hub: str | None, slot: int | None, wait: bool) -> i
 
 
 @app.command(name="download")
-def download_cmd(script: Path, hub: str | None = None, *, verbose: Verbose = 0) -> int:
+def download_cmd(
+    script: Path, hub: str | None = None, /, *, verbose: Verbose = 0
+) -> int:
     """Compile a script and send it to a hub without running it.
 
     Args:
         script: The Python file to send.
-        hub: Which hub. Defaults to the current one.
+        hub: Which hub, by name. Defaults to the one in use.
         verbose: Increase log detail.
     """
     _configure_logging(verbose)
