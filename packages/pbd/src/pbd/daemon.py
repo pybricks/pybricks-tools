@@ -126,6 +126,14 @@ class Daemon:
         await self._shutdown.wait()
 
 
+DRAIN_SECONDS = 2.0
+"""How long a shutdown waits for replies already queued to reach their clients.
+
+Long enough for a reply on any working connection, short enough that a client
+which has stopped reading cannot keep the daemon alive.
+"""
+
+
 @asynccontextmanager
 async def run_daemon(
     endpoint: Endpoint,
@@ -171,9 +179,23 @@ async def run_daemon(
                     try:
                         yield daemon
                     finally:
-                        # Stop accepting first, then let existing clients
-                        # unwind. Hubs are untouched until the manager's own
-                        # scope exits, below.
+                        # A shutdown is still a request, and its answer is the
+                        # last thing these connections owe: cancelling the
+                        # sessions first would drop the reply that is already
+                        # queued, and the client that asked would be told the
+                        # connection died rather than that it worked.
+                        #
+                        # Shielded, because this runs while the enclosing scope
+                        # may already be cancelled, and bounded, because a
+                        # client that has stopped reading must not be able to
+                        # keep the daemon from exiting.
+                        with anyio.move_on_after(DRAIN_SECONDS, shield=True):
+                            for session in list(daemon.sessions):
+                                if session.peer is not None:
+                                    await session.peer.drain()
+                        # Stop accepting, then let existing clients unwind.
+                        # Hubs are untouched until the manager's own scope
+                        # exits, below.
                         clients.cancel_scope.cancel()
 
             logger.info("stopped listening")
