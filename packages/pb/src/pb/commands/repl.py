@@ -155,13 +155,20 @@ async def _session(
 
         if started and not ended.disconnected:
             await _stop_what_we_started(daemon, hub, bar)
-        elif started:
-            # Nothing can be sent to a hub that has gone, so the interpreter is
-            # still running on it -- and a hub with something running does not
-            # advertise, so nothing will find it until it stops.
+        elif started and ended.still_running:
+            # Nothing can be sent to a hub that has gone, so whatever it was
+            # doing, it is still doing -- and a hub with something running does
+            # not advertise. Why it went is not knowable from here: switched
+            # off, carried out of range, or its battery flat. Only the first of
+            # those needs no rescuing, so the sentence says which case it is
+            # about rather than asserting the hub is still on. The gentler fix
+            # comes first: the hub's button stops the program, and only a hub
+            # that will not answer that needs the power cycle.
             bar.line(
-                "The interpreter is still running on the hub, so it will not "
-                "be found until the hub is switched off and on again."
+                "If the hub is still switched on, the interpreter is still "
+                "running on it, and a hub with something running does not "
+                "advertise. Press the hub's button to stop it, or switch the "
+                "hub off and on."
             )
 
     if ended.disconnected:
@@ -208,6 +215,17 @@ class _Ending:
         """Start out having ended for no reason yet."""
         self.disconnected = False
         """Set when the hub went away rather than the user leaving."""
+
+        self.still_running = True
+        """Whether the hub last said something was running on it.
+
+        True to begin with, because this only matters to a session that
+        started the interpreter, and it was running when it did. What it is
+        for is the difference between a hub that was disconnected on purpose
+        -- where the service stops a built-in program first, and the hub is
+        back to advertising -- and one that stopped answering, where whatever
+        was running still is.
+        """
 
         self.flushed = anyio.Event()
         """Set once everything typed has reached the hub, or failed to."""
@@ -269,6 +287,7 @@ async def _show_hub(
         if isinstance(event, pb_client.Output):
             bar.write(event.data)
         elif isinstance(event, pb_client.Status):
+            ended.still_running = event.program_running
             bar.update(event)
         elif not event.connected and event.state == "disconnected":
             bar.line(f"The hub disconnected ({event.reason or 'no reason given'}).")
