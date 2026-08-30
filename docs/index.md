@@ -48,6 +48,7 @@ pb run demo.py      # again, without reconnecting
 | `pb stop` | Stop the running program |
 | `pb status` | Show what a hub is doing |
 | `pb list` | Show which hubs are connected |
+| `pb use` | Choose the hub the other commands act on |
 | `pb disconnect` | Disconnect a hub |
 | `pb check` | Check a program compiles, with no hub involved |
 | `pb scan` | Watch for hubs that are switched on and nearby |
@@ -85,6 +86,19 @@ every command takes:
 ```bash
 pb run demo.py --hub "Spare Hub"
 ```
+
+If it is always the same hub, choose it once instead of saying so every time:
+
+```bash
+pb use                      # choose from the hubs connected and nearby
+pb use --hub "Spare Hub"    # or name it
+```
+
+What is remembered is the hub's name, so the choice survives switching the hub
+off and on, and outlives the background service; every shell sees the same one.
+The hub does not have to be connected, or even switched on, so the hub a
+project belongs to can be chosen before any of it is plugged in.
+`pb use --clear` forgets it again.
 
 Every command takes `-v` for more detail, and `-vv` or `-vvv` when something
 is going wrong and you want to see why.

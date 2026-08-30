@@ -24,7 +24,13 @@ from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStre
 from pb_client import __version__, stdio
 from pb_client.autostart import open_connection
 from pb_client.errors import DaemonTooOld, DaemonUnavailable
-from pb_client.models import DaemonInfo, DeviceInfo, Downloaded, HubInfo
+from pb_client.models import (
+    Choice,
+    DaemonInfo,
+    DeviceInfo,
+    Downloaded,
+    HubInfo,
+)
 from pb_client.stdio import HubEvent
 from pb_core import auth, ipc
 from pb_core.ipc import Endpoint
@@ -308,7 +314,10 @@ class Daemon:
         """List the hubs the daemon is holding open.
 
         Returns:
-            The connected hubs, and the id of the current default.
+            The connected hubs, and the id of the one a command with no
+            hub named would act on. That is the chosen hub when it is
+            connected, and otherwise whichever hub would answer
+            instead; :meth:`chosen_hub` reports the choice itself.
         """
         result = await self._peer.call("hub.list")
         hubs = [HubInfo.from_wire(item) for item in result.get("hubs", [])]
@@ -327,17 +336,33 @@ class Daemon:
             await self._peer.call("hub.info", {"id": hub_id} if hub_id else {})
         )
 
-    async def use_hub(self, hub_id: str | None) -> str | None:
-        """Choose the hub later commands act on by default.
+    async def use_hub(self, hub: str | None) -> Choice:
+        """Choose the hub later commands act on when none is named.
+
+        The choice outlives the service, so it is a name: a hub has
+        nothing durable to be remembered by, and an id built from a
+        Bluetooth address would stop naming it. A hub that is not
+        connected can be chosen by name; an id can only be given for
+        a hub that is, since there is otherwise no name to store.
 
         Args:
-            hub_id: The hub to select, or ``None`` to clear the selection.
+            hub: The hub to choose, by name or by id, or ``None`` to
+                forget the chosen one.
 
         Returns:
-            The selected hub id.
+            What was chosen, and whether it is connected.
         """
-        result = await self._peer.call("hub.use", {"id": hub_id})
-        return result.get("default")
+        result = await self._peer.call("hub.use", {"id": hub})
+        return Choice.from_wire(result)
+
+    async def chosen_hub(self) -> Choice:
+        """Report the chosen hub without changing it.
+
+        Returns:
+            What was chosen, and whether it is connected. The name is
+            None when nothing has been chosen.
+        """
+        return Choice.from_wire(await self._peer.call("hub.use", {}))
 
     async def download(
         self,

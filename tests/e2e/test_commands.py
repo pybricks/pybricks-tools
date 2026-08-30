@@ -78,6 +78,9 @@ async def service(
     # something.
     runtime.mkdir(mode=0o700)
     monkeypatch.setenv("PB_RUNTIME_DIR", str(runtime))
+    # And a state directory of its own, so that a test choosing a hub
+    # does not rewrite the choice the person running the tests made.
+    monkeypatch.setenv("PB_STATE_DIR", str(tmp_path / "state"))
     # The commands resolve the endpoint from the environment, the same way the
     # console script does, so this is what points them at the private service
     # rather than at whatever is running on the developer's machine.
@@ -128,6 +131,66 @@ async def test_status_names_the_kind_of_hub(
     capsys.readouterr()
     await hub_commands.status_cmd()
     assert "type\tPrime hub" in _out(capsys)
+
+
+async def test_use_remembers_a_hub_by_name(
+    service: FakeHub, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert await hub_commands.use_cmd(hub=HUB_NAME) == errors.EXIT_OK
+    captured = capsys.readouterr()
+    assert HUB_NAME in captured.err
+    # A choice is a message, not data.
+    assert captured.out == ""
+
+    # With no terminal to choose in, the command answers the other question
+    # it can answer, and the name goes to stdout for whatever asked.
+    assert await hub_commands.use_cmd() == errors.EXIT_OK
+    assert _out(capsys).splitlines() == [HUB_NAME]
+
+
+async def test_use_accepts_a_hub_that_is_not_connected(
+    service: FakeHub, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert await hub_commands.use_cmd(hub="Workshop Hub") == errors.EXIT_OK
+    err = capsys.readouterr().err
+    assert "Workshop Hub" in err
+    # Said out loud rather than left to be discovered.
+    assert "not connected" in err
+
+
+async def test_use_can_forget_the_chosen_hub(
+    service: FakeHub, capsys: pytest.CaptureFixture[str]
+) -> None:
+    await hub_commands.use_cmd(hub=HUB_NAME)
+    capsys.readouterr()
+
+    assert await hub_commands.use_cmd(clear=True) == errors.EXIT_OK
+    assert "No hub is chosen" in capsys.readouterr().err
+
+    assert await hub_commands.use_cmd() == errors.EXIT_OK
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "No hub is chosen" in captured.err
+
+
+async def test_use_refuses_to_choose_and_forget_at_once(
+    service: FakeHub, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert await hub_commands.use_cmd(hub=HUB_NAME, clear=True) == errors.EXIT_ERROR
+    assert "--clear" in capsys.readouterr().err
+
+
+async def test_a_chosen_hub_is_what_a_command_acts_on(
+    service: FakeHub, capsys: pytest.CaptureFixture[str]
+) -> None:
+    await hub_commands.connect_cmd(hub=HUB_NAME)
+    await hub_commands.use_cmd(hub=HUB_NAME)
+    capsys.readouterr()
+
+    # The star marks the hub a command with no --hub would act on.
+    assert await hub_commands.list_cmd() == errors.EXIT_OK
+    listed = _out(capsys)
+    assert listed.startswith("*")
 
 
 async def test_scan_lists_what_it_hears(
@@ -356,6 +419,9 @@ async def test_service_status_when_nothing_is_running(
     # something.
     runtime.mkdir(mode=0o700)
     monkeypatch.setenv("PB_RUNTIME_DIR", str(runtime))
+    # And a state directory of its own, so that a test choosing a hub
+    # does not rewrite the choice the person running the tests made.
+    monkeypatch.setenv("PB_STATE_DIR", str(tmp_path / "state"))
     monkeypatch.setenv("PB_ENDPOINT", str(endpoint))
 
     assert await service_commands.service_status() == errors.EXIT_NOTHING_CONNECTED
@@ -379,6 +445,9 @@ async def test_stopping_a_service_that_is_not_running_succeeds(
     # something.
     runtime.mkdir(mode=0o700)
     monkeypatch.setenv("PB_RUNTIME_DIR", str(runtime))
+    # And a state directory of its own, so that a test choosing a hub
+    # does not rewrite the choice the person running the tests made.
+    monkeypatch.setenv("PB_STATE_DIR", str(tmp_path / "state"))
     monkeypatch.setenv("PB_ENDPOINT", str(endpoint))
 
     assert await service_commands.service_stop() == errors.EXIT_OK
@@ -399,6 +468,9 @@ async def test_disconnecting_when_no_service_is_running_succeeds(
     # something.
     runtime.mkdir(mode=0o700)
     monkeypatch.setenv("PB_RUNTIME_DIR", str(runtime))
+    # And a state directory of its own, so that a test choosing a hub
+    # does not rewrite the choice the person running the tests made.
+    monkeypatch.setenv("PB_STATE_DIR", str(tmp_path / "state"))
     monkeypatch.setenv("PB_ENDPOINT", str(endpoint))
 
     assert await hub_commands.disconnect_cmd() == errors.EXIT_OK

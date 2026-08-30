@@ -21,6 +21,7 @@ import platformdirs
 __all__ = [
     "APP_NAME",
     "RUNTIME_DIR_ENV_VAR",
+    "STATE_DIR_ENV_VAR",
     "cache_dir",
     "cookie_file",
     "ensure_private_dir",
@@ -41,6 +42,14 @@ RUNTIME_DIR_ENV_VAR = "PB_RUNTIME_DIR"
 Moves the socket, lock and cookie together, so a test or a sandboxed
 environment can relocate all of the daemon's per-user state at once without
 touching the real one.
+"""
+
+STATE_DIR_ENV_VAR = "PB_STATE_DIR"
+"""Overrides the directory holding what the service remembers between runs.
+
+The counterpart of :data:`RUNTIME_DIR_ENV_VAR`, and there for the same reason:
+a test or a sandbox can put the user's preferences somewhere of its own rather
+than editing the real ones.
 """
 
 _DAEMON = "pbd"
@@ -114,7 +123,18 @@ def cookie_file() -> Path:
 
 
 def state_dir() -> Path:
-    """Return the directory for persistent daemon state."""
+    """Return the directory for what the service remembers between runs.
+
+    On Linux this is ``$XDG_STATE_HOME``, which is where the spec puts state
+    that should persist but is not worth backing up -- which is exactly what a
+    remembered hub is.
+
+    Returns:
+        The directory, which may not exist yet.
+    """
+    override = os.environ.get(STATE_DIR_ENV_VAR)
+    if override:
+        return Path(override)
     return Path(platformdirs.user_state_dir(APP_NAME, appauthor=False))
 
 

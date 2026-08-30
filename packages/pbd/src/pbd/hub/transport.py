@@ -29,7 +29,30 @@ __all__ = [
     "HubTransport",
     "NotificationHandler",
     "ScanFilter",
+    "looks_like_id",
 ]
+
+ID_PREFIXES = ("ble:", "fake:", "usb:", "rfcomm:")
+"""How an id announces which transport it belongs to.
+
+Listed here rather than inferred from a colon, because a hub's name is
+whatever its owner typed and may perfectly well contain one.
+"""
+
+
+def looks_like_id(value: str) -> bool:
+    """Say whether a string is a transport id rather than a hub's name.
+
+    Args:
+        value: What a caller supplied to name a hub.
+
+    Returns:
+        True if it is an id. Used where the difference matters, which is
+        anywhere a value is going to be kept: an id is built from a
+        Bluetooth address and stops naming the hub it named today.
+    """
+    return value.startswith(ID_PREFIXES)
+
 
 NotificationHandler = Callable[[bytes], None]
 

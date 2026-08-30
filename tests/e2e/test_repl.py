@@ -85,6 +85,9 @@ async def service(
     # something.
     runtime.mkdir(mode=0o700)
     monkeypatch.setenv("PB_RUNTIME_DIR", str(runtime))
+    # And a state directory of its own, so that a test choosing a hub
+    # does not rewrite the choice the person running the tests made.
+    monkeypatch.setenv("PB_STATE_DIR", str(tmp_path / "state"))
     monkeypatch.setenv("PB_ENDPOINT", str(endpoint))
     async with daemon_module.run_daemon(
         endpoint, idle_timeout=0, transport=FakeHubTransport(hub)

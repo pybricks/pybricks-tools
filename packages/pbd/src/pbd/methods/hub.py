@@ -17,8 +17,12 @@ from pbd.errors import HUB_FAILURES, as_wire_error
 from pbd.hub import protocol as p
 from pbd.hub.connection import HubConnection, HubDisconnectedError
 from pbd.hub.events import Channel, StatusEvent
-from pbd.hub.manager import HubAlreadyConnectedError, HubNotFoundError
-from pbd.hub.transport import DeviceInfo, ScanFilter
+from pbd.hub.manager import (
+    HubAlreadyConnectedError,
+    HubManager,
+    HubNotFoundError,
+)
+from pbd.hub.transport import DeviceInfo, ScanFilter, looks_like_id
 from pbd.methods import method
 from pbd.session import Session
 
@@ -339,7 +343,7 @@ async def hub_disconnect(session: Session, params: dict[str, Any]) -> dict[str, 
 @method(
     "hub.list",
     "List the hubs the daemon currently holds open.",
-    returns="Every connected hub, and which one is the current default.",
+    returns="Every connected hub, which one commands act on, and the chosen name.",
 )
 async def hub_list(session: Session, params: dict[str, Any]) -> dict[str, Any]:
     """List connected hubs."""
@@ -347,7 +351,8 @@ async def hub_list(session: Session, params: dict[str, Any]) -> dict[str, Any]:
     session.daemon.mark_activity()
     return {
         "hubs": [_hub_json(connection) for connection in manager.connected],
-        "default": manager.default_hub_id,
+        "default": _acting_hub_id(manager),
+        "chosen": manager.selection.name,
     }
 
 
@@ -371,29 +376,80 @@ async def hub_info(session: Session, params: dict[str, Any]) -> dict[str, Any]:
 @method(
     "hub.use",
     "Choose the hub that later commands act on by default.",
-    params={"id": "The hub to select, by name or id, or null to clear the selection."},
-    returns="The selected hub id.",
+    params={
+        "id": "The hub to choose, by name or id, or null to forget the"
+        " chosen one. A hub that is not connected may be chosen by name."
+        " Leave the field out to report the choice without changing it."
+    },
+    returns="The chosen hub's name, and whether it is connected.",
 )
 async def hub_use(session: Session, params: dict[str, Any]) -> dict[str, Any]:
-    """Set the default hub.
+    """Choose the hub commands act on when none is named.
 
-    Kept in the daemon rather than in a client config file so that it survives
-    the command exiting and is shared between shells.
+    Kept here rather than in a client config file so that it survives the
+    command exiting and is shared between shells, and kept on disk so that it
+    survives this service.
 
-    It names a hub that is connected now, and no more than that: the selection
-    is dropped when that hub disconnects, and it does not outlive the service.
-    A hub cannot say durably which hub it is, so there is nothing better to
-    remember -- which is why there is no ``pb use`` command yet.
+    What is remembered is a **name**, because a hub has nothing durable to
+    remember it by -- see :mod:`pbd.hub.selection`. A name also means a hub
+    that is switched off can be chosen: pinning the hub a project belongs to
+    is a reasonable thing to do before touching any hardware. An id is
+    accepted for a hub that is connected, and stored as that hub's name; an
+    id for a hub that is not connected is refused, since there is no name to
+    turn it into.
     """
     manager = session.daemon.hubs
     session.daemon.mark_activity()
-    hub_id = params.get("id")
-    if hub_id is None:
-        manager.default_hub_id = None
-        return {"default": None}
+    if "id" not in params:
+        return _choice_json(manager, manager.selection.name)
+    wanted = params.get("id")
+    if wanted is None:
+        manager.selection.choose(None)
+        return {"default": None, "connected": False}
+    wanted = str(wanted)
     try:
-        connection = manager.resolve(str(hub_id))
+        connection = manager.resolve(wanted)
     except HubNotFoundError as exc:
-        raise as_wire_error(exc) from exc
-    manager.default_hub_id = connection.id
-    return {"default": connection.id}
+        if looks_like_id(wanted):
+            raise as_wire_error(exc) from exc
+        manager.selection.choose(wanted)
+        return {"default": wanted, "connected": False}
+    name = connection.info.name if connection.info else wanted
+    manager.selection.choose(name)
+    return {"default": name, "connected": True}
+
+
+def _acting_hub_id(manager: HubManager) -> str | None:
+    """Return the hub a command with no hub named would act on.
+
+    Args:
+        manager: The daemon's hubs.
+
+    Returns:
+        Its id, or None if nothing would answer. Not the same as the
+        chosen hub: a hub can be chosen while it is switched off, and
+        then the only hub connected is the one that answers.
+    """
+    try:
+        return manager.get(None).id
+    except HubNotFoundError:
+        return None
+
+
+def _choice_json(manager: HubManager, name: str | None) -> dict[str, Any]:
+    """Describe the chosen hub.
+
+    Args:
+        manager: The daemon's hubs.
+        name: The chosen hub's name, if there is one.
+
+    Returns:
+        The name, and whether that hub is connected just now.
+    """
+    if name is None:
+        return {"default": None, "connected": False}
+    try:
+        manager.resolve(name)
+    except HubNotFoundError:
+        return {"default": name, "connected": False}
+    return {"default": name, "connected": True}
