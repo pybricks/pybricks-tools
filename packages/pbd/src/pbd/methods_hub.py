@@ -12,7 +12,6 @@ from typing import Any
 import anyio
 
 from pb_core.jsonrpc import ErrorCode, JsonRpcError
-from pbd.hub import protocol as p
 from pbd.hub.connection import HubConnection, HubDisconnectedError
 from pbd.hub.manager import HubAlreadyConnectedError, HubNotFoundError
 from pbd.hub.transport import DeviceInfo, ScanFilter
@@ -242,22 +241,3 @@ async def hub_use(session: Session, params: dict[str, Any]) -> dict[str, Any]:
         raise _wrap_hub_errors(exc) from exc
     manager.default_hub_id = connection.id
     return {"default": connection.id}
-
-
-@method(
-    "hub.stop_program",
-    "Stop the program running on a hub.",
-    params={"id": "The hub. Defaults to the current hub."},
-    returns="An empty object.",
-)
-async def hub_stop_program(session: Session, params: dict[str, Any]) -> dict[str, Any]:
-    """Stop the running program."""
-    manager = session.daemon.hubs
-    session.daemon.mark_activity()
-    hub_id = params.get("id")
-    try:
-        connection = manager.get(str(hub_id) if hub_id else None)
-        await connection.send_command(p.encode_stop_user_program())
-    except (HubNotFoundError, HubDisconnectedError) as exc:
-        raise _wrap_hub_errors(exc) from exc
-    return {}

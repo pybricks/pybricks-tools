@@ -25,6 +25,7 @@ from pbd import daemon as daemon_module
 from pbd import (  # noqa: F401  (imported to register the RPC methods)
     methods_daemon,  # pyright: ignore[reportUnusedImport]
     methods_hub,  # pyright: ignore[reportUnusedImport]
+    methods_program,  # pyright: ignore[reportUnusedImport]
 )
 from pbd.hub.fake import FakeHub, FakeHubTransport
 

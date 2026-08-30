@@ -28,6 +28,7 @@ from pbd import (
     __version__,
     methods_daemon,  # noqa: F401
     methods_hub,  # noqa: F401
+    methods_program,  # noqa: F401
 )
 from pbd import daemon as daemon_module
 

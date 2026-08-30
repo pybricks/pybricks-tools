@@ -24,7 +24,7 @@ from pb_client.autostart import open_connection
 from pb_client.errors import DaemonUnavailable
 from pb_core import auth, ipc
 from pb_core.ipc import Endpoint
-from pb_core.jsonrpc import JsonRpcPeer, connect_peer
+from pb_core.jsonrpc import JsonRpcPeer, connect_peer, encode_binary
 from pb_core.protocol import PROTOCOL_VERSION
 
 logger = logging.getLogger(__name__)
@@ -257,13 +257,75 @@ class Daemon:
         result = await self._peer.call("hub.use", {"id": hub_id})
         return result.get("default")
 
+    async def download(self, program: bytes, *, hub_id: str | None = None) -> int:
+        """Send a compiled program to a hub without starting it.
+
+        Args:
+            program: The compiled program.
+            hub_id: Which hub, or ``None`` for the current one.
+
+        Returns:
+            The number of bytes written.
+        """
+        params: dict[str, Any] = {"mpy": encode_binary(program)}
+        if hub_id:
+            params["id"] = hub_id
+        result = await self._peer.call("program.download", params)
+        return int(result.get("size", 0))
+
+    async def run_program(
+        self,
+        program: bytes,
+        *,
+        hub_id: str | None = None,
+        slot: int | None = None,
+        wait: bool = True,
+    ) -> str:
+        """Download a program and run it.
+
+        There is no timeout argument: wrap the call in a cancel scope. Doing so
+        also stops the program on the hub, rather than abandoning it.
+
+        Args:
+            program: The compiled program.
+            hub_id: Which hub, or ``None`` for the current one.
+            slot: Which program slot to use.
+            wait: Wait for the program to finish before returning.
+
+        Returns:
+            Why the run ended: ``started``, ``stopped`` or ``disconnected``.
+        """
+        params: dict[str, Any] = {"mpy": encode_binary(program), "wait": wait}
+        if hub_id:
+            params["id"] = hub_id
+        if slot is not None:
+            params["slot"] = slot
+        result = await self._peer.call("program.run", params)
+        return str(result.get("reason", "stopped"))
+
+    async def start_program(
+        self, *, hub_id: str | None = None, slot: int | None = None
+    ) -> None:
+        """Start a program already stored on the hub.
+
+        Args:
+            hub_id: Which hub, or ``None`` for the current one.
+            slot: Which slot, or ``None`` for the hub's current selection.
+        """
+        params: dict[str, Any] = {}
+        if hub_id:
+            params["id"] = hub_id
+        if slot is not None:
+            params["slot"] = slot
+        await self._peer.call("program.start", params)
+
     async def stop_program(self, hub_id: str | None = None) -> None:
         """Stop the program running on a hub.
 
         Args:
             hub_id: Which hub, or ``None`` for the current one.
         """
-        await self._peer.call("hub.stop_program", {"id": hub_id} if hub_id else {})
+        await self._peer.call("program.stop", {"id": hub_id} if hub_id else {})
 
 
 @asynccontextmanager
