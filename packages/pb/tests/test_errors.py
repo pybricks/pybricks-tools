@@ -20,7 +20,7 @@ from rich.console import Console
 import pb_client
 from pb import cli, errors
 from pb_core.ipc import EndpointError
-from pb_core.jsonrpc import ErrorCode, JsonRpcError
+from pb_core.jsonrpc import ErrorCode, JsonRpcError, PeerClosedError
 
 pytestmark = pytest.mark.anyio
 
@@ -315,3 +315,19 @@ def test_nothing_in_the_cli_starts_an_event_loop() -> None:
         assert "anyio.run(" not in source, module.name
         assert "asyncio.run(" not in source, module.name
         assert "start_blocking_portal" not in source, module.name
+
+
+async def test_a_service_that_goes_away_mid_call_is_not_called_a_bug(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # The most literal form of a lost connection: the request was sent and the
+    # connection ended before the answer came. It used to print a traceback
+    # under "this looks like a bug in pb", which is the wrong thing to say
+    # about a service that simply went away -- and it does go away, because a
+    # daemon that loses the startup race exits while a client is attached.
+    code = await errors.run(_raise, PeerClosedError("connection closed"))
+    assert code == errors.EXIT_ERROR
+    captured = capsys.readouterr()
+    assert "Lost the connection" in captured.err
+    assert "bug in pb" not in captured.err
+    assert "Traceback" not in captured.err
