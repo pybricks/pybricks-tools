@@ -16,7 +16,7 @@ uv run ruff format --check .
 uv run ruff check .
 uv run pyright
 uv run pytest
-uv run mkdocs build --strict
+uv run properdocs build --strict
 ```
 
 ## Layout

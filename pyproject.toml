@@ -18,10 +18,14 @@ test = [
     "anyio>=4.14",
 ]
 docs = [
-    # Pinned below 2.0 deliberately. MkDocs 2.0 removes the plugin system and
-    # the theming system with no migration path, which would break Material,
-    # mkdocstrings, gen-files and literate-nav all at once. Revisit once the
-    # ecosystem settles: https://squidfunk.github.io/mkdocs-material/blog/2026/02/18/mkdocs-2.0/
+    # ProperDocs is the build tool, not MkDocs. MkDocs 2.0 removes the plugin
+    # and theming systems with no migration path; ProperDocs continues the 1.6
+    # line and reads both the mkdocs.* and properdocs.* entry point groups, so
+    # Material, mkdocstrings, gen-files and literate-nav all load unchanged.
+    "properdocs>=1.6.7",
+    # Still required, as a library rather than as the build tool: Material and
+    # mkdocstrings import mkdocs at runtime. Pinned below 2.0 for the reason
+    # above; mkdocs-material pins it there too.
     "mkdocs>=1.6,<2.0",
     "mkdocs-material>=9.5",
     "mkdocstrings[python]>=0.27",

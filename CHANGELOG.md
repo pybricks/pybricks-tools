@@ -35,8 +35,11 @@ All notable changes to this project are documented here. The format is based on
 
 ### Notes
 
-- `mkdocs` is pinned below 2.0 deliberately: 2.0 removes the plugin and theming
-  systems with no migration path.
+- Documentation is built with ProperDocs rather than MkDocs. MkDocs 2.0 removes
+  the plugin and theming systems with no migration path; ProperDocs continues
+  the 1.6 line and reads both entry point groups, so Material, mkdocstrings,
+  gen-files and literate-nav all load unchanged. MkDocs stays installed as a
+  library, pinned below 2.0, because those plugins import it.
 - On Windows ARM64 the `mpy-cross-v6` wheel contains an x86-64 binary, so it
   runs under emulation. The daemon logs the resolved compiler path so this is
   diagnosable rather than mysterious.
