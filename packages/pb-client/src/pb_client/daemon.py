@@ -14,18 +14,21 @@ registration, so that no work can outlive the block that started it.
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
+from collections.abc import AsyncGenerator, AsyncIterator
+from contextlib import aclosing, asynccontextmanager
 from dataclasses import dataclass
 from typing import Any
+
+import anyio
+from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 
 from pb_client import __version__
 from pb_client.autostart import open_connection
 from pb_client.errors import DaemonUnavailable
 from pb_core import auth, ipc
 from pb_core.ipc import Endpoint
-from pb_core.jsonrpc import JsonRpcPeer, connect_peer, encode_binary
-from pb_core.protocol import PROTOCOL_VERSION
+from pb_core.jsonrpc import JsonRpcPeer, Request, connect_peer, encode_binary
+from pb_core.protocol import HUB_FOUND, PROTOCOL_VERSION
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +80,9 @@ class DeviceInfo:
     rssi: int | None
     transport: str
 
+    hub_type: str | None = None
+    """What kind of hub it is, such as "City hub", if its advertisement says."""
+
     @classmethod
     def from_wire(cls, payload: dict[str, Any]) -> DeviceInfo:
         """Build from a scan result entry.
@@ -94,6 +100,9 @@ class DeviceInfo:
             address=str(payload.get("address", "")),
             rssi=int(rssi) if isinstance(rssi, int) else None,
             transport=str(payload.get("transport", "ble")),
+            hub_type=(
+                str(payload["type"]) if payload.get("type") is not None else None
+            ),
         )
 
 
@@ -146,6 +155,78 @@ class HubInfo:
         )
 
 
+async def _devices(
+    payloads: MemoryObjectReceiveStream[dict[str, Any]],
+) -> AsyncIterator[DeviceInfo]:
+    """Parse scan notifications as they arrive.
+
+    Args:
+        payloads: The raw notification parameters.
+
+    Yields:
+        One device per advertisement.
+    """
+    async with payloads:
+        async for payload in payloads:
+            yield DeviceInfo.from_wire(payload)
+
+
+class _Notifications:
+    """Hands each of the daemon's notifications to whoever is listening.
+
+    One of these is created before the connection, because the peer needs a
+    handler at the moment it starts reading and the :class:`Daemon` that will
+    use it does not exist yet.
+
+    Delivery is lossy on purpose. A subscriber that stops reading must not
+    stall the single reader task that serves the whole connection, including
+    every reply every other call is waiting for, so a full queue drops the
+    event instead of applying backpressure. Nothing a notification carries is
+    unrecoverable: the scan's own result still lists every hub that was seen.
+    """
+
+    def __init__(self) -> None:
+        """Start with nobody listening."""
+        self._listeners: dict[str, set[MemoryObjectSendStream[dict[str, Any]]]] = {}
+
+    def add(self, method: str, stream: MemoryObjectSendStream[dict[str, Any]]) -> None:
+        """Start sending one method's notifications to a stream.
+
+        Args:
+            method: The notification name.
+            stream: Where to put them.
+        """
+        self._listeners.setdefault(method, set()).add(stream)
+
+    def discard(
+        self, method: str, stream: MemoryObjectSendStream[dict[str, Any]]
+    ) -> None:
+        """Stop sending to a stream.
+
+        Args:
+            method: The notification name.
+            stream: The stream to forget. Not being registered is fine.
+        """
+        self._listeners.get(method, set()).discard(stream)
+
+    async def handle(self, request: Request) -> None:
+        """Deliver one inbound notification.
+
+        Args:
+            request: What arrived. Its id is unused: notifications have none.
+        """
+        # A copy, because delivering can close a stream and so change the set.
+        for stream in list(self._listeners.get(request.method, ())):
+            try:
+                stream.send_nowait(request.params or {})
+            except (
+                anyio.WouldBlock,
+                anyio.BrokenResourceError,
+                anyio.ClosedResourceError,
+            ):
+                logger.debug("dropped a %s: nobody reading", request.method)
+
+
 class Daemon:
     """A connected daemon.
 
@@ -153,15 +234,24 @@ class Daemon:
     connection's tasks must be owned by that context manager.
     """
 
-    def __init__(self, peer: JsonRpcPeer, endpoint: Endpoint) -> None:
+    def __init__(
+        self,
+        peer: JsonRpcPeer,
+        endpoint: Endpoint,
+        notifications: _Notifications | None = None,
+    ) -> None:
         """Wrap an established connection.
 
         Args:
             peer: The JSON-RPC peer, already handshaken.
             endpoint: Where this daemon is listening.
+            notifications: The router the peer was given. Without one the
+                subscription methods have nothing to read, so they refuse
+                rather than waiting forever.
         """
         self._peer = peer
         self.endpoint = endpoint
+        self._notifications = notifications
 
     async def ping(self) -> None:
         """Check that the daemon is responsive."""
@@ -198,6 +288,67 @@ class Daemon:
             params["name"] = name
         result = await self._peer.call("hub.scan", params)
         return [DeviceInfo.from_wire(item) for item in result.get("devices", [])]
+
+    @asynccontextmanager
+    async def scanning(
+        self, *, seconds: float = 10.0, name: str | None = None
+    ) -> AsyncGenerator[AsyncIterator[DeviceInfo], None]:
+        """Scan, reporting each hub as it is seen rather than at the end.
+
+        The iterator yields one item per advertisement, so the same hub arrives
+        many times over a scan with its signal strength as it is now. That is
+        the point: a hub's signal is how someone works out which of two
+        identically named hubs is the one on the desk in front of them. Callers
+        that only want a list should use :meth:`scan`.
+
+        Leaving the block early stops the scan, so a caller can take the first
+        hub it likes and get on with it.
+
+        Args:
+            seconds: How long the daemon should look.
+            name: Only report hubs with this name.
+
+        Yields:
+            An iterator over the hubs seen, ending when the scan does.
+
+        Raises:
+            RuntimeError: If this connection has no notification router, which
+                would leave the iterator silently empty.
+        """
+        if self._notifications is None:
+            raise RuntimeError("this connection does not receive notifications")
+
+        params: dict[str, Any] = {"timeout_s": seconds}
+        if name:
+            params["name"] = name
+
+        # Bounded, and generously: an advertisement every few milliseconds from
+        # several hubs still leaves room for a consumer redrawing a table.
+        sender, receiver = anyio.create_memory_object_stream[dict[str, Any]](256)
+        self._notifications.add(HUB_FOUND, sender)
+
+        async def scan_until_done() -> None:
+            try:
+                await self._peer.call("hub.scan", params)
+            finally:
+                # The scan is over, so end the caller's loop rather than
+                # leaving it waiting for a hub that is not coming.
+                sender.close()
+
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(scan_until_done)
+            devices = _devices(receiver)
+            try:
+                # Closed before the task group is cancelled, so a caller that
+                # stops after the first hub leaves no generator suspended
+                # mid-iteration for the collector to complain about later.
+                async with aclosing(devices):
+                    yield devices
+            finally:
+                self._notifications.discard(HUB_FOUND, sender)
+                # Whether the caller finished or walked away, nothing this
+                # method started outlives the block.
+                tg.cancel_scope.cancel()
 
     async def connect_hub(
         self, *, hub_id: str | None = None, name: str | None = None
@@ -371,7 +522,10 @@ async def connect(
                 "no saved credentials; the background service has not run for this user yet"
             )
 
-        async with connect_peer(stream) as peer:
+        # The router has to exist before the peer starts reading, so it is
+        # made here and handed to both.
+        notifications = _Notifications()
+        async with connect_peer(stream, notifications.handle) as peer:
             # The handshake is mandatory and must come first: it authenticates
             # the connection and settles the protocol version, which matters
             # because a daemon can outlive the install that started it.
@@ -385,4 +539,4 @@ async def connect(
                 },
             )
             logger.debug("connected to the daemon at %s", resolved)
-            yield Daemon(peer, resolved)
+            yield Daemon(peer, resolved, notifications)

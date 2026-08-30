@@ -12,6 +12,7 @@ from typing import Any
 import anyio
 
 from pb_core.jsonrpc import ErrorCode, JsonRpcError
+from pb_core.protocol import HUB_FOUND
 from pbd.errors import as_wire_error
 from pbd.hub import protocol as p
 from pbd.hub.connection import HubConnection, HubDisconnectedError
@@ -35,6 +36,7 @@ def _device_json(device: DeviceInfo) -> dict[str, Any]:
         "address": device.address,
         "rssi": device.rssi,
         "transport": device.transport,
+        "type": device.hub_type,
     }
 
 
@@ -77,7 +79,9 @@ def _hub_json(connection: HubConnection) -> dict[str, Any]:
 
 @method(
     "hub.scan",
-    "Look for hubs that are advertising.",
+    "Look for hubs that are advertising. Each advertisement is also sent to "
+    "the caller as a hub.found notification while the scan runs, so a client "
+    "can show hubs as they appear instead of waiting for the whole scan.",
     params={
         "timeout_s": "How long to look. Defaults to 10 seconds.",
         "name": "Only report hubs with this name.",
@@ -105,6 +109,13 @@ async def hub_scan(session: Session, params: dict[str, Any]) -> dict[str, Any]:
         async with aclosing(manager.discover(scan_filter)) as stream:
             async for device in stream:
                 found[device.id] = device
+                # Every advertisement, not only the first from each hub: the
+                # signal strength is what changes between them, and watching
+                # it move is how someone finds out which hub is which. The
+                # result still carries the whole list, so a caller that
+                # ignores the notifications loses nothing.
+                if session.peer is not None:
+                    session.peer.notify(HUB_FOUND, _device_json(device))
 
     return {"devices": [_device_json(device) for device in found.values()]}
 
