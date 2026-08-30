@@ -58,6 +58,9 @@ radio finished with it would be silently wrong. Bounded, because the other
 possibility is a hub that has stopped reading, and then leaving has to win.
 """
 
+STOP_SECONDS = 3.0
+"""How long leaving waits for the hub to confirm the interpreter has stopped."""
+
 INPUT_QUEUE = 256
 """Reads of the keyboard that may be waiting to reach the hub.
 
@@ -136,6 +139,12 @@ async def _session(
 
     with banner_module.Banner(console, info) as bar:
         bar.line(f"{escape.describe()} q to leave, {escape.describe()} ? for help.")
+        # Before the tasks, not inside them, so that leaving in the same breath
+        # as starting cannot race the decision about what to leave running.
+        # Nothing is missed by starting it here: the hub was attached to before
+        # this session began, so its greeting is already queued.
+        started = await _start_if_idle(daemon, info, bar, hub)
+
         async with anyio.create_task_group() as tg:
             tg.start_soon(_show_hub, events, bar, ended, tg.cancel_scope)
             tg.start_soon(_send_input, daemon, hub, receiver, bar, ended)
@@ -143,11 +152,45 @@ async def _session(
                 _read_keys, daemon, hub, console, keys, sender, bar, ended, tg
             )
             tg.start_soon(_tick, bar)
-            await _start_if_idle(daemon, info, bar, hub)
+
+        if started and not ended.disconnected:
+            await _stop_what_we_started(daemon, hub, bar)
 
     if ended.disconnected:
         return EXIT_HUB_ERROR
     return EXIT_OK
+
+
+async def _stop_what_we_started(
+    daemon: pb_client.Daemon, hub: str | None, bar: banner_module.Banner
+) -> None:
+    """Stop the interpreter this session started, on the way out.
+
+    A hub only advertises when nothing is running on it, and the interpreter is
+    a running program as far as the hub is concerned. So a session that walks
+    away and leaves it running leaves a hub that nothing can find -- not the
+    next command, not another machine, not the user wondering why their hub has
+    apparently switched itself off. Whoever started it puts it back.
+
+    An interpreter this session merely joined, or a program somebody else
+    started, is left alone: it was not ours to stop.
+
+    Args:
+        daemon: The connected service.
+        hub: Which hub.
+        bar: The status line, for saying what was done and why.
+    """
+    # Shielded and bounded: this runs while the session is already unwinding,
+    # and a hub that will not answer must not hold the command open.
+    with anyio.move_on_after(STOP_SECONDS, shield=True):
+        try:
+            await daemon.stop_program(hub)
+        except pb_client.JsonRpcError as exc:
+            logger.info("could not stop the interpreter: %s", exc)
+            return
+        bar.line("Interpreter stopped, so the hub can be found again.")
+        return
+    logger.info("the hub did not confirm the interpreter had stopped")
 
 
 class _Ending:
@@ -167,7 +210,7 @@ async def _start_if_idle(
     info: pb_client.HubInfo,
     bar: banner_module.Banner,
     hub: str | None,
-) -> None:
+) -> bool:
     """Start the interpreter, unless something is already running.
 
     A hub runs one thing at a time, so starting the interpreter stops whatever
@@ -181,17 +224,22 @@ async def _start_if_idle(
         info: The hub as it was when the session began.
         bar: The status line, for saying what was decided.
         hub: Which hub.
+
+    Returns:
+        True if this session started the interpreter, and so should stop it
+        again on the way out.
     """
     if info.running_program_id == pb_client.REPL_PROGRAM_ID and info.program_running:
         bar.line("Joining the interpreter that is already running.")
-        return
+        return False
     if info.program_running:
         bar.line(
             f"A program is running, so the interpreter was not started. "
             f"{escape.describe()} r starts it, stopping that program."
         )
-        return
+        return False
     await daemon.start_repl(hub)
+    return True
 
 
 async def _show_hub(
