@@ -122,6 +122,16 @@ class HubConnection:
         self._link: HubLink | None = None
         self._command_lock = anyio.Lock()
         self._closing = anyio.Event()
+
+        self._reason = "the hub went away"
+        """Why this connection is ending, for whoever is attached to it.
+
+        Anything watching a hub is told when it goes, and the difference
+        between "somebody disconnected it" and "it stopped answering" is the
+        difference between a session that explains itself and one that leaves
+        the user guessing. Only the log had this before.
+        """
+
         self._closed = anyio.Event()
         self._subscribers: dict[str, Subscriber] = {}
         self._sub_ids = itertools.count(1)
@@ -167,7 +177,7 @@ class HubConnection:
                 # Both calls are synchronous, so they cannot be cancelled and
                 # need no shield: the connection is always reported as gone and
                 # subscribers are always released, however this task ends.
-                self._set_state(HubState.DISCONNECTED)
+                self._set_state(HubState.DISCONNECTED, self._reason)
                 self._release_subscribers()
                 self._rx_tx.close()
                 self._rx_rx.close()
@@ -201,7 +211,7 @@ class HubConnection:
                 task_status.started(info)
 
                 await self._closing.wait()
-                self._set_state(HubState.DISCONNECTING)
+                self._set_state(HubState.DISCONNECTING, self._reason)
                 tg.cancel_scope.cancel()
 
     async def _handshake(self, link: HubLink) -> HubInfo:
@@ -259,6 +269,7 @@ class HubConnection:
         Args:
             reason: Why, for the log and for attached clients.
         """
+        self._reason = reason
         if not self._closing.is_set():
             logger.info("closing: %s", reason)
             self._closing.set()
@@ -295,6 +306,7 @@ class HubConnection:
 
         Also invoked from outside any task, so it does the same minimal thing.
         """
+        self._reason = "the hub stopped answering"
         with suppress(anyio.ClosedResourceError, anyio.BrokenResourceError):
             self._rx_tx.send_nowait(_DISCONNECTED_MARKER)
         self._closing.set()

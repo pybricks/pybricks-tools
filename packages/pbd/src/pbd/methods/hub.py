@@ -13,7 +13,7 @@ import anyio
 
 from pb_core.jsonrpc import ErrorCode, JsonRpcError
 from pb_core.protocol import HUB_FOUND
-from pbd.errors import as_wire_error
+from pbd.errors import HUB_FAILURES, as_wire_error
 from pbd.hub import protocol as p
 from pbd.hub.connection import HubConnection, HubDisconnectedError
 from pbd.hub.manager import HubAlreadyConnectedError, HubNotFoundError
@@ -36,6 +36,9 @@ __all__ = [
 
 DEFAULT_SCAN_SECONDS = 10.0
 CONNECT_SECONDS = 30.0
+
+STOP_BUILTIN_SECONDS = 2.0
+"""How long disconnecting waits for a built-in program to stop first."""
 
 
 def _device_json(device: DeviceInfo) -> dict[str, Any]:
@@ -226,6 +229,14 @@ async def hub_connect(session: Session, params: dict[str, Any]) -> dict[str, Any
     if wanted_id and wanted_id in manager:
         return _hub_json(manager.get(str(wanted_id)))
 
+    if not wanted_id and not wanted_name and manager.connected:
+        # Connecting is what a user types to be sure they have a hub, so being
+        # asked when there already is one is not an error and not a reason to
+        # go looking for a second. It would look like one, too: a connected hub
+        # has stopped advertising, so the scan would find nothing and the user
+        # would be told to check that their hub is switched on.
+        return _hub_json(manager.get(None))
+
     scan_filter = ScanFilter(name=str(wanted_name) if wanted_name else None)
     device: DeviceInfo | None = None
 
@@ -255,6 +266,38 @@ async def hub_connect(session: Session, params: dict[str, Any]) -> dict[str, Any
     return _hub_json(manager.get(device.id))
 
 
+async def _stop_builtin_program(connection: HubConnection) -> None:
+    """Stop a built-in program before dropping the connection.
+
+    The REPL, port view and IMU calibration are conversations with whoever is
+    attached: none of them means anything once nobody is. Worse, a hub only
+    advertises when nothing is running on it, so disconnecting from one of
+    these and leaving it going produces a hub that nothing can find afterwards
+    -- recoverable only by switching the hub off and on.
+
+    A user's own program is left alone, because setting one going and walking
+    away is a thing people deliberately do.
+
+    Args:
+        connection: The hub about to be disconnected.
+    """
+    status = connection.status
+    if status is None or not status.program_running:
+        return
+    running = status.running_program_id
+    if running is None or running < p.UserProgramId.REPL:
+        return
+
+    # Best effort and bounded: the connection is going either way, and a hub
+    # that will not answer must not hold up the disconnect.
+    try:
+        with anyio.move_on_after(STOP_BUILTIN_SECONDS):
+            await connection.send_command(p.encode_stop_user_program())
+            logger.info("stopped the built-in program before disconnecting")
+    except HUB_FAILURES:
+        logger.info("could not stop the built-in program", exc_info=True)
+
+
 @method(
     "hub.disconnect",
     "Disconnect a hub.",
@@ -268,6 +311,7 @@ async def hub_disconnect(session: Session, params: dict[str, Any]) -> dict[str, 
     hub_id = params.get("id")
     try:
         connection = manager.get(str(hub_id) if hub_id else None)
+        await _stop_builtin_program(connection)
         await manager.disconnect(connection.id)
     except HubNotFoundError as exc:
         raise as_wire_error(exc) from exc

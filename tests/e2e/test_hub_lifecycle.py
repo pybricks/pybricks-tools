@@ -28,6 +28,7 @@ import pbd.methods.stdio  # noqa: F401  # pyright: ignore[reportUnusedImport]
 from pb_core.ipc import Endpoint
 from pb_core.jsonrpc import ErrorCode, JsonRpcError
 from pbd import daemon as daemon_module
+from pbd.hub import protocol as p
 from pbd.hub.fake import FakeHub, FakeHubTransport
 
 pytestmark = pytest.mark.anyio
@@ -278,8 +279,6 @@ async def test_stop_program_reaches_the_hub(
     async with pb_client.connect(daemon_at, autostart=False) as daemon:
         await daemon.connect_hub(name=FIRST)
         await daemon.stop_program()
-    from pbd.hub import protocol as p
-
     assert hubs[0].commands[-1] == bytes([p.Command.STOP_USER_PROGRAM])
 
 
@@ -315,3 +314,57 @@ async def test_a_connected_hub_keeps_the_daemon_alive(
         await anyio.sleep(1.2)
         assert daemon.hubs.count == 1, "the hub should still be connected"
         assert daemon.shutdown_reason == "not requested"
+
+
+async def test_connecting_again_reports_the_hub_already_connected(
+    daemon_at: Endpoint, hubs: list[FakeHub]
+) -> None:
+    # A connected hub has stopped advertising, so a second connect that went
+    # looking would find nothing and report that the hub must be switched off.
+    async with pb_client.connect(daemon_at, autostart=False) as client:
+        first = await client.connect_hub(name=hubs[0].name)
+        again = await client.connect_hub()
+    assert again.id == first.id
+    assert again.state == "connected"
+
+
+async def _settle() -> None:
+    """Give the hub's status report time to reach the service.
+
+    The daemon learns what is running from a status report, so a test that
+    acted on the instant would be asking about a hub it had not heard from.
+    """
+    await anyio.sleep(0.1)
+
+
+async def test_disconnecting_stops_a_built_in_program(
+    daemon_at: Endpoint, hubs: list[FakeHub]
+) -> None:
+    # The REPL is a conversation with whoever is attached, and a hub only
+    # advertises when nothing is running on it -- so leaving it going would
+    # produce a hub that nothing could find afterwards.
+    hub = hubs[0]
+    async with pb_client.connect(daemon_at, autostart=False) as client:
+        await client.connect_hub(name=hub.name)
+        await client.start_repl()
+        await _settle()
+        assert hub.status & p.StatusFlag.USER_PROGRAM_RUNNING
+        await client.disconnect_hub()
+
+    assert not hub.status & p.StatusFlag.USER_PROGRAM_RUNNING
+
+
+async def test_disconnecting_leaves_a_user_program_running(
+    daemon_at: Endpoint, hubs: list[FakeHub]
+) -> None:
+    # Setting a program going and walking away is a thing people do on purpose.
+    hub = hubs[0]
+    hub.program_size = 8
+    async with pb_client.connect(daemon_at, autostart=False) as client:
+        await client.connect_hub(name=hub.name)
+        await client.start_program()
+        await _settle()
+        assert hub.status & p.StatusFlag.USER_PROGRAM_RUNNING
+        await client.disconnect_hub()
+
+    assert hub.status & p.StatusFlag.USER_PROGRAM_RUNNING
