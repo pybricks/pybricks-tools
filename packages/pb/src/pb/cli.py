@@ -205,10 +205,10 @@ async def _connect(hub: str | None) -> int:
                 name=hub if hub and not _looks_like_id(hub) else None,
             )
 
-    err.print(
-        f"Connected to [bold]{info.name}[/] "
-        f"(firmware {info.firmware}, protocol {info.protocol})."
-    )
+    # The protocol version belongs to pb status: it explains why a command was
+    # refused, but on a successful connection it is one more number to read
+    # past.
+    err.print(f"Connected to [bold]{info.name}[/] (firmware {info.firmware}).")
     return EXIT_OK
 
 
