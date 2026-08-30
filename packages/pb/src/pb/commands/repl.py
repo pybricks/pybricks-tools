@@ -14,7 +14,6 @@ from __future__ import annotations
 import logging
 
 import pb_client
-from pb import banner as banner_module
 from pb import errors, session, ui
 from pb.app import PROGRAM_COMMANDS, Verbose, app, configure_logging
 from pb.errors import EXIT_HUB_ERROR
@@ -66,7 +65,7 @@ async def _repl(hub: str | None, replay: int) -> int:
         joining = _is_the_interpreter(info)
         running = session.Running("interpreter", arrived=joining)
 
-        async def start(bar: banner_module.Banner) -> None:
+        async def start(announce: session.Announce) -> None:
             """Start the interpreter, or join the one already running.
 
             Restarting an interpreter that is already going would throw away
@@ -74,10 +73,10 @@ async def _repl(hub: str | None, replay: int) -> int:
             left running afterwards, since it was not ours to stop.
 
             Args:
-                bar: The status line, for saying what was decided.
+                announce: Says one line to the user.
             """
             if joining:
-                bar.line("Joining the interpreter that is already running.")
+                announce("Joining the interpreter that is already running.")
                 return
             await daemon.start_repl(hub)
             running.ours = True

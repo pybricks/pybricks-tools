@@ -16,10 +16,9 @@ from typing import Annotated
 import cyclopts
 
 import pb_client
-from pb import banner as banner_module
 from pb import errors, session, ui
 from pb.app import PROGRAM_COMMANDS, Verbose, app, configure_logging
-from pb.errors import EXIT_HUB_ERROR, EXIT_OK
+from pb.errors import EXIT_OK
 from pb_core.jsonrpc import ErrorCode
 
 logger = logging.getLogger(__name__)
@@ -57,18 +56,21 @@ async def run_cmd(
 ) -> int:
     """Compile a script, send it to a hub, and run it.
 
-    With --interactive the program's output appears as it is printed and the
-    keyboard goes to the hub, which is what a program using input() or hub
-    buttons needs. Ctrl-] q leaves; Ctrl-] h lists the rest.
+    The command stays with the program: its output appears as it is printed,
+    and on a terminal the keyboard goes to the hub, so Ctrl-C interrupts and
+    input() reads what you type. Ctrl-] q leaves; Ctrl-] h lists the rest.
+    Without a terminal -- in a pipeline or a build -- the output still comes
+    through, on stdout.
 
     Args:
         script: The Python file to run. Leave it out when using --command.
         hub: Which hub, by name. Defaults to the one in use.
         command: Python code to run, instead of a file. Like python -c.
         slot: Which program slot to use.
-        wait: Wait for the program to finish before returning.
-        interactive: Stay with the program, showing its output and passing
-            the keyboard to it.
+        wait: Wait for the program to finish before returning. --no-wait
+            starts it and returns, for setting a robot going and walking away.
+        interactive: Insist on the interactive form, so that having no
+            terminal is an error rather than a fallback to plain output.
         verbose: Increase log detail.
     """
     if (script is None) == (command is None):
@@ -119,18 +121,14 @@ async def _run(
     async with pb_client.connect(autostart=False) as daemon:
         with ui.spinner(err, f"Downloading {len(program)} bytes..."):
             await daemon.download(program, hub_id=hub, slot=slot)
-        if interactive:
-            return await _interactively(daemon, hub, slot)
-        with ui.spinner(err, "Running..." if wait else "Starting..."):
-            reason = await daemon.start_program(hub_id=hub, slot=slot, wait=wait)
+        if wait:
+            # The hub stays connected either way, so there is nothing to be
+            # gained by watching a spinner instead of the program.
+            return await _stay_with_it(daemon, hub, slot)
+        with ui.spinner(err, "Starting..."):
+            await daemon.start_program(hub_id=hub, slot=slot, wait=False)
 
-    if reason == "disconnected":
-        err.print("[yellow]The hub disconnected while the program was running.[/]")
-        return EXIT_HUB_ERROR
-    if reason == "started":
-        err.print("Program started.")
-    else:
-        err.print("Program finished.")
+    err.print("Program started.")
     return EXIT_OK
 
 
@@ -213,16 +211,16 @@ async def _start(hub: str | None, slot: int | None, interactive: bool) -> int:
             return no_terminal
     async with pb_client.connect(autostart=False) as daemon:
         if interactive:
-            return await _interactively(daemon, hub, slot)
+            return await _stay_with_it(daemon, hub, slot)
         await daemon.start_program(hub_id=hub, slot=slot)
     err.print("Program started.")
     return EXIT_OK
 
 
-async def _interactively(
+async def _stay_with_it(
     daemon: pb_client.Daemon, hub: str | None, slot: int | None
 ) -> int:
-    """Start a program and stay with it, on the terminal.
+    """Start a program and stay with it until it ends.
 
     The same session as ``pb repl``, with a program on the other end instead
     of the interpreter: output as it is printed, the keyboard going to the
@@ -230,6 +228,11 @@ async def _interactively(
     or when the user asks to leave -- and a program this command started is
     stopped on the way out, since a hub with something running cannot be found
     by anything.
+
+    Without a terminal the same thing happens with the terminal parts left
+    out: the output still arrives, on stdout, and the exit code still says how
+    the program ended. That is what a build or a pipeline gets, and it is why
+    there is no separate way of asking for it.
 
     Args:
         daemon: The connected service.
@@ -244,19 +247,21 @@ async def _interactively(
     info = await daemon.hub_info(hub)
     running = session.Running("program", watch_for_crash=True)
 
-    async def start(bar: banner_module.Banner) -> None:
-        """Set the program going, now that the screen is ready for it.
+    async def start(announce: session.Announce) -> None:
+        """Set the program going, now that its output is being listened for.
 
         Args:
-            bar: The status line, unused: the program speaks for itself.
+            announce: Says one line to the user. Unused: the program speaks
+                for itself.
         """
-        del bar
+        del announce
         await daemon.start_program(hub_id=hub, slot=slot, wait=False)
         running.ours = True
 
-    return await session.attached(
-        daemon, info, hub, replay=0, running=running, start=start
-    )
+    # A user who asked for --interactive by name has already been told if
+    # there is no terminal, so by here the two are the same question.
+    stay = session.attached if session.have_terminal() else session.streamed
+    return await stay(daemon, info, hub, replay=0, running=running, start=start)
 
 
 @app.command(name="stop", group=PROGRAM_COMMANDS, sort_key=4)

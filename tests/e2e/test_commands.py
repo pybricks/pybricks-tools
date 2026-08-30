@@ -21,6 +21,7 @@ import uuid
 from collections.abc import AsyncGenerator
 from pathlib import Path
 
+import anyio
 import pytest
 
 # Imported to register the RPC methods.
@@ -199,6 +200,76 @@ async def test_run_a_one_liner(
     await hub_commands.connect_cmd(hub=HUB_NAME)
     assert await program_commands.run_cmd(command="x = 1", wait=False) == errors.EXIT_OK
     assert "Program started" in capsys.readouterr().err
+
+
+async def _while_running(hub: FakeHub, prints: bytes) -> None:
+    """Act out a program: print something, then end.
+
+    Args:
+        hub: The simulated hub.
+        prints: What the program puts on its output before ending.
+    """
+    with anyio.fail_after(10):
+        # A poll rather than an event, because what is being waited for is a
+        # change in the simulated hub's own state, which has nothing to signal
+        # with. Ruff is told so: the alternative it suggests does not exist.
+        while not hub.status & p.StatusFlag.USER_PROGRAM_RUNNING:  # noqa: ASYNC110
+            await anyio.sleep(0.005)
+        hub.send_stdout(prints)
+        await anyio.sleep(0.05)
+        hub.set_program_running(False)
+
+
+async def test_run_stays_with_the_program_and_prints_what_it_prints(
+    service: FakeHub, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    hub = service
+    await hub_commands.connect_cmd(hub=HUB_NAME)
+
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(_while_running, hub, b"counting\r\n")
+        assert await program_commands.run_cmd(_script(tmp_path)) == errors.EXIT_OK
+
+    captured = capsys.readouterr()
+    # The program's own output is data, so it goes to stdout and can be piped
+    # somewhere; everything pb says about the run stays on stderr.
+    assert "counting" in captured.out
+
+
+async def test_a_program_that_ends_in_a_traceback_fails_the_command(
+    service: FakeHub, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    hub = service
+    await hub_commands.connect_cmd(hub=HUB_NAME)
+
+    # What the firmware prints for an unhandled exception. Nothing in the
+    # protocol distinguishes a program that finished from one that failed --
+    # the status report only stops saying that something is running -- so this
+    # is the only evidence there is, and a build that runs a program on a hub
+    # needs an exit code it can trust.
+    traceback = (
+        b"Traceback (most recent call last):\r\n"
+        b'  File "__main__.py", line 3, in <module>\r\n'
+        b"ZeroDivisionError: divide by zero\r\n"
+    )
+    code = errors.EXIT_OK
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(_while_running, hub, traceback)
+        code = await program_commands.run_cmd(_script(tmp_path))
+
+    assert code == errors.EXIT_HUB_ERROR
+    assert "ZeroDivisionError" in capsys.readouterr().out
+
+
+async def test_a_program_that_simply_ends_does_not_fail_the_command(
+    service: FakeHub, tmp_path: Path
+) -> None:
+    hub = service
+    await hub_commands.connect_cmd(hub=HUB_NAME)
+
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(_while_running, hub, b"all done\r\n")
+        assert await program_commands.run_cmd(_script(tmp_path)) == errors.EXIT_OK
 
 
 async def test_run_reports_a_program_that_will_not_compile(
