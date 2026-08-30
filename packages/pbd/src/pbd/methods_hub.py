@@ -12,6 +12,7 @@ from typing import Any
 import anyio
 
 from pb_core.jsonrpc import ErrorCode, JsonRpcError
+from pbd.errors import as_wire_error
 from pbd.hub import protocol as p
 from pbd.hub.connection import HubConnection, HubDisconnectedError
 from pbd.hub.manager import HubAlreadyConnectedError, HubNotFoundError
@@ -72,17 +73,6 @@ def _hub_json(connection: HubConnection) -> dict[str, Any]:
             "selected_slot": status.selected_slot,
         }
     return payload
-
-
-def _wrap_hub_errors(exc: Exception) -> JsonRpcError:
-    """Translate a hub failure into the matching wire error."""
-    if isinstance(exc, HubNotFoundError):
-        return JsonRpcError(ErrorCode.HUB_NOT_FOUND, str(exc))
-    if isinstance(exc, HubAlreadyConnectedError):
-        return JsonRpcError(ErrorCode.HUB_ALREADY_CONNECTED, str(exc))
-    if isinstance(exc, HubDisconnectedError):
-        return JsonRpcError(ErrorCode.HUB_DISCONNECTED, str(exc))
-    return JsonRpcError(ErrorCode.INTERNAL_ERROR, str(exc))
 
 
 @method(
@@ -164,7 +154,7 @@ async def hub_connect(session: Session, params: dict[str, Any]) -> dict[str, Any
             ErrorCode.HUB_NOT_CONNECTED, f"timed out connecting to {device.name}"
         ) from None
     except (HubNotFoundError, HubAlreadyConnectedError, HubDisconnectedError) as exc:
-        raise _wrap_hub_errors(exc) from exc
+        raise as_wire_error(exc) from exc
 
     return _hub_json(manager.get(device.id))
 
@@ -184,7 +174,7 @@ async def hub_disconnect(session: Session, params: dict[str, Any]) -> dict[str, 
         connection = manager.get(str(hub_id) if hub_id else None)
         await manager.disconnect(connection.id)
     except HubNotFoundError as exc:
-        raise _wrap_hub_errors(exc) from exc
+        raise as_wire_error(exc) from exc
     return {}
 
 
@@ -217,7 +207,7 @@ async def hub_info(session: Session, params: dict[str, Any]) -> dict[str, Any]:
     try:
         return _hub_json(manager.get(str(hub_id) if hub_id else None))
     except HubNotFoundError as exc:
-        raise _wrap_hub_errors(exc) from exc
+        raise as_wire_error(exc) from exc
 
 
 @method(
@@ -241,6 +231,6 @@ async def hub_use(session: Session, params: dict[str, Any]) -> dict[str, Any]:
     try:
         connection = manager.resolve(str(hub_id))
     except HubNotFoundError as exc:
-        raise _wrap_hub_errors(exc) from exc
+        raise as_wire_error(exc) from exc
     manager.default_hub_id = connection.id
     return {"default": connection.id}

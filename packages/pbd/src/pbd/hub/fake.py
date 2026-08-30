@@ -23,15 +23,25 @@ from typing import final
 import anyio
 
 from pbd.hub import protocol as p
-from pbd.hub.transport import DeviceInfo, HubLink, NotificationHandler, ScanFilter
+from pbd.hub.transport import (
+    DeviceInfo,
+    HubCommandError,
+    HubLink,
+    NotificationHandler,
+    ScanFilter,
+)
 
 logger = logging.getLogger(__name__)
 
 __all__ = ["FakeHub", "FakeHubTransport"]
 
 
-class HubRejection(Exception):
-    """The hub refused a command, as an ATT error would."""
+class HubRejection(HubCommandError):
+    """The hub refused a command, as an ATT error would.
+
+    A :class:`HubCommandError`, because a simulated refusal that the daemon
+    handled differently from a real one would be worth nothing.
+    """
 
     def __init__(self, error: p.HubError) -> None:
         """Record which error the hub returned.
@@ -39,8 +49,7 @@ class HubRejection(Exception):
         Args:
             error: The firmware's error code.
         """
-        super().__init__(f"hub rejected the command: {error.name}")
-        self.error = error
+        super().__init__(error, f"hub rejected the command: {error.name}")
 
 
 @dataclass

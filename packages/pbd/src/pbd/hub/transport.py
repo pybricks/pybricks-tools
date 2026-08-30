@@ -20,8 +20,11 @@ from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
 
+from pbd.hub import protocol as p
+
 __all__ = [
     "DeviceInfo",
+    "HubCommandError",
     "HubLink",
     "HubTransport",
     "NotificationHandler",
@@ -29,6 +32,28 @@ __all__ = [
 ]
 
 NotificationHandler = Callable[[bytes], None]
+
+
+class HubCommandError(RuntimeError):
+    """The hub refused a command.
+
+    Defined here rather than beside the connection because it belongs to the
+    seam: a rejection is something every transport has to report, and the
+    simulated hub has to be able to fail in exactly the same way as the radio.
+    """
+
+    def __init__(self, error: p.HubError | int, message: str) -> None:
+        """Record the firmware's own error code.
+
+        Args:
+            error: The raw error value, preserved so callers can be specific
+                rather than paraphrasing.
+            message: Human-readable description.
+        """
+        super().__init__(message)
+        self.error = error
+
+
 """Called when the hub sends a notification.
 
 Synchronous and non-blocking by contract. A transport may invoke this from

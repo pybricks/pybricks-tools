@@ -50,6 +50,7 @@ __all__ = [
     "hub_type_name",
     "parse_status_report",
     "parse_version",
+    "start_takes_program_id",
     "unpack_capabilities",
     "unpack_pnp_id",
 ]
@@ -232,6 +233,20 @@ def encode_stop_user_program() -> bytes:
     return struct.pack("<B", Command.STOP_USER_PROGRAM)
 
 
+def start_takes_program_id(profile: Version) -> bool:
+    """Whether this hub accepts the program to start being named.
+
+    Args:
+        profile: The hub's Pybricks profile version.
+
+    Returns:
+        True from profile v1.4.0, where ``START_USER_PROGRAM`` gained its
+        argument. Naming the program is preferable to relying on the hub's
+        own selection, which the profile documents as deprecated.
+    """
+    return profile >= _PROFILE_SLOT_ARGUMENT
+
+
 def encode_start_user_program(program_id: int | None, *, profile: Version) -> bytes:
     """Build a command that starts a program already on the hub.
 
@@ -258,8 +273,11 @@ def encode_start_user_program(program_id: int | None, *, profile: Version) -> by
         return struct.pack("<B", Command.START_USER_PROGRAM)
 
     if program_id is None:
-        # No id means "whatever is selected", which the hub expresses by
-        # omitting the argument even on new profiles.
+        # Leaving the argument off still means "whichever slot is selected":
+        # the firmware reads a one-byte command as exactly that. The Pybricks
+        # Profile documents the form as removed in v1.4.0, though, so callers
+        # are expected to name the program and this stays for the hubs that
+        # have nothing else.
         return struct.pack("<B", Command.START_USER_PROGRAM)
     return struct.pack("<BB", Command.START_USER_PROGRAM, program_id)
 

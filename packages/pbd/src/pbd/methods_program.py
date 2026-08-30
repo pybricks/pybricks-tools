@@ -11,10 +11,12 @@ from typing import Any
 import anyio
 
 from pb_core.jsonrpc import ErrorCode, JsonRpcError, decode_binary
+from pbd.errors import as_wire_error, hub_errors
 from pbd.hub import protocol as p
 from pbd.hub.connection import HubConnection, HubDisconnectedError
 from pbd.hub.events import Channel, StatusEvent
 from pbd.hub.manager import HubNotFoundError
+from pbd.hub.transport import HubCommandError
 from pbd.methods import method, require
 from pbd.session import Session
 
@@ -24,6 +26,31 @@ __all__ = ["program_download", "program_run", "program_start", "program_stop"]
 
 _RUN_START_GRACE = 5.0
 """Seconds to wait for the hub to report the program as started."""
+
+
+def _program_to_start(connection: HubConnection, slot: Any) -> int | None:
+    """Decide which program a start command should name.
+
+    Args:
+        connection: The hub being started.
+        slot: The slot the caller asked for, or ``None`` for "whichever the
+            hub has selected".
+
+    Returns:
+        The program id to send, or ``None`` for the legacy no-argument form.
+    """
+    if slot is not None:
+        return int(slot)
+    info = connection.info
+    if info is None or not p.start_takes_program_id(info.profile):
+        # Nothing else to say on a hub whose command has no argument.
+        return None
+    status = connection.status
+    if status is not None and status.selected_slot is not None:
+        return status.selected_slot
+    # A hub that holds one program at a time reports no selection, and that
+    # one program is slot 0.
+    return 0
 
 
 def _hub(session: Session, params: dict[str, Any]) -> HubConnection:
@@ -91,11 +118,9 @@ async def program_download(session: Session, params: dict[str, Any]) -> dict[str
     session.daemon.mark_activity()
     connection = _hub(session, params)
     program = decode_binary(require(params, "mpy", str))
-    try:
+    with hub_errors("store the program"):
         async with connection.abort_on_disconnect():
             await _download(connection, program)
-    except HubDisconnectedError as exc:
-        raise JsonRpcError(ErrorCode.HUB_DISCONNECTED, str(exc)) from exc
     return {"size": len(program)}
 
 
@@ -116,18 +141,15 @@ async def program_start(session: Session, params: dict[str, Any]) -> dict[str, A
     if info is None:
         raise JsonRpcError(ErrorCode.HUB_NOT_CONNECTED, "hub is not ready")
 
-    slot = params.get("slot")
     try:
         command = p.encode_start_user_program(
-            int(slot) if slot is not None else None, profile=info.profile
+            _program_to_start(connection, params.get("slot")), profile=info.profile
         )
     except ValueError as exc:
         raise JsonRpcError(ErrorCode.HUB_UNSUPPORTED, str(exc)) from exc
 
-    try:
+    with hub_errors("start that program"):
         await connection.send_command(command)
-    except HubDisconnectedError as exc:
-        raise JsonRpcError(ErrorCode.HUB_DISCONNECTED, str(exc)) from exc
     return {}
 
 
@@ -141,10 +163,8 @@ async def program_stop(session: Session, params: dict[str, Any]) -> dict[str, An
     """Stop the running program."""
     session.daemon.mark_activity()
     connection = _hub(session, params)
-    try:
+    with hub_errors("stop the program"):
         await connection.send_command(p.encode_stop_user_program())
-    except HubDisconnectedError as exc:
-        raise JsonRpcError(ErrorCode.HUB_DISCONNECTED, str(exc)) from exc
     return {}
 
 
@@ -173,7 +193,7 @@ async def program_run(session: Session, params: dict[str, Any]) -> dict[str, Any
 
     try:
         command = p.encode_start_user_program(
-            int(slot) if slot is not None else None, profile=info.profile
+            _program_to_start(connection, slot), profile=info.profile
         )
     except ValueError as exc:
         raise JsonRpcError(ErrorCode.HUB_UNSUPPORTED, str(exc)) from exc
@@ -192,6 +212,10 @@ async def program_run(session: Session, params: dict[str, Any]) -> dict[str, Any
                 reason = await _wait_for_stop(connection, watcher)
         except HubDisconnectedError:
             return {"reason": "disconnected", "size": len(program)}
+        except HubCommandError as exc:
+            # A refusal is an answer, not a lost connection: say which command
+            # the hub turned down.
+            raise as_wire_error(exc, "run that program") from exc
         except anyio.get_cancelled_exc_class():
             # The caller gave up, so stop the program rather than leaving it
             # running. Shielded: we are already unwinding.

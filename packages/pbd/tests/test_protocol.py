@@ -113,15 +113,27 @@ def test_start_program_carries_a_slot_on_new_firmware() -> None:
     )
 
 
-def test_start_program_omits_the_slot_when_none_is_requested() -> None:
-    # "Whatever is selected" is expressed by omitting the argument, on every
-    # profile.
-    assert p.encode_start_user_program(None, profile=V15) == bytes(
-        [p.Command.START_USER_PROGRAM]
-    )
+def test_start_program_uses_the_legacy_form_on_old_firmware() -> None:
+    # Before v1.4.0 the command took no argument and started whichever
+    # program the hub had selected.
     assert p.encode_start_user_program(None, profile=V12) == bytes(
         [p.Command.START_USER_PROGRAM]
     )
+
+
+def test_start_program_may_still_omit_the_slot() -> None:
+    # The profile documents the no-argument form as removed in v1.4.0, but
+    # the firmware still reads a one-byte command as "the selected slot", so
+    # encoding it is not an error.
+    assert p.encode_start_user_program(None, profile=V15) == bytes(
+        [p.Command.START_USER_PROGRAM]
+    )
+
+
+def test_which_firmware_takes_the_program_named() -> None:
+    assert not p.start_takes_program_id(V12)
+    assert p.start_takes_program_id(V14)
+    assert p.start_takes_program_id(V15)
 
 
 def test_start_program_refuses_a_slot_on_old_firmware() -> None:

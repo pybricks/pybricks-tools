@@ -24,9 +24,16 @@ from typing import Any, final
 from bleak import BleakClient, BleakScanner
 from bleak.backends.device import BLEDevice
 from bleak.backends.scanner import AdvertisementData
+from bleak.exc import BleakGATTProtocolError
 
 from pbd.hub import protocol as p
-from pbd.hub.transport import DeviceInfo, HubLink, NotificationHandler, ScanFilter
+from pbd.hub.transport import (
+    DeviceInfo,
+    HubCommandError,
+    HubLink,
+    NotificationHandler,
+    ScanFilter,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +56,24 @@ def device_id_for(address: str) -> str:
     return f"{SCHEME}:{address.upper()}"
 
 
+def _rejection(exc: BleakGATTProtocolError) -> HubCommandError:
+    """Turn a GATT protocol error into the hub's own refusal.
+
+    Args:
+        exc: What bleak raised.
+
+    Returns:
+        The equivalent :class:`HubCommandError`, naming the firmware error
+        where it is one we know.
+    """
+    code = int(exc.args[0])
+    try:
+        error = p.HubError(code)
+    except ValueError:
+        return HubCommandError(code, f"hub refused the command (error {code:#04x})")
+    return HubCommandError(error, f"hub refused the command: {error.name}")
+
+
 @final
 class _BleLink(HubLink):
     """An open GATT connection to one hub."""
@@ -62,7 +87,13 @@ class _BleLink(HubLink):
     async def write_characteristic(
         self, uuid: str, data: bytes, *, response: bool = True
     ) -> None:
-        await self._client.write_gatt_char(uuid, data, response=response)
+        try:
+            await self._client.write_gatt_char(uuid, data, response=response)
+        except BleakGATTProtocolError as exc:
+            # A GATT application error is how the firmware says no: the code
+            # is a pbio_pybricks_error_t, and losing it here would turn every
+            # refusal into an unexplained failure.
+            raise _rejection(exc) from exc
 
     async def start_notify(self, uuid: str, handler: NotificationHandler) -> None:
         def on_notify(_sender: Any, data: bytearray) -> None:
