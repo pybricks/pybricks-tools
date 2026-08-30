@@ -358,11 +358,28 @@ class Daemon:
     async def chosen_hub(self) -> Choice:
         """Report the chosen hub without changing it.
 
+        Asked of ``hub.list`` rather than of ``hub.use``, which would be
+        the tidier place for it. A service outlives the install that
+        started it, so a client is quite likely to be talking to
+        yesterday's: an older ``hub.use`` reads a request with no hub in
+        it as a request to forget the chosen one, and a question that
+        silently answers by throwing away the answer is not a question
+        worth asking. An older ``hub.list`` merely omits the field.
+
         Returns:
             What was chosen, and whether it is connected. The name is
             None when nothing has been chosen.
         """
-        return Choice.from_wire(await self._peer.call("hub.use", {}))
+        result = await self._peer.call("hub.list")
+        chosen = result.get("chosen")
+        if not isinstance(chosen, str) or not chosen:
+            return Choice(name=None, connected=False)
+        connected = any(
+            item.get("name") == chosen
+            for item in result.get("hubs", [])
+            if isinstance(item, dict)
+        )
+        return Choice(name=chosen, connected=connected)
 
     async def download(
         self,
