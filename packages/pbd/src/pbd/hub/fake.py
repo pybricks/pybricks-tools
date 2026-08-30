@@ -81,6 +81,18 @@ class FakeHub:
     """The declared length. Zero means nothing runnable is stored."""
 
     stdin: bytearray = field(default_factory=bytearray)
+    stdin_writes: list[bytes] = field(default_factory=list[bytes])
+    """Each write of input this hub accepted, so a test can see how it was cut."""
+
+    stdin_capacity: int = 0
+    """How much unread input this hub can hold, or zero for no limit.
+
+    Real firmware refuses a write that does not fit whole, and how much fits
+    depends on the build -- older ones hold as little as 21 bytes. Nothing
+    consumes the buffer here, so a test empties it to stand for a program
+    reading its input.
+    """
+
     app_data: bytearray = field(default_factory=lambda: bytearray(64))
 
     reject_next: p.HubError | None = None
@@ -91,6 +103,9 @@ class FakeHub:
 
     on_status: Callable[[], None] | None = None
     """Called after each status report, so tests can wait rather than poll."""
+
+    on_disconnect: Callable[[], None] | None = None
+    """Called when this hub drops, as the radio reports a real one going."""
 
     _handler: NotificationHandler | None = None
     _connected: bool = False
@@ -148,6 +163,10 @@ class FakeHub:
         logger.debug("fake hub: dropping the connection")
         self._connected = False
         self._handler = None
+        if self.on_disconnect is not None:
+            # A real transport reports this, so this one has to as well, or
+            # the daemon would go on believing the hub is there.
+            self.on_disconnect()
 
     # ---------------------------------------------------------- command entry
 
@@ -190,7 +209,15 @@ class FakeHub:
         elif command == p.Command.WRITE_STDIN:
             if self.profile < (1, 3, 0):
                 raise HubRejection(p.HubError.INVALID_COMMAND)
-            self.stdin += data[1:]
+            payload = data[1:]
+            if self.stdin_capacity and len(payload) > self.stdin_capacity - len(
+                self.stdin
+            ):
+                # All or nothing, exactly as the firmware does it: what does
+                # not fit is refused rather than partly kept.
+                raise HubRejection(p.HubError.BUSY)
+            self.stdin += payload
+            self.stdin_writes.append(bytes(payload))
         elif command == p.Command.WRITE_APP_DATA:
             self._write_app_data(data)
         elif command == p.Command.REBOOT_TO_UPDATE_MODE:
@@ -322,6 +349,28 @@ class FakeHubTransport:
         self.hubs = list(hubs) if hubs else [FakeHub()]
         self.scan_delay = 0.0
         """Seconds a scan should appear to take, for testing cancellation."""
+
+        self.on_disconnect: Callable[[str], None] | None = None
+        """Set by whoever owns the connections, and called when a hub drops."""
+
+        for hub in self.hubs:
+            hub.on_disconnect = self._dropped(hub)
+
+    def _dropped(self, hub: FakeHub) -> Callable[[], None]:
+        """Build the callback one hub uses to report that it has gone.
+
+        Args:
+            hub: The hub.
+
+        Returns:
+            What to call when it disconnects.
+        """
+
+        def dropped() -> None:
+            if self.on_disconnect is not None:
+                self.on_disconnect(hub.device_id)
+
+        return dropped
 
     @property
     def scheme(self) -> str:

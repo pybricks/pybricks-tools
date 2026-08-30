@@ -23,14 +23,17 @@ from pathlib import Path
 
 import pytest
 
-from pb import commands_hub, commands_program, commands_service, errors
+# Imported to register the RPC methods.
+import pbd.methods.daemon  # pyright: ignore[reportUnusedImport]
+import pbd.methods.hub  # pyright: ignore[reportUnusedImport]
+import pbd.methods.program  # pyright: ignore[reportUnusedImport]
+import pbd.methods.stdio  # noqa: F401  # pyright: ignore[reportUnusedImport]
+from pb import errors
+from pb.commands import hub as hub_commands
+from pb.commands import program as program_commands
+from pb.commands import service as service_commands
 from pb_core.ipc import Endpoint
 from pbd import daemon as daemon_module
-from pbd import (  # noqa: F401  (imported to register the RPC methods)
-    methods_daemon,  # pyright: ignore[reportUnusedImport]
-    methods_hub,  # pyright: ignore[reportUnusedImport]
-    methods_program,  # pyright: ignore[reportUnusedImport]
-)
 from pbd.hub import protocol as p
 from pbd.hub.fake import FakeHub, FakeHubTransport
 
@@ -91,17 +94,17 @@ def _out(capsys: pytest.CaptureFixture[str]) -> str:
 async def test_connect_then_list_then_status(
     service: FakeHub, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    assert await commands_hub.connect_cmd(hub=HUB_NAME) == errors.EXIT_OK
+    assert await hub_commands.connect_cmd(hub=HUB_NAME) == errors.EXIT_OK
     # Connecting says so on stderr: it is a message, not data.
     captured = capsys.readouterr()
     assert HUB_NAME in captured.err
     assert captured.out == ""
 
-    assert await commands_hub.list_cmd() == errors.EXIT_OK
+    assert await hub_commands.list_cmd() == errors.EXIT_OK
     listed = _out(capsys)
     assert HUB_NAME in listed
 
-    assert await commands_hub.status_cmd() == errors.EXIT_OK
+    assert await hub_commands.status_cmd() == errors.EXIT_OK
     status = _out(capsys)
     assert f"name\t{HUB_NAME}" in status
     assert "state\tconnected" in status
@@ -109,23 +112,23 @@ async def test_connect_then_list_then_status(
     # is noise the rest of the time.
     assert "protocol" not in status
 
-    assert await commands_hub.status_cmd(full=True) == errors.EXIT_OK
+    assert await hub_commands.status_cmd(full=True) == errors.EXIT_OK
     assert "protocol" in _out(capsys)
 
 
 async def test_status_names_the_kind_of_hub(
     service: FakeHub, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    await commands_hub.connect_cmd(hub=HUB_NAME)
+    await hub_commands.connect_cmd(hub=HUB_NAME)
     capsys.readouterr()
-    await commands_hub.status_cmd()
+    await hub_commands.status_cmd()
     assert "type\tPrime hub" in _out(capsys)
 
 
 async def test_scan_lists_what_it_hears(
     service: FakeHub, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    assert await commands_hub.scan_cmd(timeout=0.5) == errors.EXIT_OK
+    assert await hub_commands.scan_cmd(timeout=0.5) == errors.EXIT_OK
     # Piped, so one plain line per hub and nothing else on stdout.
     assert _out(capsys).splitlines() == [HUB_NAME]
 
@@ -134,7 +137,7 @@ async def test_scan_says_so_when_it_hears_nothing(
     service: FakeHub, capsys: pytest.CaptureFixture[str]
 ) -> None:
     assert (
-        await commands_hub.scan_cmd(timeout=0.3, name="No Such Hub") == errors.EXIT_OK
+        await hub_commands.scan_cmd(timeout=0.3, name="No Such Hub") == errors.EXIT_OK
     )
     captured = capsys.readouterr()
     assert "No hubs found" in captured.err
@@ -145,11 +148,11 @@ async def test_scan_says_so_when_it_hears_nothing(
 async def test_disconnect_then_nothing_is_connected(
     service: FakeHub, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    await commands_hub.connect_cmd(hub=HUB_NAME)
-    assert await commands_hub.disconnect_cmd() == errors.EXIT_OK
+    await hub_commands.connect_cmd(hub=HUB_NAME)
+    assert await hub_commands.disconnect_cmd() == errors.EXIT_OK
     capsys.readouterr()
 
-    assert await commands_hub.list_cmd() == errors.EXIT_OK
+    assert await hub_commands.list_cmd() == errors.EXIT_OK
     captured = capsys.readouterr()
     assert "No hubs connected" in captured.err
     assert captured.out == ""
@@ -159,7 +162,7 @@ async def test_asking_about_a_hub_that_is_not_connected(
     service: FakeHub, capsys: pytest.CaptureFixture[str]
 ) -> None:
     # An expected failure: one sentence and a suggestion, no traceback.
-    assert await commands_hub.status_cmd(hub="No Such Hub") == errors.EXIT_HUB_ERROR
+    assert await hub_commands.status_cmd(hub="No Such Hub") == errors.EXIT_HUB_ERROR
     captured = capsys.readouterr()
     assert "pb connect" in captured.err
     assert captured.out == ""
@@ -177,9 +180,9 @@ def _script(tmp_path: Path, source: str = "print('hi')\n") -> Path:
 async def test_run_a_script(
     service: FakeHub, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    await commands_hub.connect_cmd(hub=HUB_NAME)
+    await hub_commands.connect_cmd(hub=HUB_NAME)
     assert (
-        await commands_program.run_cmd(_script(tmp_path), wait=False) == errors.EXIT_OK
+        await program_commands.run_cmd(_script(tmp_path), wait=False) == errors.EXIT_OK
     )
     captured = capsys.readouterr()
     assert "Program started" in captured.err
@@ -189,8 +192,8 @@ async def test_run_a_script(
 async def test_run_a_one_liner(
     service: FakeHub, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    await commands_hub.connect_cmd(hub=HUB_NAME)
-    assert await commands_program.run_cmd(command="x = 1", wait=False) == errors.EXIT_OK
+    await hub_commands.connect_cmd(hub=HUB_NAME)
+    assert await program_commands.run_cmd(command="x = 1", wait=False) == errors.EXIT_OK
     assert "Program started" in capsys.readouterr().err
 
 
@@ -199,7 +202,7 @@ async def test_run_reports_a_program_that_will_not_compile(
 ) -> None:
     # The compiler's own diagnostics are the useful part, so they survive.
     script = _script(tmp_path, "def broken(\n")
-    assert await commands_program.run_cmd(script) == errors.EXIT_ERROR
+    assert await program_commands.run_cmd(script) == errors.EXIT_ERROR
     captured = capsys.readouterr()
     assert "SyntaxError" in captured.err
     assert captured.out == ""
@@ -208,24 +211,24 @@ async def test_run_reports_a_program_that_will_not_compile(
 async def test_download_then_start_then_stop(
     service: FakeHub, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    await commands_hub.connect_cmd(hub=HUB_NAME)
-    assert await commands_program.download_cmd(_script(tmp_path)) == errors.EXIT_OK
+    await hub_commands.connect_cmd(hub=HUB_NAME)
+    assert await program_commands.download_cmd(_script(tmp_path)) == errors.EXIT_OK
     assert "Downloaded" in capsys.readouterr().err
 
-    assert await commands_program.start_cmd() == errors.EXIT_OK
+    assert await program_commands.start_cmd() == errors.EXIT_OK
     assert "Program started" in capsys.readouterr().err
 
-    assert await commands_program.stop_cmd() == errors.EXIT_OK
+    assert await program_commands.stop_cmd() == errors.EXIT_OK
     assert "Stopped" in capsys.readouterr().err
 
 
 async def test_a_hub_that_refuses_to_start_says_what_to_do(
     service: FakeHub, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    await commands_hub.connect_cmd(hub=HUB_NAME)
+    await hub_commands.connect_cmd(hub=HUB_NAME)
     capsys.readouterr()
     service.reject_next = p.HubError.BUSY
-    assert await commands_program.start_cmd() == errors.EXIT_HUB_ERROR
+    assert await program_commands.start_cmd() == errors.EXIT_HUB_ERROR
     captured = capsys.readouterr()
     assert "would not start" in captured.err
     assert captured.out == ""
@@ -237,7 +240,7 @@ async def test_a_hub_that_refuses_to_start_says_what_to_do(
 async def test_service_status_reports_a_running_service(
     service: FakeHub, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    assert await commands_service.service_status() == errors.EXIT_OK
+    assert await service_commands.service_status() == errors.EXIT_OK
     reported = _out(capsys)
     assert "status\trunning" in reported
     # The log path is the single most useful thing here, because the service
@@ -259,7 +262,7 @@ async def test_service_status_when_nothing_is_running(
     monkeypatch.setenv("PB_RUNTIME_DIR", str(runtime))
     monkeypatch.setenv("PB_ENDPOINT", str(endpoint))
 
-    assert await commands_service.service_status() == errors.EXIT_NOTHING_CONNECTED
+    assert await service_commands.service_status() == errors.EXIT_NOTHING_CONNECTED
     captured = capsys.readouterr()
     assert "Not running" in captured.err
     assert captured.out == ""
@@ -278,7 +281,7 @@ async def test_stopping_a_service_that_is_not_running_succeeds(
     monkeypatch.setenv("PB_RUNTIME_DIR", str(runtime))
     monkeypatch.setenv("PB_ENDPOINT", str(endpoint))
 
-    assert await commands_service.service_stop() == errors.EXIT_OK
+    assert await service_commands.service_stop() == errors.EXIT_OK
     assert "Not running" in capsys.readouterr().err
 
 
@@ -294,7 +297,7 @@ async def test_disconnecting_when_no_service_is_running_succeeds(
     monkeypatch.setenv("PB_RUNTIME_DIR", str(runtime))
     monkeypatch.setenv("PB_ENDPOINT", str(endpoint))
 
-    assert await commands_hub.disconnect_cmd() == errors.EXIT_OK
+    assert await hub_commands.disconnect_cmd() == errors.EXIT_OK
     assert "No hub is connected" in capsys.readouterr().err
 
 
@@ -307,7 +310,7 @@ async def test_check_compiles_without_a_hub_or_a_service(
     # No service fixture and no hub: the point of check is that it needs
     # neither. Starting a Bluetooth connection to find out about a missing
     # bracket would be absurd.
-    assert await commands_program.check_cmd(_script(tmp_path)) == errors.EXIT_OK
+    assert await program_commands.check_cmd(_script(tmp_path)) == errors.EXIT_OK
     captured = capsys.readouterr()
     assert "compiles" in captured.err
     assert "bytes" in captured.err
@@ -318,19 +321,19 @@ async def test_check_reports_what_the_compiler_said(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     script = _script(tmp_path, "def broken(\n")
-    assert await commands_program.check_cmd(script) == errors.EXIT_ERROR
+    assert await program_commands.check_cmd(script) == errors.EXIT_ERROR
     captured = capsys.readouterr()
     assert "SyntaxError" in captured.err
     assert captured.out == ""
 
 
 async def test_check_takes_a_one_liner_too(capsys: pytest.CaptureFixture[str]) -> None:
-    assert await commands_program.check_cmd(command="x = 1") == errors.EXIT_OK
+    assert await program_commands.check_cmd(command="x = 1") == errors.EXIT_OK
     assert "compiles" in capsys.readouterr().err
 
 
 async def test_check_needs_exactly_one_of_a_script_and_c(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    assert await commands_program.check_cmd() == errors.EXIT_ERROR
+    assert await program_commands.check_cmd() == errors.EXIT_ERROR
     assert "Give a script to check" in capsys.readouterr().err

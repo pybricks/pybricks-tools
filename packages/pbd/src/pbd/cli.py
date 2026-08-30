@@ -18,18 +18,16 @@ from typing import Any
 
 import anyio
 
+# Imported to register the RPC methods.
+import pbd.methods.daemon
+import pbd.methods.hub
+import pbd.methods.program
+import pbd.methods.stdio  # noqa: F401
 from pb_core import ipc, lock
 from pb_core.ipc import AddressInUseError
 from pb_core.logging import setup_logging
 from pb_core.paths import log_file
-
-# Importing for the side effect of registering the RPC methods.
-from pbd import (
-    __version__,
-    methods_daemon,  # noqa: F401
-    methods_hub,  # noqa: F401
-    methods_program,  # noqa: F401
-)
+from pbd import __version__
 from pbd import daemon as daemon_module
 
 logger = logging.getLogger(__name__)

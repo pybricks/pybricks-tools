@@ -19,14 +19,14 @@ import anyio
 import pytest
 
 import pb_client
+
+# Imported to register the RPC methods.
+import pbd.methods.daemon  # noqa: F401  # pyright: ignore[reportUnusedImport]
 from pb_core import auth, ipc
 from pb_core.ipc import Endpoint
 from pb_core.jsonrpc import ErrorCode, JsonRpcError, connect_peer
 from pb_core.protocol import PROTOCOL_VERSION
 from pbd import daemon as daemon_module
-from pbd import (  # noqa: F401  (imported to register the RPC methods)
-    methods_daemon,  # pyright: ignore[reportUnusedImport]
-)
 
 pytestmark = pytest.mark.anyio
 

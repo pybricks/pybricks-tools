@@ -15,9 +15,9 @@ from pbd.errors import as_wire_error, hub_errors
 from pbd.hub import protocol as p
 from pbd.hub.connection import HubConnection, HubDisconnectedError
 from pbd.hub.events import Channel, StatusEvent
-from pbd.hub.manager import HubNotFoundError
 from pbd.hub.transport import HubCommandError
 from pbd.methods import method, require
+from pbd.methods.hub import hub_of
 from pbd.session import Session
 
 logger = logging.getLogger(__name__)
@@ -51,14 +51,6 @@ def _program_to_start(connection: HubConnection, slot: Any) -> int | None:
     # A hub that holds one program at a time reports no selection, and that
     # one program is slot 0.
     return 0
-
-
-def _hub(session: Session, params: dict[str, Any]) -> HubConnection:
-    hub_id = params.get("id")
-    try:
-        return session.daemon.hubs.get(str(hub_id) if hub_id else None)
-    except HubNotFoundError as exc:
-        raise JsonRpcError(ErrorCode.HUB_NOT_FOUND, str(exc)) from exc
 
 
 async def _download(
@@ -116,7 +108,7 @@ async def _download(
 async def program_download(session: Session, params: dict[str, Any]) -> dict[str, Any]:
     """Download a program."""
     session.daemon.mark_activity()
-    connection = _hub(session, params)
+    connection = hub_of(session, params)
     program = decode_binary(require(params, "mpy", str))
     with hub_errors("store the program"):
         async with connection.abort_on_disconnect():
@@ -174,7 +166,7 @@ async def _start_and_watch(
 async def program_start(session: Session, params: dict[str, Any]) -> dict[str, Any]:
     """Start a program."""
     session.daemon.mark_activity()
-    connection = _hub(session, params)
+    connection = hub_of(session, params)
     info = connection.info
     if info is None:
         raise JsonRpcError(ErrorCode.HUB_NOT_CONNECTED, "hub is not ready")
@@ -199,7 +191,7 @@ async def program_start(session: Session, params: dict[str, Any]) -> dict[str, A
 async def program_stop(session: Session, params: dict[str, Any]) -> dict[str, Any]:
     """Stop the running program."""
     session.daemon.mark_activity()
-    connection = _hub(session, params)
+    connection = hub_of(session, params)
     with hub_errors("stop the program"):
         await connection.send_command(p.encode_stop_user_program())
     return {}
@@ -219,7 +211,7 @@ async def program_stop(session: Session, params: dict[str, Any]) -> dict[str, An
 async def program_run(session: Session, params: dict[str, Any]) -> dict[str, Any]:
     """Download and run a program."""
     session.daemon.mark_activity()
-    connection = _hub(session, params)
+    connection = hub_of(session, params)
     info = connection.info
     if info is None:
         raise JsonRpcError(ErrorCode.HUB_NOT_CONNECTED, "hub is not ready")

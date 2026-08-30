@@ -16,158 +16,55 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import aclosing, asynccontextmanager
-from dataclasses import dataclass
 from typing import Any
 
 import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 
-from pb_client import __version__
+from pb_client import __version__, stdio
 from pb_client.autostart import open_connection
-from pb_client.errors import DaemonUnavailable
+from pb_client.errors import DaemonTooOld, DaemonUnavailable
+from pb_client.models import DaemonInfo, DeviceInfo, HubInfo
+from pb_client.stdio import HubEvent
 from pb_core import auth, ipc
 from pb_core.ipc import Endpoint
 from pb_core.jsonrpc import JsonRpcPeer, Request, connect_peer, encode_binary
-from pb_core.protocol import HUB_FOUND, PROTOCOL_VERSION
+from pb_core.protocol import (
+    HUB_FOUND,
+    HUB_STATE,
+    HUB_STATUS,
+    HUB_STDOUT,
+    PROTOCOL_VERSION,
+    STDIO_CAPABILITY,
+)
 
 logger = logging.getLogger(__name__)
 
 __all__ = ["Daemon", "DaemonInfo", "DeviceInfo", "HubInfo", "connect"]
 
 
-@dataclass(frozen=True, slots=True)
-class DaemonInfo:
-    """What the daemon reports about itself."""
+Listener = MemoryObjectSendStream[tuple[str, dict[str, Any]]]
+"""Where a subscriber's notifications are put.
 
-    version: str
-    protocol_version: int
-    pid: int
-    uptime_s: float
-    endpoint: str
-    log_file: str
-    idle_timeout_s: float
-    clients: int
-
-    @classmethod
-    def from_wire(cls, payload: dict[str, Any]) -> DaemonInfo:
-        """Build from a ``daemon.info`` result.
-
-        Args:
-            payload: The result object.
-
-        Returns:
-            The parsed information.
-        """
-        return cls(
-            version=str(payload.get("version", "unknown")),
-            protocol_version=int(payload.get("protocol_version", 0)),
-            pid=int(payload.get("pid", 0)),
-            uptime_s=float(payload.get("uptime_s", 0.0)),
-            endpoint=str(payload.get("endpoint", "")),
-            log_file=str(payload.get("log_file", "")),
-            idle_timeout_s=float(payload.get("idle_timeout_s", 0.0)),
-            clients=int(payload.get("clients", 0)),
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class DeviceInfo:
-    """A hub seen while scanning."""
-
-    id: str
-    name: str
-    address: str
-    rssi: int | None
-    transport: str
-
-    hub_type: str | None = None
-    """What kind of hub it is, such as "City hub", if its advertisement says."""
-
-    @classmethod
-    def from_wire(cls, payload: dict[str, Any]) -> DeviceInfo:
-        """Build from a scan result entry.
-
-        Args:
-            payload: One entry from ``hub.scan``.
-
-        Returns:
-            The parsed device.
-        """
-        rssi = payload.get("rssi")
-        return cls(
-            id=str(payload.get("id", "")),
-            name=str(payload.get("name", "")),
-            address=str(payload.get("address", "")),
-            rssi=int(rssi) if isinstance(rssi, int) else None,
-            transport=str(payload.get("transport", "ble")),
-            hub_type=(
-                str(payload["type"]) if payload.get("type") is not None else None
-            ),
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class HubInfo:
-    """A connected hub."""
-
-    id: str
-    name: str
-    state: str
-    hub_type: str | None
-    """What kind of hub it is, such as "Technic hub", if it is a known one."""
-
-    firmware: str
-    protocol: str
-    address: str
-    num_slots: int
-    max_program_size: int
-    subscribers: int
-    program_running: bool
-    status_names: tuple[str, ...]
-
-    @classmethod
-    def from_wire(cls, payload: dict[str, Any]) -> HubInfo:
-        """Build from a hub description.
-
-        Args:
-            payload: A hub object from ``hub.list``, ``hub.info`` or
-                ``hub.connect``.
-
-        Returns:
-            The parsed hub.
-        """
-        names = payload.get("status_names") or []
-        return cls(
-            id=str(payload.get("id", "")),
-            name=str(payload.get("name", "")),
-            state=str(payload.get("state", "unknown")),
-            hub_type=(
-                str(payload["type"]) if payload.get("type") is not None else None
-            ),
-            firmware=str(payload.get("firmware", "")),
-            protocol=str(payload.get("protocol", "")),
-            address=str(payload.get("address", "")),
-            num_slots=int(payload.get("num_slots", 0)),
-            max_program_size=int(payload.get("max_program_size", 0)),
-            subscribers=int(payload.get("subscribers", 0)),
-            program_running=bool(payload.get("program_running", False)),
-            status_names=tuple(str(name) for name in names),
-        )
+Each carries the method that delivered it as well as its parameters, so that a
+subscriber to more than one kind can tell them apart without guessing from the
+payload -- and, more importantly, can see them all in the order they arrived.
+"""
 
 
 async def _devices(
-    payloads: MemoryObjectReceiveStream[dict[str, Any]],
+    payloads: MemoryObjectReceiveStream[tuple[str, dict[str, Any]]],
 ) -> AsyncIterator[DeviceInfo]:
     """Parse scan notifications as they arrive.
 
     Args:
-        payloads: The raw notification parameters.
+        payloads: The raw notifications.
 
     Yields:
         One device per advertisement.
     """
     async with payloads:
-        async for payload in payloads:
+        async for _method, payload in payloads:
             yield DeviceInfo.from_wire(payload)
 
 
@@ -187,9 +84,9 @@ class _Notifications:
 
     def __init__(self) -> None:
         """Start with nobody listening."""
-        self._listeners: dict[str, set[MemoryObjectSendStream[dict[str, Any]]]] = {}
+        self._listeners: dict[str, set[Listener]] = {}
 
-    def add(self, method: str, stream: MemoryObjectSendStream[dict[str, Any]]) -> None:
+    def add(self, method: str, stream: Listener) -> None:
         """Start sending one method's notifications to a stream.
 
         Args:
@@ -198,9 +95,7 @@ class _Notifications:
         """
         self._listeners.setdefault(method, set()).add(stream)
 
-    def discard(
-        self, method: str, stream: MemoryObjectSendStream[dict[str, Any]]
-    ) -> None:
+    def discard(self, method: str, stream: Listener) -> None:
         """Stop sending to a stream.
 
         Args:
@@ -218,7 +113,7 @@ class _Notifications:
         # A copy, because delivering can close a stream and so change the set.
         for stream in list(self._listeners.get(request.method, ())):
             try:
-                stream.send_nowait(request.params or {})
+                stream.send_nowait((request.method, request.params or {}))
             except (
                 anyio.WouldBlock,
                 anyio.BrokenResourceError,
@@ -239,6 +134,7 @@ class Daemon:
         peer: JsonRpcPeer,
         endpoint: Endpoint,
         notifications: _Notifications | None = None,
+        capabilities: frozenset[str] = frozenset(),
     ) -> None:
         """Wrap an established connection.
 
@@ -248,10 +144,32 @@ class Daemon:
             notifications: The router the peer was given. Without one the
                 subscription methods have nothing to read, so they refuse
                 rather than waiting forever.
+            capabilities: What the daemon said it can do, from the handshake.
         """
         self._peer = peer
         self.endpoint = endpoint
         self._notifications = notifications
+
+        self.capabilities = capabilities
+        """What this daemon can do.
+
+        Not the same as what this build knows how to ask for: the service
+        outlives the install that started it, so a feature added since then has
+        to be asked about rather than assumed.
+        """
+
+    def _require(self, capability: str, feature: str) -> None:
+        """Check that the daemon has a capability before relying on it.
+
+        Args:
+            capability: The name as the handshake reports it.
+            feature: What the caller wanted, phrased to follow "cannot".
+
+        Raises:
+            DaemonTooOld: If the daemon did not advertise it.
+        """
+        if capability not in self.capabilities:
+            raise DaemonTooOld(feature)
 
     async def ping(self) -> None:
         """Check that the daemon is responsive."""
@@ -329,7 +247,9 @@ class Daemon:
 
         # Bounded, and generously: an advertisement every few milliseconds from
         # several hubs still leaves room for a consumer redrawing a table.
-        sender, receiver = anyio.create_memory_object_stream[dict[str, Any]](256)
+        sender, receiver = anyio.create_memory_object_stream[
+            tuple[str, dict[str, Any]]
+        ](256)
         self._notifications.add(HUB_FOUND, sender)
 
         async def scan_until_done() -> None:
@@ -499,6 +419,105 @@ class Daemon:
         """
         await self._peer.call("program.stop", {"id": hub_id} if hub_id else {})
 
+    async def start_repl(self, hub_id: str | None = None) -> None:
+        """Start the hub's built-in interactive interpreter.
+
+        What runs afterwards is an ordinary user program as far as the hub is
+        concerned, so it stops the same way anything else does.
+
+        Args:
+            hub_id: Which hub, or ``None`` for the current one.
+        """
+        self._require(STDIO_CAPABILITY, "run the interpreter")
+        await self._peer.call("program.repl", {"id": hub_id} if hub_id else {})
+
+    async def write_stdin(self, data: bytes, *, hub_id: str | None = None) -> None:
+        """Send input to whatever is running on a hub.
+
+        Returns once the hub has taken every byte. That can mean waiting: a hub
+        whose input buffer is full refuses a write rather than keeping part of
+        it, and the daemon waits for the program to read rather than dropping
+        what it was given.
+
+        Args:
+            data: The bytes to send, exactly as they should arrive.
+            hub_id: Which hub, or ``None`` for the current one.
+        """
+        self._require(STDIO_CAPABILITY, "send input to a hub")
+        params: dict[str, Any] = {"data": encode_binary(data)}
+        if hub_id:
+            params["id"] = hub_id
+        await self._peer.call("hub.stdin", params)
+
+    @asynccontextmanager
+    async def attach(
+        self, *, hub_id: str | None = None, replay_bytes: int = 0
+    ) -> AsyncGenerator[AsyncIterator[HubEvent], None]:
+        """Follow everything a hub says, for the duration of the block.
+
+        Output, status and connection state arrive on one iterator, in the
+        order they happened, which is what a terminal needs: a status saying
+        the program stopped must not overtake the last thing it printed.
+
+        Attaching disturbs nobody. Several clients can watch one hub at once,
+        and leaving does not stop what is running.
+
+        Args:
+            hub_id: Which hub, or ``None`` for the current one.
+            replay_bytes: How much output from before attaching to deliver
+                first. With a service that outlives commands, the usual thing
+                is to start a program in one window and attach in another a
+                moment later, and without this that program's first lines are
+                lost every time.
+
+        Yields:
+            The hub's events, ending when the hub disconnects or the block is
+            left.
+
+        Raises:
+            RuntimeError: If this connection has no notification router, which
+                would leave the iterator silently empty.
+        """
+        self._require(STDIO_CAPABILITY, "carry a hub's input and output")
+        if self._notifications is None:
+            raise RuntimeError("this connection does not receive notifications")
+
+        params: dict[str, Any] = {"replay_bytes": replay_bytes}
+        if hub_id:
+            params["id"] = hub_id
+
+        # Bounded, and lossy if the consumer stalls: see _Notifications. A
+        # terminal that stops reading its own output for this long has larger
+        # problems than a gap in it, and the alternative -- backpressure into
+        # the one reader task -- would stall every other call on this
+        # connection, including the ones being typed.
+        sender, receiver = anyio.create_memory_object_stream[
+            tuple[str, dict[str, Any]]
+        ](1024)
+        for name in (HUB_STDOUT, HUB_STATUS, HUB_STATE):
+            self._notifications.add(name, sender)
+
+        async def attached_until_done() -> None:
+            try:
+                await self._peer.call("hub.attach", params)
+            finally:
+                # The hub has gone. End the caller's loop rather than leaving
+                # it waiting for output that is not coming.
+                sender.close()
+
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(attached_until_done)
+            stream = stdio.events(receiver)
+            try:
+                # Closed before the group is cancelled, so a caller that stops
+                # early leaves no generator suspended mid-iteration.
+                async with aclosing(stream):
+                    yield stream
+            finally:
+                for name in (HUB_STDOUT, HUB_STATUS, HUB_STATE):
+                    self._notifications.discard(name, sender)
+                tg.cancel_scope.cancel()
+
 
 @asynccontextmanager
 async def connect(
@@ -534,7 +553,7 @@ async def connect(
             # The handshake is mandatory and must come first: it authenticates
             # the connection and settles the protocol version, which matters
             # because a daemon can outlive the install that started it.
-            await peer.call(
+            hello = await peer.call(
                 "daemon.hello",
                 {
                     "client": "pb-client",
@@ -543,5 +562,12 @@ async def connect(
                     "token": token,
                 },
             )
-            logger.debug("connected to the daemon at %s", resolved)
-            yield Daemon(peer, resolved, notifications)
+            capabilities = frozenset(
+                str(name) for name in hello.get("capabilities", ())
+            )
+            logger.debug(
+                "connected to the daemon at %s (capabilities: %s)",
+                resolved,
+                ", ".join(sorted(capabilities)) or "none",
+            )
+            yield Daemon(peer, resolved, notifications, capabilities)
