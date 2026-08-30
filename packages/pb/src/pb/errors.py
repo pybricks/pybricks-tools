@@ -41,7 +41,7 @@ from rich.console import Console
 
 import pb_client
 from pb_core.ipc import ENDPOINT_ENV_VAR, EndpointError
-from pb_core.jsonrpc import ErrorCode, JsonRpcError
+from pb_core.jsonrpc import ErrorCode, JsonRpcError, PeerClosedError
 
 logger = logging.getLogger(__name__)
 
@@ -187,8 +187,15 @@ _LOST_CONNECTION = (
     anyio.BrokenResourceError,
     anyio.ClosedResourceError,
     anyio.EndOfStream,
+    PeerClosedError,
 )
 """What a service that died mid-call looks like from here.
+
+``PeerClosedError`` is the most literal of them: the connection ended with a
+request still waiting for its answer. It belongs here rather than among the
+unrecognised, where it printed a traceback under "this looks like a bug in pb"
+-- which is the wrong thing to say about a service that simply went away.
+
 
 Recognised, but usually only the wake of a more informative failure, so it is
 dropped whenever anything else survived the flattening.
