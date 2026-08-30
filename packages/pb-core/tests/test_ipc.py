@@ -14,7 +14,7 @@ import sys
 
 import anyio
 import pytest
-from anyio.abc import ByteStream, TaskGroup
+from anyio.abc import ByteStream, TaskGroup, TaskStatus
 
 from pb_core import ipc
 from pb_core.ipc.address import Endpoint
@@ -46,7 +46,7 @@ async def _serve(endpoint: Endpoint, task_group: TaskGroup) -> ipc.IpcListener:
 
 
 async def _run_echo_server(
-    endpoint: Endpoint, *, task_status: anyio.abc.TaskStatus[ipc.IpcListener]
+    endpoint: Endpoint, *, task_status: TaskStatus[ipc.IpcListener]
 ) -> None:
     async with (
         ipc.create_listener(endpoint) as listener,
@@ -115,7 +115,7 @@ async def test_server_sees_client_disconnect(endpoint: Endpoint) -> None:
         finally:
             noticed.set()
 
-    async def server(*, task_status: anyio.abc.TaskStatus[None]) -> None:
+    async def server(*, task_status: TaskStatus[None]) -> None:
         async with (
             ipc.create_listener(endpoint) as listener,
             anyio.create_task_group() as tg,

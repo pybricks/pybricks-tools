@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncGenerator
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
-from typing import final
+from typing import cast, final
 
 import anyio
 from anyio.abc import ByteStream
@@ -37,7 +37,8 @@ def _was_refused(exc: BaseException) -> bool:
     if isinstance(exc, ConnectionRefusedError):
         return True
     if isinstance(exc, BaseExceptionGroup):
-        return any(_was_refused(sub) for sub in exc.exceptions)
+        group = cast("BaseExceptionGroup[BaseException]", exc)
+        return any(_was_refused(sub) for sub in group.exceptions)
     cause = exc.__cause__ or exc.__context__
     return _was_refused(cause) if cause is not None else False
 
