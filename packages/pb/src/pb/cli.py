@@ -24,7 +24,9 @@ import pb.commands.hub
 import pb.commands.program
 import pb.commands.repl
 import pb.commands.service  # noqa: F401
+from pb import ui
 from pb.app import app
+from pb.config import KNOWN_KEYS, ProjectConfigError, check_project_file
 from pb.errors import EXIT_OK
 
 __all__ = ["app", "main"]
@@ -36,5 +38,19 @@ def main() -> int:
     Returns:
         The process exit code.
     """
+    try:
+        # Before the command runs, because a project file that says
+        # something unrecognised should be reported rather than
+        # quietly not applied.
+        check_project_file()
+    except ProjectConfigError as exc:
+        return ui.usage(
+            str(exc),
+            # The square bracket is escaped: rich reads "[tool.pb]" as a style
+            # tag and swallows it, which is how this line first came out as
+            # "Check ...toml.  understands hub."
+            f"Check [bold]{exc.path}[/]. [bold]\\[tool.pb][/] understands "
+            f"{', '.join(sorted(KNOWN_KEYS))}.",
+        )
     result = app()
     return result if isinstance(result, int) else EXIT_OK

@@ -17,6 +17,7 @@ from typing import Annotated
 import cyclopts
 
 from pb import __version__
+from pb.config import config_sources
 from pb_core.logging import TRACE, setup_logging
 
 __all__ = [
@@ -42,6 +43,7 @@ app = cyclopts.App(
     # lie, and putting it last keeps the commands at the top where someone
     # reading the help is looking.
     group_commands=cyclopts.Group("Options", sort_key=3),
+    config=config_sources(),
 )
 
 HUB_COMMANDS = cyclopts.Group("Hubs", sort_key=0)

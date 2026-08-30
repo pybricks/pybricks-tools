@@ -173,11 +173,23 @@ async def test_use_can_forget_the_chosen_hub(
     assert "No hub is chosen" in captured.err
 
 
-async def test_use_refuses_to_choose_and_forget_at_once(
+async def test_clearing_wins_over_a_named_hub(
     service: FakeHub, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    assert await hub_commands.use_cmd(hub=HUB_NAME, clear=True) == errors.EXIT_ERROR
-    assert "--clear" in capsys.readouterr().err
+    # --clear and --hub used to refuse each other. They cannot any more: a hub
+    # can arrive from the environment or from the project's pyproject.toml, and
+    # refusing a value the user never typed would make --clear impossible to
+    # use inside a project.
+    await hub_commands.use_cmd(hub=HUB_NAME)
+    capsys.readouterr()
+
+    assert (
+        await hub_commands.use_cmd(hub="Some Other Hub", clear=True) == errors.EXIT_OK
+    )
+    assert "No hub is chosen" in capsys.readouterr().err
+
+    assert await hub_commands.use_cmd() == errors.EXIT_OK
+    assert "No hub is chosen" in capsys.readouterr().err
 
 
 async def test_a_chosen_hub_is_what_a_command_acts_on(
