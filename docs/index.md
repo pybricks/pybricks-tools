@@ -34,7 +34,7 @@ pb run demo.py      # again, without reconnecting
 
 | Command | What it does |
 | --- | --- |
-| `pb scan` | List hubs that are switched on and nearby |
+| `pb scan` | Watch for hubs that are switched on and nearby |
 | `pb connect` | Connect to a hub and keep it connected |
 | `pb run SCRIPT` | Compile a script, send it, and run it |
 | `pb run -c CODE` | Run a line or two of Python without a file |
@@ -44,6 +44,19 @@ pb run demo.py      # again, without reconnecting
 | `pb status` | Show what a hub is doing |
 | `pb list` | Show which hubs are connected |
 | `pb disconnect` | Disconnect a hub |
+
+`pb scan` fills its table as hubs are heard rather than when it finishes, so a
+hub appears the moment you switch it on. Each row says what kind of hub it is
+and how strong its signal is:
+
+```
+  Name           Type           Signal
+  prime_hub      Inventor hub     ▁▃▅▇
+  Pybricks Hub   City hub         ▁▃▅·
+```
+
+Both columns are worth having when two hubs share a name: one of these is on
+the desk and the other is through a wall.
 
 With more than one hub connected, name the one you mean with `--hub`, which
 every command takes:

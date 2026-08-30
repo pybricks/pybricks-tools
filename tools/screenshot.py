@@ -55,23 +55,74 @@ would show it failing.
 """
 
 SESSION: list[tuple[str, Callable[[], object]]] = [
+    ("pb scan --timeout 5", lambda: cli.scan_cmd(timeout=5)),
     ("pb connect", cli.connect_cmd),
     (f'pb run -c "\n{RAINBOW}"', lambda: cli.run_cmd(command=RAINBOW)),
-    ("pb status", cli.status_cmd),
 ]
 """What to show, in the order a new user would type it."""
 
 
+class _StillLive:
+    """Stand in for a live display, keeping only its last frame.
+
+    A recording console keeps every frame a :class:`rich.live.Live` draws, so
+    the picture would show the scan's table half a dozen times over. A still
+    picture of a live display is its final frame, which is what this keeps.
+    """
+
+    def __init__(self, renderable: object, *, console: Console, **_: object) -> None:
+        """Start with the display's first frame.
+
+        Args:
+            renderable: What the display starts out showing.
+            console: Where the last frame is written.
+            **_: Whatever else rich's own Live is given, which does not matter
+                when nothing is being animated.
+        """
+        self._console = console
+        self._frame = renderable
+
+    def __enter__(self) -> _StillLive:
+        """Return self, as rich's Live does.
+
+        Returns:
+            This display.
+        """
+        return self
+
+    def __exit__(self, *exc: object) -> bool:
+        """Print the frame the display ended on.
+
+        Args:
+            *exc: The exception being propagated, if any.
+
+        Returns:
+            False, so nothing is swallowed.
+        """
+        self._console.print(self._frame)
+        return False
+
+    def update(self, renderable: object, **_: object) -> None:
+        """Replace the frame.
+
+        Args:
+            renderable: The new frame.
+            **_: Rich's refresh flag, which means nothing here.
+        """
+        self._frame = renderable
+
+
 @contextlib.contextmanager
 def _capture(console: Console) -> Generator[None]:
-    """Point every command's output at one console, and stop the spinners."""
-    original_console, original_spinner = cli._console, cli._spinner
+    """Point every command's output at one console, and still its animations."""
+    original = cli._console, cli._spinner, cli.Live
     cli._console = lambda *, err=False: console
     cli._spinner = lambda err, message: contextlib.nullcontext()
+    cli.Live = _StillLive
     try:
         yield
     finally:
-        cli._console, cli._spinner = original_console, original_spinner
+        cli._console, cli._spinner, cli.Live = original
 
 
 def _prompt(console: Console, typed: str) -> None:
