@@ -13,6 +13,7 @@ argument. Callers scope cancellation with :func:`anyio.fail_after` or
 __version__ = "0.1.0"
 
 from pb_client.compile import (
+    SOURCE_NAME,
     CompileError,
     compile_script,
     compile_source,
@@ -27,6 +28,7 @@ from pb_client.errors import (
 from pb_core.jsonrpc import JsonRpcError
 
 __all__ = [
+    "SOURCE_NAME",
     "CompileError",
     "Daemon",
     "DaemonInfo",

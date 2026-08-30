@@ -296,3 +296,41 @@ async def test_disconnecting_when_no_service_is_running_succeeds(
 
     assert await commands_hub.disconnect_cmd() == errors.EXIT_OK
     assert "No hub is connected" in capsys.readouterr().err
+
+
+# ------------------------------------------------------------------ check
+
+
+async def test_check_compiles_without_a_hub_or_a_service(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # No service fixture and no hub: the point of check is that it needs
+    # neither. Starting a Bluetooth connection to find out about a missing
+    # bracket would be absurd.
+    assert await commands_program.check_cmd(_script(tmp_path)) == errors.EXIT_OK
+    captured = capsys.readouterr()
+    assert "compiles" in captured.err
+    assert "bytes" in captured.err
+    assert captured.out == ""
+
+
+async def test_check_reports_what_the_compiler_said(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    script = _script(tmp_path, "def broken(\n")
+    assert await commands_program.check_cmd(script) == errors.EXIT_ERROR
+    captured = capsys.readouterr()
+    assert "SyntaxError" in captured.err
+    assert captured.out == ""
+
+
+async def test_check_takes_a_one_liner_too(capsys: pytest.CaptureFixture[str]) -> None:
+    assert await commands_program.check_cmd(command="x = 1") == errors.EXIT_OK
+    assert "compiles" in capsys.readouterr().err
+
+
+async def test_check_needs_exactly_one_of_a_script_and_c(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert await commands_program.check_cmd() == errors.EXIT_ERROR
+    assert "Give a script to check" in capsys.readouterr().err

@@ -23,7 +23,7 @@ from pb_core.jsonrpc import ErrorCode
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["download_cmd", "run_cmd", "start_cmd", "stop_cmd"]
+__all__ = ["check_cmd", "download_cmd", "run_cmd", "start_cmd", "stop_cmd"]
 
 _START_HINTS = {
     ErrorCode.HUB_INVALID_COMMAND: (
@@ -175,4 +175,53 @@ async def _stop(hub: str | None) -> int:
     async with pb_client.connect(autostart=False) as daemon:
         await daemon.stop_program(hub)
     err.print("Stopped.")
+    return EXIT_OK
+
+
+@app.command(name="check", group=PROGRAM_COMMANDS, sort_key=4)
+async def check_cmd(
+    script: Path | None = None,
+    /,
+    *,
+    command: Annotated[
+        str | None, cyclopts.Parameter(name=["-c", "--command"], show_default=False)
+    ] = None,
+    verbose: Verbose = 0,
+) -> int:
+    """Check that a program compiles, without sending it anywhere.
+
+    No hub and no background service: this is the compiler on its own. Useful
+    while writing a program with no hub to hand, and as the fast check to put
+    in a commit hook or a build, where starting a Bluetooth connection to find
+    out about a missing bracket would be absurd.
+
+    It reports what the compiler said and how big the program came out, since
+    size is the other thing that can stop a program running.
+
+    Args:
+        script: The Python file to check. Leave it out when using --command.
+        command: Python code to check, instead of a file. Like python -c.
+        verbose: Increase log detail.
+    """
+    if (script is None) == (command is None):
+        return ui.usage(
+            "Give a script to check, or -c with the code to check.",
+            "For example [bold]pb check demo.py[/] or [bold]pb check -c 'print(1)'[/].",
+        )
+    configure_logging(verbose)
+    return await errors.run(_check, script, command)
+
+
+async def _check(script: Path | None, command: str | None) -> int:
+    err = ui.console(err=True)
+    if script is not None:
+        program = await pb_client.compile_script(script)
+        named = script.name
+    else:
+        assert command is not None
+        program = await pb_client.compile_source(command)
+        named = pb_client.SOURCE_NAME
+    # A failure needs no branch here: the compiler's own diagnostics come back
+    # as a CompileError, and errors.run prints them under one plain sentence.
+    err.print(f"[green]{named} compiles.[/] {len(program)} bytes.")
     return EXIT_OK
