@@ -76,11 +76,15 @@ class HubManager:
         """How many hubs are connected."""
         return len(self._hubs)
 
-    def get(self, hub_id: str | None) -> HubConnection:
+    def get(self, name_or_id: str | None) -> HubConnection:
         """Return a connected hub.
 
         Args:
-            hub_id: The hub's id, or ``None`` to use the current default.
+            name_or_id: The hub's name or id, or ``None`` to use the current
+                default. A name is what callers actually have: ids are built
+                from the Bluetooth address, which is not stable and which
+                ``pb`` no longer shows anyone, so every command that names a
+                hub names it the way the user typed it.
 
         Returns:
             The connection.
@@ -88,17 +92,14 @@ class HubManager:
         Raises:
             HubNotFoundError: If no such hub is connected, or no default is set.
         """
-        wanted = hub_id or self.default_hub_id
+        wanted = name_or_id or self.default_hub_id
         if wanted is None:
             if len(self._hubs) == 1:
                 # Exactly one hub is unambiguous, so do not make the user say
                 # which one.
                 return next(iter(self._hubs.values()))
             raise HubNotFoundError("no hub selected")
-        connection = self._hubs.get(wanted)
-        if connection is None:
-            raise HubNotFoundError(f"hub is not connected: {wanted}")
-        return connection
+        return self.resolve(wanted)
 
     def resolve(self, name_or_id: str) -> HubConnection:
         """Find a connected hub by id or by name.
