@@ -116,6 +116,13 @@ parallel = true
 
 [tool.coverage.report]
 show_missing = true
+# A CI gate on the report combined across the three operating systems. One OS
+# on its own reads a few points lower, because the other platforms' backends
+# -- the AF_UNIX listener, the named pipe, the two ways of reading a keystroke
+# -- count as missed there and are only credited once the runs are combined.
+# So a local `coverage report` is a rough guide, not the gate. The target is
+# 85; this rises to meet it as the gaps named in the plan are filled.
+fail_under = 80
 exclude_also = [
     "if TYPE_CHECKING:",
     "raise NotImplementedError",
@@ -125,13 +132,11 @@ exclude_also = [
 
 # ---------------------------------------------------------------- pyright
 [tool.pyright]
-include = ["packages/*/src", "packages/*/tests", "tests"]
+include = ["packages/*/src", "packages/*/tests", "tests", "tools"]
 # "ignore" rather than "exclude": an excluded file still gets red squiggles in
-# the editor when it is open. examples/ is MicroPython for a hub, whose imports
-# cannot resolve here and never will; tools/ is developer glue that reaches into
-# the CLI's private seams on purpose, which is the only way to record what a
-# command prints.
-ignore = ["examples", "tools"]
+# the editor when it is open, and examples/ is MicroPython for a hub, whose
+# imports cannot resolve here and never will.
+ignore = ["examples"]
 typeCheckingMode = "strict"
 pythonVersion = "3.11"
 venvPath = "."
