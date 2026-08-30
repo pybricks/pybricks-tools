@@ -135,6 +135,7 @@ class HubConnection:
         self._link: HubLink | None = None
         self._command_lock = anyio.Lock()
         self._closing = anyio.Event()
+        self._closed = anyio.Event()
         self._subscribers: dict[str, Subscriber] = {}
         self._sub_ids = itertools.count(1)
         self._seq = itertools.count(1)
@@ -171,6 +172,7 @@ class HubConnection:
                 self._release_subscribers()
                 self._rx_tx.close()
                 self._rx_rx.close()
+                self._closed.set()
                 logger.info("hub connection closed")
 
     async def _run(self, *, task_status: TaskStatus[HubInfo]) -> None:
@@ -233,6 +235,10 @@ class HubConnection:
             profile=profile,
             capabilities=capabilities,
         )
+
+    async def wait_closed(self) -> None:
+        """Wait until this connection has finished shutting down."""
+        await self._closed.wait()
 
     def close(self, reason: str = "requested") -> None:
         """Ask the connection to shut down.
