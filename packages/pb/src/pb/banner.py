@@ -57,6 +57,10 @@ WARNINGS: Final[dict[str, str]] = {
 Only one is shown, because the bar has one line and the worst of them is the
 one that matters. Ordinary states -- connected, advertising, a program running
 -- are missing on purpose: they are either uninteresting or already said.
+
+The battery is low or it is not: the hub reports two bits about it and no
+level, so there is nothing here to draw a gauge from. See "Wanted from the
+firmware" in the design notes.
 """
 
 _SET_MARGIN = "\x1b[1;{bottom}r"
