@@ -6,17 +6,17 @@
 </p>
 
 <p align="center">
-  <img src="docs/assets/pb.svg" alt="A terminal running pb connect, pb run and pb status" width="720">
+  <img src="docs/assets/pb.svg" alt="A terminal choosing a hub from a list and running a program on it" width="720">
 </p>
 
 ```bash
 uv tool install pybricks-cli
 ```
 
-Then switch a hub on and:
+Then switch a hub on and pick it off the list:
 
 ```bash
-pb connect
+pb connect --scan
 pb run -c "
 from pybricks.hubs import ThisHub
 from pybricks.parameters import Color
@@ -36,15 +36,15 @@ waiting for Bluetooth in between.
 Once a program outgrows one command, put it in a file:
 
 ```bash
-pb run rainbow.py
+pb run my_robot.py
 ```
 
 And the same hub is there from your own Python:
 
 ```python
-async with pb_client.connect() as pybricks:
-    await pybricks.connect_hub(name="Pybricks Hub")
-    await pybricks.run_program(await pb_client.compile_script(Path("rainbow.py")))
+async with pb_client.connect() as pb:
+    await pb.connect_hub(name="Pybricks Hub")
+    await pb.run_program(await pb_client.compile_script(Path("my_robot.py")))
 ```
 
 > **Status:** early development. Nothing is stable yet.

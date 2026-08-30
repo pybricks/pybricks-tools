@@ -26,13 +26,18 @@ is either a stray line of dots or the same table half a dozen times over.
 from __future__ import annotations
 
 import contextlib
+import time
 from collections.abc import Awaitable, Callable, Generator
+from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
 import anyio
 from rich.console import Console
 
-from pb import commands_hub, commands_program, ui
+import pb_client
+from pb import commands_hub, commands_program, keys, ui
+from pb.keys import Key
 
 WIDTH = 74
 """Columns to render, chosen to fit a README on GitHub without scrolling."""
@@ -56,11 +61,44 @@ would show it failing.
 """
 
 SESSION: list[tuple[str, Callable[[], Awaitable[int]]]] = [
-    ("pb scan --timeout 5", lambda: commands_hub.scan_cmd(timeout=5)),
-    ("pb connect", commands_hub.connect_cmd),
+    ("pb connect --scan", lambda: commands_hub.connect_cmd(scan=True)),
     (f'pb run -c "\n{RAINBOW}"', lambda: commands_program.run_cmd(command=RAINBOW)),
 ]
-"""What to show, in the order a new user would type it."""
+"""What to show, in the order a new user would type it.
+
+Two commands, because that is genuinely all it takes. `pb connect --scan` is
+the first thing most people will type, and it is also the best thing to look
+at: the list it shows names each hub, says what kind it is, and meters its
+signal.
+"""
+
+NICKNAMES = {"prime_hub": "Bumblebee", "Pybricks Hub": "Rover"}
+"""What to call the hubs in the picture, instead of what they are really called.
+
+The hubs to hand are named after their firmware, which is what a hub is called
+before anyone has given it a name and is a dull thing to put in a picture. What
+someone reading the README should see is what their own hubs will look like
+once they have named them after whatever they built.
+
+Substituted where a hub's details are decoded, so it applies everywhere a name
+is printed and nothing has to know about it. Display only: nothing in this
+session looks a hub up by name, so no lookup is being lied to.
+"""
+
+TYPING_DELAY = 3.0
+"""How long to leave the chooser alone before pressing anything.
+
+Long enough for every hub in the room to have advertised at least once, so the
+picture shows a full list rather than whichever hub happened to be quickest.
+"""
+
+CHOICE = [Key.DOWN, Key.ENTER]
+"""What to type at the chooser: move down one, then connect.
+
+Down one rather than straight to Enter, so the picture shows the selection
+somewhere other than where it started and it is obvious the arrows do
+something.
+"""
 
 
 class _StillLive:
@@ -71,16 +109,16 @@ class _StillLive:
     picture of a live display is its final frame, which is what this keeps.
     """
 
-    def __init__(self, renderable: object, *, console: Console, **_: object) -> None:
+    def __init__(self, renderable: object, target: Console) -> None:
         """Start with the display's first frame.
+
+        Takes the same arguments as :func:`pb.ui.live`, which it stands in for.
 
         Args:
             renderable: What the display starts out showing.
-            console: Where the last frame is written.
-            **_: Whatever else rich's own Live is given, which does not matter
-                when nothing is being animated.
+            target: Where the last frame is written.
         """
-        self._console = console
+        self._console = target
         self._frame = renderable
 
     def __enter__(self) -> _StillLive:
@@ -113,17 +151,91 @@ class _StillLive:
         self._frame = renderable
 
 
+class _Keystrokes:
+    """Type at the chooser, after leaving it alone long enough to fill up."""
+
+    def __init__(self, script: list[Key], after: float = TYPING_DELAY) -> None:
+        """Queue up what to press.
+
+        Args:
+            script: The keys, in order.
+            after: Seconds to wait before pressing the first one.
+        """
+        self._script = list(script)
+        self._after = after
+        self._start: float | None = None
+
+    def __call__(self) -> Key | None:
+        """Return the next key, or nothing if it is not time yet.
+
+        Returns:
+            The key to deliver to the chooser this poll.
+        """
+        now = time.monotonic()
+        if self._start is None:
+            self._start = now
+        if now - self._start < self._after or not self._script:
+            return None
+        return self._script.pop(0)
+
+
+_REAL_DEVICE = pb_client.DeviceInfo.from_wire
+_REAL_HUB = pb_client.HubInfo.from_wire
+
+
+def _nickname(name: str) -> str:
+    """Return what to call a hub in the picture."""
+    return NICKNAMES.get(name, name)
+
+
+def _named_device(payload: dict[str, Any]) -> pb_client.DeviceInfo:
+    """Decode a scanned hub, under its nickname."""
+    return replace(_REAL_DEVICE(payload), name=_nickname(str(payload.get("name", ""))))
+
+
+def _named_hub(payload: dict[str, Any]) -> pb_client.HubInfo:
+    """Decode a connected hub, under its nickname."""
+    return replace(_REAL_HUB(payload), name=_nickname(str(payload.get("name", ""))))
+
+
 @contextlib.contextmanager
 def _capture(console: Console) -> Generator[None]:
-    """Point every command's output at one console, and still its animations."""
-    original = ui.console, ui.spinner, ui.live
+    """Redirect everything the picture depends on, for the duration of a session.
+
+    Three separate things, all restored on the way out: where the commands
+    draw, how their animations behave in a still picture, and -- for the
+    chooser -- the keystrokes and the hub names.
+    """
+    original = (
+        ui.console,
+        ui.spinner,
+        ui.live,
+        keys.poll_key,
+        keys.reading_keys,
+        keys.keys_available,
+    )
     ui.console = lambda *, err=False: console
     ui.spinner = lambda err, message: contextlib.nullcontext()
     ui.live = _StillLive
+    keys.poll_key = _Keystrokes(CHOICE)
+    # No terminal to put into cbreak mode, and no terminal to check for.
+    keys.reading_keys = contextlib.nullcontext
+    keys.keys_available = lambda: True
+    pb_client.DeviceInfo.from_wire = _named_device
+    pb_client.HubInfo.from_wire = _named_hub
     try:
         yield
     finally:
-        ui.console, ui.spinner, ui.live = original
+        (
+            ui.console,
+            ui.spinner,
+            ui.live,
+            keys.poll_key,
+            keys.reading_keys,
+            keys.keys_available,
+        ) = original
+        pb_client.DeviceInfo.from_wire = _REAL_DEVICE
+        pb_client.HubInfo.from_wire = _REAL_HUB
 
 
 def _prompt(console: Console, typed: str) -> None:
