@@ -399,6 +399,32 @@ async def _status(hub: str | None, full: bool) -> int:
     return EXIT_OK
 
 
+@app.command(name="start")
+def start_cmd(
+    hub: str | None = None, /, *, slot: int | None = None, verbose: Verbose = 0
+) -> int:
+    """Start a program that is already on the hub.
+
+    Nothing is sent to the hub, so this is the quick way to run the same
+    program again, and the way to run one put there by another tool.
+
+    Args:
+        hub: Which hub, by name. Defaults to the one in use.
+        slot: Which program slot. Defaults to the one the hub has selected.
+        verbose: Increase log detail.
+    """
+    _configure_logging(verbose)
+    return errors.run(_start, hub, slot)
+
+
+async def _start(hub: str | None, slot: int | None) -> int:
+    err = _console(err=True)
+    async with pb_client.connect(autostart=False) as daemon:
+        await daemon.start_program(hub_id=hub, slot=slot)
+    err.print("Program started.")
+    return EXIT_OK
+
+
 @app.command(name="stop")
 def stop_cmd(hub: str | None = None, /, *, verbose: Verbose = 0) -> int:
     """Stop the program running on a hub.
