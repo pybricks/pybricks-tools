@@ -44,9 +44,10 @@ All notable changes to this project are documented here. The format is based on
   takes the terminal when there is one; given, it stays but prints only the
   output, which is what a script wants; `--no-wait` starts the program and
   returns.
-- Exit code 3 when a program ends in an unhandled exception. Nothing in the
-  protocol distinguishes a program that finished from one that failed, so this
-  reads what the firmware printed on its way out.
+- Exit codes that say how a program ended: 3 for an unhandled exception, 130
+  for one interrupted with Ctrl-C, as CPython does, and 0 for a program that
+  finished or stopped itself. Nothing in the protocol distinguishes these, so
+  it reads what the firmware printed on the way out.
 - `--slot` on `pb download` and `pb run` states which slot a program is
   expected to land in, and is refused if the hub has another one selected. The
   hub chooses, with its own buttons, and nothing on the wire can change that --
