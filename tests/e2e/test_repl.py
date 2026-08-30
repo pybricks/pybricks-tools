@@ -4,9 +4,8 @@
 """An interactive session with a hub, end to end against a simulated one.
 
 Both ways in are here: ``pb repl``, which talks to the hub's interpreter, and
-``pb run --interactive`` / ``pb start --interactive``, which talk to a program.
-They share everything below the command, so they are tested against the same
-scripted terminal.
+``pb run`` / ``pb start``, which talk to a program. They share everything below
+the command, so they are tested against the same scripted terminal.
 
 The whole path a user takes runs here: the command, a real service over a real
 socket or named pipe, the attach subscription, keystrokes going back, and the
@@ -485,7 +484,7 @@ def _script(tmp_path: Path, source: str) -> Path:
     return path
 
 
-async def test_run_interactive_shows_what_the_program_prints(
+async def test_run_shows_what_the_program_prints(
     service: FakeHub, terminal: list[_Screen], tmp_path: Path
 ) -> None:
     hub = service
@@ -587,7 +586,7 @@ async def test_an_exception_at_the_interpreter_is_not_a_failure(
     assert await _run(screen, terminal, talk) == errors.EXIT_OK
 
 
-async def test_leaving_an_interactive_run_stops_the_program(
+async def test_leaving_a_run_stops_the_program(
     service: FakeHub, terminal: list[_Screen], tmp_path: Path
 ) -> None:
     hub = service

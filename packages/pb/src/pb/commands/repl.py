@@ -3,10 +3,9 @@
 
 """An interactive session with the interpreter on a hub.
 
-The session itself lives in :mod:`pb.session`, which is shared with the
-interactive form of ``pb run`` and ``pb start``. What belongs here is only what
-is particular to talking to the interpreter: deciding whether to start one,
-join one, or refuse.
+The session itself lives in :mod:`pb.session`, which is shared with ``pb run``
+and ``pb start``. What belongs here is only what is particular to talking to
+the interpreter: deciding whether to start one, join one, or refuse.
 """
 
 from __future__ import annotations
