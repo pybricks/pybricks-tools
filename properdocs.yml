@@ -49,5 +49,6 @@ markdown_extensions:
 
 nav:
   - Home: index.md
+  - How it works: design.md
   - Contributing: contributing.md
   - API reference: reference/

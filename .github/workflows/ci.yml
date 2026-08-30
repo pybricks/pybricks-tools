@@ -89,7 +89,7 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with: { enable-cache: true }
       - run: uv sync --all-packages --all-groups
-      - run: uv run mkdocs build --strict
+      - run: uv run properdocs build --strict
 
   build:
     runs-on: ubuntu-24.04

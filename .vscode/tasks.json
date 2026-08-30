@@ -11,6 +11,6 @@
       "command": "uv run pytest",
       "group": { "kind": "test", "isDefault": true }
     },
-    { "label": "docs", "type": "shell", "command": "uv run mkdocs serve" }
+    { "label": "docs", "type": "shell", "command": "uv run properdocs serve" }
   ]
 }
