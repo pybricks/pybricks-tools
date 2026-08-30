@@ -90,6 +90,18 @@ already, and the suggestion is to run [bold]pb connect[/] -- which would be
 silly advice for [bold]pb connect[/] itself.
 """
 
+_START_HINTS: Mapping[int, str] = {
+    ErrorCode.HUB_INVALID_COMMAND: (
+        "There may be no program on the hub yet. Send one with "
+        "[bold]pb run[/] or [bold]pb download[/]."
+    ),
+}
+"""What a refused start usually means.
+
+The hub answers "invalid command" both for a slot with nothing in it and for
+a program its firmware cannot run, and the first is far more likely.
+"""
+
 app = cyclopts.App(
     name="pb",
     version=__version__,
@@ -419,7 +431,7 @@ def start_cmd(
         verbose: Increase log detail.
     """
     _configure_logging(verbose)
-    return errors.run(_start, hub, slot)
+    return errors.run(_start, hub, slot, hints=_START_HINTS)
 
 
 async def _start(hub: str | None, slot: int | None) -> int:

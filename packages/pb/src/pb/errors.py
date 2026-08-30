@@ -122,8 +122,8 @@ _RULES: Mapping[int, _Rule] = {
         "Wait a moment, or stop what it is doing with [bold]pb stop[/]."
     ),
     ErrorCode.HUB_INVALID_COMMAND: _Rule(
-        "The hub's firmware may be too old. Install the latest version from "
-        "code.pybricks.com."
+        "If the hub's firmware is old, installing the latest version from "
+        "code.pybricks.com may help."
     ),
     ErrorCode.HUB_UNSUPPORTED: _Rule(
         "This needs newer hub firmware. Install the latest version from "

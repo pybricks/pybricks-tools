@@ -51,7 +51,7 @@ from pbd.hub.events import (
     StdoutRing,
     channel_of,
 )
-from pbd.hub.transport import DeviceInfo, HubLink, HubTransport
+from pbd.hub.transport import DeviceInfo, HubCommandError, HubLink, HubTransport
 
 logger = logging.getLogger(__name__)
 
@@ -71,21 +71,6 @@ _DISCONNECTED_MARKER: Final = object()
 
 class HubDisconnectedError(RuntimeError):
     """The hub disconnected while an operation was in flight."""
-
-
-class HubCommandError(RuntimeError):
-    """The hub refused a command."""
-
-    def __init__(self, error: p.HubError | int, message: str) -> None:
-        """Record the firmware's own error code.
-
-        Args:
-            error: The raw error value, preserved so callers can be specific
-                rather than paraphrasing.
-            message: Human-readable description.
-        """
-        super().__init__(message)
-        self.error = error
 
 
 @dataclass(frozen=True, slots=True)
