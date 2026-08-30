@@ -38,6 +38,7 @@ pb run demo.py      # again, without reconnecting
 | `pb connect [HUB]` | Connect to a hub and keep it connected |
 | `pb run SCRIPT` | Compile a script, send it, and run it |
 | `pb download SCRIPT` | Send a script without running it |
+| `pb start` | Start the program already on the hub |
 | `pb stop` | Stop the running program |
 | `pb status` | Show what a hub is doing |
 | `pb list` | Show which hubs are connected |
