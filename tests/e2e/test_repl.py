@@ -320,7 +320,13 @@ async def test_a_hub_that_disconnects_ends_the_session(
     # The hub going away is a hub error rather than a clean exit: a script
     # that ran this needs to hear about it.
     assert await _run(screen, terminal, talk) == errors.EXIT_HUB_ERROR
-    assert "disconnect" in screen.text or "no longer connected" in screen.text
+    # And it says which of the two things happened, since "somebody
+    # disconnected it" and "it stopped answering" want different responses.
+    assert "stopped answering" in screen.text
+    # And it says what that leaves behind: the interpreter is still running on
+    # a hub that can no longer be told to stop it, so nothing will find that
+    # hub until somebody switches it off and on.
+    assert "switched off and on" in screen.text
 
 
 async def test_leaving_stops_the_interpreter_it_started(

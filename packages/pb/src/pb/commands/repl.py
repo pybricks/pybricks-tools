@@ -155,6 +155,14 @@ async def _session(
 
         if started and not ended.disconnected:
             await _stop_what_we_started(daemon, hub, bar)
+        elif started:
+            # Nothing can be sent to a hub that has gone, so the interpreter is
+            # still running on it -- and a hub with something running does not
+            # advertise, so nothing will find it until it stops.
+            bar.line(
+                "The interpreter is still running on the hub, so it will not "
+                "be found until the hub is switched off and on again."
+            )
 
     if ended.disconnected:
         return EXIT_HUB_ERROR
