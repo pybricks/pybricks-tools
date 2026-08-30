@@ -96,6 +96,10 @@ stop, and nothing at all for a program that simply ended.
 Matching on what the hub printed is a heuristic and is worth naming as one. It
 is here because the alternative is worse: a command that ran a program which
 died with an exception, in front of the user, and then reported success.
+
+All of this would go away if the hub reported how a program ended -- see
+"Wanted from the firmware" in the design notes. Until then this is the only
+evidence there is.
 """
 
 INTERRUPT = b"KeyboardInterrupt"
