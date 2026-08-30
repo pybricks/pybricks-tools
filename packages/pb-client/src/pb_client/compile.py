@@ -111,7 +111,11 @@ async def compile_script(path: Path) -> bytes:
         # live on a slow or remote filesystem.
         source = await anyio.Path(path).read_text(encoding="utf-8")
     except OSError as exc:
-        raise CompileError(f"could not read {path}: {exc}") from exc
+        # strerror rather than str(exc), which repeats the file name and the
+        # errno: "could not read demo.py: [Errno 2] No such file or
+        # directory: 'demo.py'" says one thing three times.
+        reason = exc.strerror or str(exc)
+        raise CompileError(f"could not read {path}: {reason.lower()}") from exc
 
     logger.info("compiling %s (%d bytes of source)", path, len(source))
     try:

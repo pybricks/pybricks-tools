@@ -84,6 +84,35 @@ with real close/EOF semantics.
 
 [nsc]: https://vorpus.org/blog/notes-on-structured-concurrency-or-go-statement-considered-harmful/
 
+## Errors the user sees
+
+Two kinds of failure, presented differently.
+
+An **expected** failure -- the hub is switched off, nothing is connected, the
+program is too big -- is something the user can act on. It is reported as one
+sentence saying what happened plus, where there is one, a suggestion of how to
+fix it. No traceback: it would only bury the sentence that matters. The wording
+follows Pybricks Code, which pairs every alert with a `suggestion` for the same
+reason.
+
+An **unexpected** failure is a bug in the tools. Its traceback is printed in
+full and unaltered, because that is the most useful thing that can be shown to
+whoever ends up reading the report.
+
+Both live in `pb/errors.py`. Commands do not catch their own failures: a task
+group wraps whatever its body raised, so `except JsonRpcError` around an
+`async with pb_client.connect()` block silently stops matching. `errors.run`
+flattens the group, and anything it cannot explain it re-raises. The only
+`except` clauses left in `pb/cli.py` are for failures that are a normal answer
+to the question asked -- listing hubs when none are connected, stopping a
+service that is not running -- and they use `errors.find` for the same reason.
+
+Adding a JSON-RPC error code means adding its wording to `_RULES`; a test walks
+`ErrorCode` and fails if one is missing. Dispatch is keyed on the code, never on
+message text, so daemon-side wording can be changed freely. Keep daemon messages
+factual and let the CLI give the advice: the daemon does not know whether the
+user was trying to connect to a hub or to use one.
+
 ## Docs
 
 Reference documentation is generated from the code — docstrings for the API,

@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from pb_core import paths
+from pb_core.ipc.errors import EndpointError
 
 __all__ = ["ENDPOINT_ENV_VAR", "Endpoint", "Scheme", "default", "resolve"]
 
@@ -49,27 +50,28 @@ class Endpoint:
             The parsed endpoint.
 
         Raises:
-            ValueError: If the URI is malformed or names an unknown scheme.
+            EndpointError: If the URI is malformed or names an unknown
+                scheme. It is a :class:`ValueError`.
         """
         scheme, separator, rest = uri.partition("://")
         if not separator:
-            raise ValueError(f"endpoint is not a URI: {uri!r}")
+            raise EndpointError(f"endpoint is not a URI: {uri!r}")
         if scheme not in ("unix", "pipe", "tcp", "memory"):
-            raise ValueError(f"unknown endpoint scheme: {scheme!r}")
+            raise EndpointError(f"unknown endpoint scheme: {scheme!r}")
         if not rest:
-            raise ValueError(f"endpoint has no target: {uri!r}")
+            raise EndpointError(f"endpoint has no target: {uri!r}")
         if scheme == "tcp":
             host, colon, port = rest.rpartition(":")
             if not colon or not host:
-                raise ValueError(f"tcp endpoint needs host:port: {uri!r}")
+                raise EndpointError(f"tcp endpoint needs host:port: {uri!r}")
             try:
                 number = int(port)
             except ValueError:
-                raise ValueError(
+                raise EndpointError(
                     f"tcp endpoint port is not a number: {uri!r}"
                 ) from None
             if not 0 <= number <= 65535:
-                raise ValueError(f"tcp endpoint port out of range: {uri!r}")
+                raise EndpointError(f"tcp endpoint port out of range: {uri!r}")
         return cls(scheme, rest)
 
     @property
@@ -80,7 +82,7 @@ class Endpoint:
             ValueError: If this is not a TCP endpoint.
         """
         if self.scheme != "tcp":
-            raise ValueError(f"not a tcp endpoint: {self}")
+            raise EndpointError(f"not a tcp endpoint: {self}")
         host, _, port = self.target.rpartition(":")
         return host, int(port)
 
