@@ -4,7 +4,6 @@
 import socket
 import sys
 import uuid
-from collections.abc import Iterator
 
 import pytest
 
@@ -53,9 +52,3 @@ def endpoint(
     # AF_UNIX: keep the path short, since sun_path is only 104 bytes on macOS.
     directory = tmp_path_factory.mktemp("s")
     return Endpoint("unix", str(directory / f"{unique}.sock"))
-
-
-@pytest.fixture
-def _isolated_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    monkeypatch.delenv("PB_ENDPOINT", raising=False)
-    yield
