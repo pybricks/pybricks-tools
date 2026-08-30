@@ -57,7 +57,7 @@ def _looks_like_id(value: str) -> bool:
     return value.startswith(_ID_PREFIXES)
 
 
-@app.command(name="scan", group=HUB_COMMANDS, sort_key=0)
+@app.command(name="scan", group=HUB_COMMANDS, sort_key=4)
 async def scan_cmd(
     *,
     timeout: float = 10.0,  # noqa: ASYNC109 - see below
@@ -121,7 +121,7 @@ async def _scan(seconds: float, name: str | None) -> int:
     return EXIT_OK
 
 
-@app.command(name="connect", group=HUB_COMMANDS, sort_key=1)
+@app.command(name="connect", group=HUB_COMMANDS, sort_key=0)
 async def connect_cmd(
     *,
     hub: str | None = None,
@@ -189,7 +189,7 @@ async def _connect(hub: str | None, scan: bool) -> int:
     return EXIT_OK
 
 
-@app.command(name="disconnect", group=HUB_COMMANDS, sort_key=4)
+@app.command(name="disconnect", group=HUB_COMMANDS, sort_key=1)
 async def disconnect_cmd(*, hub: str | None = None, verbose: Verbose = 0) -> int:
     """Disconnect a hub.
 
@@ -217,7 +217,7 @@ async def _disconnect(hub: str | None) -> int:
     return EXIT_OK
 
 
-@app.command(name="list", group=HUB_COMMANDS, sort_key=2)
+@app.command(name="list", group=HUB_COMMANDS, sort_key=3)
 async def list_cmd(*, verbose: Verbose = 0) -> int:
     """List the hubs that are currently connected.
 
@@ -256,7 +256,7 @@ async def _list() -> int:
     return EXIT_OK
 
 
-@app.command(name="status", group=HUB_COMMANDS, sort_key=3)
+@app.command(name="status", group=HUB_COMMANDS, sort_key=2)
 async def status_cmd(
     *, hub: str | None = None, full: bool = False, verbose: Verbose = 0
 ) -> int:

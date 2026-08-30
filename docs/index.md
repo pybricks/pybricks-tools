@@ -34,7 +34,6 @@ pb run demo.py      # again, without reconnecting
 
 | Command | What it does |
 | --- | --- |
-| `pb scan` | Watch for hubs that are switched on and nearby |
 | `pb connect` | Connect to a hub and keep it connected |
 | `pb run SCRIPT` | Compile a script, send it, and run it |
 | `pb run -c CODE` | Run a line or two of Python without a file |
@@ -44,9 +43,13 @@ pb run demo.py      # again, without reconnecting
 | `pb status` | Show what a hub is doing |
 | `pb list` | Show which hubs are connected |
 | `pb disconnect` | Disconnect a hub |
+| `pb check` | Check a program compiles, with no hub involved |
+| `pb scan` | Watch for hubs that are switched on and nearby |
 
-`pb scan` fills its table as hubs are heard rather than when it finishes, so a
-hub appears the moment you switch it on. Each row says what kind of hub it is
+You never have to run `pb scan`: `pb connect` does its own looking. It is there
+for when you want to know what is out there without connecting to any of it. It
+fills its table as hubs are heard rather than when it finishes, so a hub appears
+the moment you switch it on. Each row says what kind of hub it is
 and how strong its signal is:
 
 ```
@@ -58,7 +61,14 @@ and how strong its signal is:
 Both columns are worth having when two hubs share a name: one of these is on
 the desk and the other is through a wall.
 
-To pick one from that list instead of reading it, use `pb connect --scan`. The
+`pb check` needs no hub and no service at all -- it is the compiler on its own,
+which makes it the right thing to put in a commit hook or a build:
+
+```bash
+pb check demo.py
+```
+
+To pick a hub from that list instead of reading it, use `pb connect --scan`. The
 arrow keys move the selection and Enter connects. There is no time limit, so
 you can switch the hub on while it is watching, and Ctrl-C gives up without
 connecting to anything.
@@ -84,12 +94,12 @@ import pb_client
 
 
 async def main() -> None:
-    async with pb_client.connect() as pybricks:
-        hub = await pybricks.connect_hub(name="Pybricks Hub")
+    async with pb_client.connect() as pb:
+        hub = await pb.connect_hub(name="Pybricks Hub")
         print(f"connected to {hub.name}, firmware {hub.firmware}")
 
         program = await pb_client.compile_script(Path("demo.py"))
-        reason = await pybricks.run_program(program)
+        reason = await pb.run_program(program)
         print(f"program {reason}")
 
 
@@ -101,7 +111,7 @@ scope instead, which bounds the whole operation rather than one step inside it:
 
 ```python
 with anyio.move_on_after(30):
-    await pybricks.run_program(program)
+    await pb.run_program(program)
 ```
 
 Cancelling a run also stops the program on the hub, rather than leaving it
