@@ -12,7 +12,8 @@ from typing import Any
 import cyclopts
 import pytest
 
-from pb import cli
+from pb import app as pb_app
+from pb import cli, errors
 
 
 def _subcommands(app: cyclopts.App) -> list[str]:
@@ -36,9 +37,9 @@ def test_every_top_level_command_is_in_a_named_group() -> None:
     # looking for it. There is no default that reads well, so each one says
     # where it belongs.
     known = {
-        cli.HUB_COMMANDS.name,
-        cli.PROGRAM_COMMANDS.name,
-        cli.SERVICE_COMMANDS.name,
+        pb_app.HUB_COMMANDS.name,
+        pb_app.PROGRAM_COMMANDS.name,
+        pb_app.SERVICE_COMMANDS.name,
     }
     for name in _subcommands(cli.app):
         # cyclopts allows one group or several, named or as objects.
@@ -101,7 +102,7 @@ def test_run_needs_exactly_one_of_a_script_and_c(
     # cyclopts turns an int result into the process exit code itself.
     with pytest.raises(SystemExit) as info:
         cli.app(argv)
-    assert info.value.code == cli.errors.EXIT_ERROR
+    assert info.value.code == errors.EXIT_ERROR
     captured = capsys.readouterr()
     assert "Give a script to run" in captured.err
     # Nothing about a failure belongs on stdout.
