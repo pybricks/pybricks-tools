@@ -17,21 +17,22 @@ Connect a hub first, then::
 
     uv run python tools/screenshot.py
 
-It reaches into two private names in :mod:`pb.cli`, which nothing else does and
-nothing else should. ``_console`` is the seam every command gets its output
-through, so replacing it is what captures the output at all; and ``_spinner``
-has to go, because a still picture of a spinner is a stray line of dots.
+It works by redirecting :mod:`pb.ui`, which exists to be the one place every
+command draws through. ``console`` is what captures the output at all;
+``spinner`` and ``live`` are replaced because a still picture of an animation
+is either a stray line of dots or the same table half a dozen times over.
 """
 
 from __future__ import annotations
 
 import contextlib
-from collections.abc import Callable, Generator
+from collections.abc import Awaitable, Callable, Generator
 from pathlib import Path
 
+import anyio
 from rich.console import Console
 
-from pb import cli
+from pb import commands_hub, commands_program, ui
 
 WIDTH = 74
 """Columns to render, chosen to fit a README on GitHub without scrolling."""
@@ -54,10 +55,10 @@ this script actually sends to the hub -- if it stopped working, the picture
 would show it failing.
 """
 
-SESSION: list[tuple[str, Callable[[], object]]] = [
-    ("pb scan --timeout 5", lambda: cli.scan_cmd(timeout=5)),
-    ("pb connect", cli.connect_cmd),
-    (f'pb run -c "\n{RAINBOW}"', lambda: cli.run_cmd(command=RAINBOW)),
+SESSION: list[tuple[str, Callable[[], Awaitable[int]]]] = [
+    ("pb scan --timeout 5", lambda: commands_hub.scan_cmd(timeout=5)),
+    ("pb connect", commands_hub.connect_cmd),
+    (f'pb run -c "\n{RAINBOW}"', lambda: commands_program.run_cmd(command=RAINBOW)),
 ]
 """What to show, in the order a new user would type it."""
 
@@ -115,14 +116,14 @@ class _StillLive:
 @contextlib.contextmanager
 def _capture(console: Console) -> Generator[None]:
     """Point every command's output at one console, and still its animations."""
-    original = cli._console, cli._spinner, cli.Live
-    cli._console = lambda *, err=False: console
-    cli._spinner = lambda err, message: contextlib.nullcontext()
-    cli.Live = _StillLive
+    original = ui.console, ui.spinner, ui.live
+    ui.console = lambda *, err=False: console
+    ui.spinner = lambda err, message: contextlib.nullcontext()
+    ui.live = _StillLive
     try:
         yield
     finally:
-        cli._console, cli._spinner, cli.Live = original
+        ui.console, ui.spinner, ui.live = original
 
 
 def _prompt(console: Console, typed: str) -> None:
@@ -133,7 +134,7 @@ def _prompt(console: Console, typed: str) -> None:
         console.print(f"[dim]>[/] [bold]{line}[/]", highlight=False)
 
 
-def main() -> int:
+async def main() -> int:
     """Record a session and write the SVG.
 
     Returns:
@@ -143,13 +144,15 @@ def main() -> int:
     with _capture(console):
         for typed, command in SESSION:
             _prompt(console, typed)
-            command()
+            await command()
             console.print()
 
-    OUT.parent.mkdir(parents=True, exist_ok=True)
-    OUT.write_text(console.export_svg(title="pb"), encoding="utf-8")
+    await anyio.Path(OUT.parent).mkdir(parents=True, exist_ok=True)
+    await anyio.Path(OUT).write_text(console.export_svg(title="pb"), encoding="utf-8")
     return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    # The one place this program enters an event loop, as cyclopts is for
+    # the command line proper. The commands themselves start none.
+    raise SystemExit(anyio.run(main))

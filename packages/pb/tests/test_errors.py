@@ -22,6 +22,13 @@ from pb import cli, errors
 from pb_core.ipc import EndpointError
 from pb_core.jsonrpc import ErrorCode, JsonRpcError
 
+pytestmark = pytest.mark.anyio
+
+
+@pytest.fixture(scope="session")
+def anyio_backend() -> str:
+    return "asyncio"
+
 
 def _grouped(exc: BaseException) -> BaseExceptionGroup[BaseException]:
     """Wrap an exception the way a task group would."""
@@ -247,6 +254,10 @@ def test_nothing_about_a_failure_reaches_stdout(
 
 
 # --------------------------------------------------------------------- run
+#
+# run() is async and starts no event loop of its own: cyclopts runs the
+# commands, so the program enters its loop exactly once. These therefore run
+# inside a loop like the commands do, rather than reaching in from outside.
 
 
 async def _ok() -> int:
@@ -257,38 +268,50 @@ async def _raise(exc: BaseException) -> int:
     raise exc
 
 
-def test_run_returns_the_command_result() -> None:
-    assert errors.run(_ok) == errors.EXIT_OK
+async def test_run_returns_the_command_result() -> None:
+    assert await errors.run(_ok) == errors.EXIT_OK
 
 
-def test_run_reports_an_expected_failure(capsys: pytest.CaptureFixture[str]) -> None:
-    code = errors.run(_raise, JsonRpcError(ErrorCode.HUB_BUSY, "the hub is busy"))
+async def test_run_reports_an_expected_failure(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    code = await errors.run(_raise, JsonRpcError(ErrorCode.HUB_BUSY, "the hub is busy"))
     assert code == errors.EXIT_HUB_ERROR
     captured = capsys.readouterr()
     assert "The hub is busy." in captured.err
     assert "Traceback" not in captured.err
 
 
-def test_run_lets_an_unexpected_failure_through(
+async def test_run_lets_an_unexpected_failure_through(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     # Deliberately not caught: an error we cannot explain is a bug, and the
     # traceback is the useful part.
     with pytest.raises(ValueError, match="bang"):
-        errors.run(_raise, ValueError("bang"))
+        await errors.run(_raise, ValueError("bang"))
     assert "bug in pb" in capsys.readouterr().err
 
 
-def test_interrupting_is_not_a_crash(capsys: pytest.CaptureFixture[str]) -> None:
-    assert errors.run(_raise, KeyboardInterrupt()) == errors.EXIT_INTERRUPTED
+async def test_interrupting_is_not_a_crash(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert await errors.run(_raise, KeyboardInterrupt()) == errors.EXIT_INTERRUPTED
     assert "Interrupted." in capsys.readouterr().err
 
 
 # ------------------------------------------------------------------ wiring
 
 
-def test_no_command_runs_the_event_loop_itself() -> None:
-    # Calling anyio.run directly would put the command outside the one place
-    # that turns failures into messages, and the traceback would be back.
-    source = Path(cli.__file__).read_text(encoding="utf-8")
-    assert "anyio.run(" not in source
+def test_nothing_in_the_cli_starts_an_event_loop() -> None:
+    # The commands are async and cyclopts runs them, so the program enters its
+    # loop exactly once, at the outermost edge. A second entry point would be a
+    # second sync-to-async boundary, and every one of those turns up later as a
+    # helper thread, a blocking portal, or a test that cannot be written the
+    # obvious way. It would also put the command outside the one place that
+    # turns failures into messages, bringing the traceback back.
+    package = Path(cli.__file__).parent
+    for module in sorted(package.glob("*.py")):
+        source = module.read_text(encoding="utf-8")
+        assert "anyio.run(" not in source, module.name
+        assert "asyncio.run(" not in source, module.name
+        assert "start_blocking_portal" not in source, module.name
