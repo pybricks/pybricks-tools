@@ -14,7 +14,7 @@ import pytest
 from rich.console import Console, RenderableType
 
 import pb_client
-from pb import picker
+from pb import keys, picker
 from pb.keys import Key
 
 pytestmark = pytest.mark.anyio
@@ -43,7 +43,7 @@ def _no_terminal_fiddling(  # pyright: ignore[reportUnusedFunction]
 ) -> Iterator[None]:
     # Nothing here has a terminal, and on POSIX asking for cbreak mode without
     # one raises. The tests drive the keys directly instead.
-    monkeypatch.setattr(picker, "reading_keys", contextlib.nullcontext)
+    monkeypatch.setattr(keys, "reading_keys", contextlib.nullcontext)
     # No waiting between polls: the scripted keys are ready immediately.
     monkeypatch.setattr(picker, "POLL_SECONDS", 0)
     yield
@@ -110,7 +110,7 @@ async def _choose(
     keyboard: _Keyboard,
     hubs: list[pb_client.DeviceInfo] | None = None,
 ) -> pb_client.DeviceInfo | None:
-    monkeypatch.setattr(picker, "poll_key", keyboard)
+    monkeypatch.setattr(keys, "poll_key", keyboard)
     with anyio.fail_after(5):
         return await picker.choose_hub(
             _console(), _devices(keyboard, hubs or HUBS), _render
@@ -187,7 +187,7 @@ async def test_a_hub_arriving_later_does_not_move_the_selection(
         arrived.set()
         await anyio.sleep_forever()
 
-    monkeypatch.setattr(picker, "poll_key", keyboard)
+    monkeypatch.setattr(keys, "poll_key", keyboard)
     with anyio.fail_after(5):
         chosen = await picker.choose_hub(_console(), devices(), record)
 

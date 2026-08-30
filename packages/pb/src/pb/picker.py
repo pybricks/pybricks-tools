@@ -22,11 +22,11 @@ from collections.abc import AsyncIterator, Callable
 
 import anyio
 from rich.console import Console, Group, RenderableType
-from rich.live import Live
 from rich.text import Text
 
 import pb_client
-from pb.keys import Key, poll_key, reading_keys
+from pb import keys, ui
+from pb.keys import Key
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +70,7 @@ async def choose_hub(
         listed = [seen[device_id] for device_id in order]
         return Group(render(listed, selected), Text(HELP, style="dim"))
 
-    with reading_keys(), Live(frame(), console=err, auto_refresh=False) as live:
+    with keys.reading_keys(), ui.live(frame(), err) as live:
         async with anyio.create_task_group() as tg:
 
             async def watch() -> None:
@@ -83,7 +83,7 @@ async def choose_hub(
             tg.start_soon(watch)
             try:
                 while True:
-                    key = poll_key()
+                    key = keys.poll_key()
                     if key is Key.CANCEL:
                         break
                     if key is Key.ENTER and order:
