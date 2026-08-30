@@ -18,7 +18,7 @@ dependencies = [
 ]
 
 [project.scripts]
-pbd = "pbd.__main__:main"
+pbd = "pbd.cli:main"
 
 [build-system]
 requires = ["uv_build>=0.11.8,<0.12.0"]

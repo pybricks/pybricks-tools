@@ -20,6 +20,7 @@ import platformdirs
 
 __all__ = [
     "APP_NAME",
+    "RUNTIME_DIR_ENV_VAR",
     "cache_dir",
     "cookie_file",
     "ensure_private_dir",
@@ -33,6 +34,14 @@ __all__ = [
 
 APP_NAME = "pybricks"
 """Application name used for all platform directories."""
+
+RUNTIME_DIR_ENV_VAR = "PB_RUNTIME_DIR"
+"""Overrides the runtime directory.
+
+Moves the socket, lock and cookie together, so a test or a sandboxed
+environment can relocate all of the daemon's per-user state at once without
+touching the real one.
+"""
 
 _DAEMON = "pbd"
 
@@ -57,6 +66,10 @@ def runtime_dir() -> Path:
     On Windows the daemon is reached through a named pipe rather than a socket,
     so this is only used for the lock and cookie files.
     """
+    override = os.environ.get(RUNTIME_DIR_ENV_VAR)
+    if override:
+        return Path(override)
+
     if sys.platform == "win32":
         return Path(platformdirs.user_runtime_dir(APP_NAME, appauthor=False))
 
