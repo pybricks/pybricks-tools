@@ -24,7 +24,7 @@ from pb_service.session import Session
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["daemon_hello", "daemon_info", "daemon_ping", "daemon_shutdown"]
+__all__ = ["service_hello", "service_info", "service_ping", "service_shutdown"]
 
 
 @method(
@@ -39,7 +39,7 @@ __all__ = ["daemon_hello", "daemon_info", "daemon_ping", "daemon_shutdown"]
     },
     returns="Service identity, protocol version and capabilities.",
 )
-async def daemon_hello(session: Session, params: dict[str, Any]) -> dict[str, Any]:
+async def service_hello(session: Session, params: dict[str, Any]) -> dict[str, Any]:
     """Complete the handshake."""
     token: str = require(params, "token", str)
     client_version: int = require(params, "protocol_version", int)
@@ -77,7 +77,7 @@ async def daemon_hello(session: Session, params: dict[str, Any]) -> dict[str, An
     )
 
     return {
-        "daemon_version": __version__,
+        "service_version": __version__,
         "protocol_version": PROTOCOL_VERSION,
         "min_protocol_version": MIN_PROTOCOL_VERSION,
         "pid": __import__("os").getpid(),
@@ -95,7 +95,7 @@ async def daemon_hello(session: Session, params: dict[str, Any]) -> dict[str, An
 @method(
     "service.ping", "Check that the service is responsive.", returns="An empty object."
 )
-async def daemon_ping(session: Session, params: dict[str, Any]) -> dict[str, Any]:
+async def service_ping(session: Session, params: dict[str, Any]) -> dict[str, Any]:
     """Answer immediately."""
     session.service.mark_activity()
     return {}
@@ -106,7 +106,7 @@ async def daemon_ping(session: Session, params: dict[str, Any]) -> dict[str, Any
     "Report the service's status.",
     returns="Version, uptime, endpoint, log location and connected clients.",
 )
-async def daemon_info(session: Session, params: dict[str, Any]) -> dict[str, Any]:
+async def service_info(session: Session, params: dict[str, Any]) -> dict[str, Any]:
     """Describe the running service."""
     service = session.service
     service.mark_activity()
@@ -129,7 +129,7 @@ async def daemon_info(session: Session, params: dict[str, Any]) -> dict[str, Any
     params={"force": "Shut down even if hubs are connected."},
     returns="An empty object, sent before the service stops.",
 )
-async def daemon_shutdown(session: Session, params: dict[str, Any]) -> dict[str, Any]:
+async def service_shutdown(session: Session, params: dict[str, Any]) -> dict[str, Any]:
     """Request shutdown."""
     session.service.request_shutdown(f"requested by {session.client_name}")
     return {}
