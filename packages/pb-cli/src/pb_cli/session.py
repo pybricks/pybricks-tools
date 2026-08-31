@@ -207,11 +207,21 @@ class Running:
             status: The hub's latest report.
 
         Returns:
-            The same, brought up to date with the report.
+            The same, brought up to date with the report. A report saying
+            nothing is running, from before it has been seen running, changes
+            nothing: it is the moment between asking the hub to start
+            something and the hub saying it has, and the session has to go on
+            believing there is something on the other end for as long as that
+            lasts. Leaving in that window otherwise walked away from a program
+            this command had started, which is the one thing a session must
+            never do -- a hub with something running does not advertise, so it
+            cannot then be found.
         """
         if status.program_running:
             return replace(self, running=True, arrived=True)
-        return replace(self, running=False, gone=self.gone or self.arrived)
+        if not self.arrived:
+            return self
+        return replace(self, running=False, gone=True)
 
     def _final_exception(self) -> bytes:
         """Name the exception the hub last reported, if it reported one.

@@ -105,6 +105,16 @@ def test_nothing_running_before_it_arrived_is_not_the_end() -> None:
     assert not program.gone
 
 
+def test_nothing_running_before_it_arrived_leaves_it_running() -> None:
+    # A real race, found by running the tests under coverage, which is slow
+    # enough to lose it: leaving in this window skipped stopping a program the
+    # command had started, and a hub with something running does not
+    # advertise, so it could not then be found.
+    program = Running("program").we_started_it().note(status(running=False))
+    assert program.running
+    assert program.ours
+
+
 def test_stopping_after_it_arrived_is_the_end() -> None:
     program = Running("program").note(status(running=True)).note(status(running=False))
     assert program.gone
