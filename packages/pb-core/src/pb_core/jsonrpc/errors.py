@@ -55,6 +55,50 @@ class ErrorCode(IntEnum):
     that, so naming a different slot is a request that cannot be carried out.
     """
 
+    # Firmware.
+    FIRMWARE_NOT_FOUND = -32040
+    """No firmware matches what was asked for.
+
+    A version that was never published, or a hub type with no image -- there
+    is no official firmware to restore a Move, City or Technic hub to, for
+    instance.
+    """
+
+    FIRMWARE_UNAVAILABLE = -32041
+    """The image is not cached and could not be fetched.
+
+    Separate from not existing, because the remedies are different: one is a
+    typo and the other is a network, a rate limit, or a machine deliberately
+    kept offline.
+    """
+
+    FIRMWARE_BAD_ARCHIVE = -32042
+    """The archive could not be read as firmware.
+
+    A truncated download, something that is not a firmware zip at all, or
+    metadata this build does not understand.
+    """
+
+    FIRMWARE_INCOMPATIBLE = -32043
+    """The image does not match the hub in front of us.
+
+    Wrong hub type, or a Prime archive with no variant for the silicon this
+    particular hub turned out to have.
+    """
+
+    FIRMWARE_UPDATE_MODE_FAILED = -32044
+    """The hub did not appear in its bootloader.
+
+    Which usually means it switched off instead of rebooting, and always means
+    the user has to put it into update mode by hand.
+    """
+
+    FIRMWARE_LICENSE_NOT_ACCEPTED = -32045
+    """Nobody has accepted the licence for this image yet."""
+
+    FIRMWARE_HUB_NAME_TOO_LONG = -32046
+    """The requested hub name does not fit the field the firmware reserves."""
+
     # Transport and lifecycle.
     BLUETOOTH_UNAVAILABLE = -32020
     SCAN_TIMEOUT = -32021

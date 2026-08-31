@@ -99,6 +99,28 @@ away, which is the difference between a terminal that closes with an
 explanation and one that simply stops.
 """
 
+FIRMWARE_PROGRESS: Final = "firmware.progress"
+"""Notification carrying how far an install has got.
+
+The parameters are a ``phase`` -- ``fetching``, ``erasing`` or ``installing``
+-- and ``done`` and ``total`` in bytes. Three phases rather than one because
+they are three visibly different waits, and a bar that restarts is less
+confusing than one that stalls at a third for a minute.
+
+Sent for as long as a ``firmware.fetch``, ``firmware.flash`` or
+``firmware.restore`` request is running.
+"""
+
+FIRMWARE_STEP: Final = "firmware.step"
+"""Notification narrating what an install is doing between the progress bars.
+
+The parameters are a ``step`` naming what is happening and an optional
+``detail``. This is what stands in for the video a browser can show: looking
+for the hub, finding it running LEGO's own firmware, asking it to reboot,
+waiting for its bootloader to appear. Most of the time an install spends is
+not spent moving bytes, and a bar alone would leave the user watching nothing.
+"""
+
 STDIO_CAPABILITY: Final = "stdio"
 """Named in ``service.hello``'s reply by a service that can carry hub stdio.
 
@@ -107,4 +129,12 @@ the install that started it: a user who upgrades and runs ``pb repl`` may still
 be talking to yesterday's service. Refusing every command over a version
 mismatch would be a poor trade for one added feature, so the client asks
 whether this service has the feature it needs and says what to do if not.
+"""
+
+FIRMWARE_CAPABILITY: Final = "firmware"
+"""Named in ``service.hello``'s reply by a service that can install firmware.
+
+A capability rather than a version bump, for the reason above: the service a
+user is talking to is quite often the one that was already running before they
+upgraded.
 """

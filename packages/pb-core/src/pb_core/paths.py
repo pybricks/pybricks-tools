@@ -20,6 +20,7 @@ import platformdirs
 
 __all__ = [
     "APP_NAME",
+    "CACHE_DIR_ENV_VAR",
     "RUNTIME_DIR_ENV_VAR",
     "STATE_DIR_ENV_VAR",
     "cache_dir",
@@ -50,6 +51,18 @@ STATE_DIR_ENV_VAR = "PB_STATE_DIR"
 The counterpart of :data:`RUNTIME_DIR_ENV_VAR`, and there for the same reason:
 a test or a sandbox can put the user's preferences somewhere of its own rather
 than editing the real ones.
+"""
+
+CACHE_DIR_ENV_VAR = "PB_CACHE_DIR"
+"""Overrides the directory holding downloaded firmware.
+
+The third of these, and the one with a second reason to exist. Like the others
+it lets a test keep away from the real thing -- without it the suite would fill
+the developer's own firmware cache. But it is also the answer for somebody
+working offline: the cache is where the spec says a cache goes, and a cache is
+by definition something the system may delete whenever it likes, which is
+wrong for a directory that was filled by hand because there is no network to
+refill it from. Pointing this somewhere durable is how that user keeps it.
 """
 
 _SERVICE = "pb-service"
@@ -139,7 +152,21 @@ def state_dir() -> Path:
 
 
 def cache_dir() -> Path:
-    """Return the directory for cached downloads, such as firmware images."""
+    """Return the directory for cached downloads, such as firmware images.
+
+    Each platform's own place, by way of platformdirs: ``$XDG_CACHE_HOME`` on
+    Linux, ``~/Library/Caches`` on macOS, and a ``Cache`` folder inside the
+    local application data directory on Windows. That last one has a component
+    the state and log directories do not, which looks inconsistent and is what
+    the platform convention says; making the three match would mean inventing a
+    location.
+
+    Returns:
+        The directory, which may not exist yet.
+    """
+    override = os.environ.get(CACHE_DIR_ENV_VAR)
+    if override:
+        return Path(override)
     return Path(platformdirs.user_cache_dir(APP_NAME, appauthor=False))
 
 

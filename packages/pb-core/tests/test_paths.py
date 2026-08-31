@@ -85,3 +85,21 @@ def test_state_dir_can_be_moved(
     # So a test never rewrites the choice of whoever is running it.
     monkeypatch.setenv(paths.STATE_DIR_ENV_VAR, str(tmp_path))
     assert paths.state_dir() == tmp_path
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="XDG is Linux-only")
+def test_cache_dir_honours_xdg(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # Firmware images can always be fetched again, which is the definition of
+    # a cache, so XDG_CACHE_HOME is where they go.
+    monkeypatch.delenv(paths.CACHE_DIR_ENV_VAR, raising=False)
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+    assert paths.cache_dir() == tmp_path / paths.APP_NAME
+
+
+def test_cache_dir_can_be_moved(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Without this the suite would fill the firmware cache of whoever ran it,
+    # and somebody working offline would have nowhere durable to keep images.
+    monkeypatch.setenv(paths.CACHE_DIR_ENV_VAR, str(tmp_path))
+    assert paths.cache_dir() == tmp_path
