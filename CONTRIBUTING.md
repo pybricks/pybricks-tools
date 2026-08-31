@@ -119,3 +119,13 @@ Reference documentation is generated from the code — docstrings for the API,
 the cyclopts app for the CLI, the typed method registry for the JSON-RPC
 protocol. Do not hand-maintain reference pages; they drift. Narrative pages are
 written by hand. Docstrings are Google style.
+
+**A command's docstring is written for whoever types the command.** It is what
+`pb scan --help` prints and what the Commands page shows, so it says what the
+command does and how to use it, and nothing about how it is built. Notes for
+whoever maintains it — why a lint rule is silenced, which library call is being
+worked around — are comments. That is not a style preference: one such note sat
+in `pb scan`'s docstring and was read by users as part of the help.
+
+The `pb-core` and `pb-client` docstrings are the opposite case: their readers
+are people calling the code, so implementation notes belong there.
