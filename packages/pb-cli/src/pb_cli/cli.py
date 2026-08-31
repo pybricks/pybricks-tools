@@ -5,7 +5,7 @@
 
 This module is the entry point and little else. The commands live in
 :mod:`pb_cli.commands`, one module per group of the help, and importing them
-here is what registers them with the app -- the same arrangement the daemon
+here is what registers them with the app -- the same arrangement the service
 uses for its RPC methods.
 
 Three rules shape the whole package. Data goes to stdout and everything else --

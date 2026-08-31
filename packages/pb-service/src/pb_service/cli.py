@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 The Pybricks Authors
 
-"""The daemon's command line.
+"""The service's command line.
 
-Plain argparse rather than the CLI framework used by ``pb``: the daemon must not
+Plain argparse rather than the CLI framework used by ``pb``: the service must not
 depend on the presentation layer, and it is not a program people interact with
 directly.
 """
@@ -19,17 +19,18 @@ from typing import Any
 
 import anyio
 
-# Imported to register the RPC methods.
-import pb_service.methods.daemon
 import pb_service.methods.hub
 import pb_service.methods.program
+
+# Imported to register the RPC methods.
+import pb_service.methods.service
 import pb_service.methods.stdio  # noqa: F401
 from pb_core import ipc, lock
 from pb_core.ipc import AddressInUseError
 from pb_core.logging import setup_logging
 from pb_core.paths import log_file
 from pb_service import __version__
-from pb_service import daemon as daemon_module
+from pb_service import service as service_module
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +52,7 @@ _LEVELS = {
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="pb-service",
-        description="The Pybricks daemon. Normally started automatically.",
+        description="The Pybricks service. Normally started automatically.",
     )
     parser.add_argument(
         "--version", action="version", version=f"pb-service {__version__}"
@@ -75,19 +76,19 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--idle-timeout",
         type=float,
-        default=daemon_module.DEFAULT_IDLE_TIMEOUT,
+        default=service_module.DEFAULT_IDLE_TIMEOUT,
         help="Seconds with no clients and no hubs before exiting. "
         "Use 0 to run until stopped.",
     )
     return parser
 
 
-async def _watch_signals(daemon: daemon_module.Daemon) -> None:
+async def _watch_signals(service: service_module.Service) -> None:
     """Turn termination signals into an orderly shutdown.
 
     On Windows ``anyio.open_signal_receiver`` is unavailable, because the
     proactor loop has no ``add_signal_handler``. A plain handler that pokes the
-    loop is used instead, together with the daemon's periodic tick, which keeps
+    loop is used instead, together with the service's periodic tick, which keeps
     the loop awake enough to notice.
     """
     if sys.platform == "win32":
@@ -105,7 +106,7 @@ async def _watch_signals(daemon: daemon_module.Daemon) -> None:
         ]
         try:
             await event.wait()
-            daemon.request_shutdown("signal")
+            service.request_shutdown("signal")
         finally:
             for sig, old in previous:
                 signal.signal(sig, old)
@@ -113,34 +114,34 @@ async def _watch_signals(daemon: daemon_module.Daemon) -> None:
 
     with anyio.open_signal_receiver(signal.SIGINT, signal.SIGTERM) as signals:
         async for _ in signals:
-            daemon.request_shutdown("signal")
+            service.request_shutdown("signal")
             return
 
 
 async def _serve(args: argparse.Namespace) -> int:
     endpoint = ipc.resolve(args.endpoint)
-    daemon_module.log_banner(endpoint, __version__)
+    service_module.log_banner(endpoint, __version__)
 
     try:
-        async with daemon_module.run_daemon(
+        async with service_module.run_service(
             endpoint, idle_timeout=args.idle_timeout
-        ) as daemon:
+        ) as service:
             async with anyio.create_task_group() as tg:
-                tg.start_soon(_watch_signals, daemon)
-                await daemon.wait_for_shutdown()
+                tg.start_soon(_watch_signals, service)
+                await service.wait_for_shutdown()
                 tg.cancel_scope.cancel()
-            logger.info("shutting down: %s", daemon.shutdown_reason)
+            logger.info("shutting down: %s", service.shutdown_reason)
     except AddressInUseError:
-        # The common case is two clients racing to start a daemon. One wins,
+        # The common case is two clients racing to start a service. One wins,
         # and both clients then connect to it, so this is not an error.
-        logger.info("another daemon is already listening on %s", endpoint)
+        logger.info("another service is already listening on %s", endpoint)
         return EXIT_ALREADY_RUNNING
 
     return EXIT_OK
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Run the daemon.
+    """Run the service.
 
     Args:
         argv: Command line arguments, defaulting to ``sys.argv``.
@@ -171,10 +172,10 @@ def main(argv: list[str] | None = None) -> int:
         with lock.single_instance():
             return anyio.run(_serve, args, backend="asyncio")
     except lock.AlreadyRunningError:
-        logger.info("another daemon already holds the lock; exiting")
+        logger.info("another service already holds the lock; exiting")
         return EXIT_ALREADY_RUNNING
     except Exception:
-        logger.exception("daemon failed")
+        logger.exception("service failed")
         return EXIT_ERROR
 
 

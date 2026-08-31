@@ -24,8 +24,8 @@ wraps whatever its body raised, so ``except JsonRpcError`` around an
 arrives as a group of one. Everything here therefore starts by flattening.
 
 Dispatch is keyed on the JSON-RPC error *code*, never on message text, so the
-daemon's wording and the wording here stay independently editable and rephrasing
-a daemon message cannot silently turn a friendly error back into a traceback.
+service's wording and the wording here stay independently editable and rephrasing
+a service message cannot silently turn a friendly error back into a traceback.
 """
 
 from __future__ import annotations
@@ -93,7 +93,7 @@ class _Rule:
     hint: str | None = None
     exit_code: int = EXIT_HUB_ERROR
     message: str | None = None
-    """Replaces the daemon's own wording. ``None`` keeps it."""
+    """Replaces the service's own wording. ``None`` keeps it."""
 
 
 _STALE = (
@@ -114,7 +114,7 @@ cannot help.
 """
 
 _RULES: Mapping[int, _Rule] = {
-    # Hubs. The daemon's own wording is specific -- "no connected hub named
+    # Hubs. The service's own wording is specific -- "no connected hub named
     # 'Spare Hub'" -- so it is usually kept as the headline and only the
     # suggestion is added here.
     ErrorCode.HUB_NOT_FOUND: _Rule(
@@ -192,7 +192,7 @@ _RULES: Mapping[int, _Rule] = {
         message="The background service does not know that command.",
     ),
     # PARSE_ERROR, INVALID_REQUEST and INVALID_PARAMS are deliberately absent:
-    # each means this CLI sent the daemon something it could not use, which no
+    # each means this CLI sent the service something it could not use, which no
     # user can act on and every developer wants a traceback for.
     ErrorCode.INTERNAL_ERROR: _Rule(
         "The service log has the details; [bold]pb service status[/] names the file.",
@@ -305,7 +305,7 @@ def _slot_hint(exc: JsonRpcError, default: str | None) -> str | None:
     """Suggest what to do about a slot, which depends on how many there are.
 
     Args:
-        exc: The error the daemon sent.
+        exc: The error the service sent.
         default: The suggestion for a hub with slots to choose between.
 
     Returns:
@@ -319,10 +319,10 @@ def _slot_hint(exc: JsonRpcError, default: str | None) -> str | None:
 
 
 def _describe_rpc(exc: JsonRpcError, hints: Mapping[int, str] | None) -> Problem | None:
-    """Present an error the daemon reported, or ``None`` if the code is unknown."""
+    """Present an error the service reported, or ``None`` if the code is unknown."""
     rule = _RULES.get(exc.code)
     if rule is None:
-        # An unknown code means the daemon and this CLI disagree about the
+        # An unknown code means the service and this CLI disagree about the
         # protocol, which is a bug rather than something to paper over.
         return None
     if exc.code == ErrorCode.PROGRAM_TOO_LARGE:
@@ -381,13 +381,13 @@ def _describe(exc: BaseException, hints: Mapping[int, str] | None) -> Problem | 
         # The compiler's own diagnostics name the offending line, which is a
         # better suggestion than anything that could be written here.
         return Problem(_sentence(str(exc)), detail=exc.output.rstrip())
-    if isinstance(exc, pb_client.DaemonUnavailable):
+    if isinstance(exc, pb_client.ServiceUnavailable):
         return Problem(
             "No hub is connected.",
             "Run [bold]pb connect[/] first.",
             exit_code=EXIT_NOTHING_CONNECTED,
         )
-    if isinstance(exc, pb_client.DaemonStartError):
+    if isinstance(exc, pb_client.ServiceStartError):
         return Problem(
             "The background service would not start.",
             f"Look in {exc.log_file} for what went wrong.",
@@ -469,7 +469,7 @@ def render(err: Console, problems: list[Problem]) -> int:
         The exit code of the first problem.
     """
     for problem in problems:
-        # Messages can carry text from the daemon or a file path, so markup is
+        # Messages can carry text from the service or a file path, so markup is
         # off for them; suggestions are our own literals and may use it.
         err.print(problem.message, style="red", markup=False, highlight=False)
         if problem.detail:

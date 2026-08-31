@@ -95,7 +95,7 @@ def hub_of(session: Session, params: dict[str, Any]) -> HubConnection:
     """
     hub_id = params.get("id")
     try:
-        return session.daemon.hubs.get(str(hub_id) if hub_id else None)
+        return session.service.hubs.get(str(hub_id) if hub_id else None)
     except HubNotFoundError as exc:
         raise JsonRpcError(ErrorCode.HUB_NOT_FOUND, str(exc)) from exc
 
@@ -184,8 +184,8 @@ def _hub_json(connection: HubConnection) -> dict[str, Any]:
 )
 async def hub_scan(session: Session, params: dict[str, Any]) -> dict[str, Any]:
     """Scan for hubs."""
-    manager = session.daemon.hubs
-    session.daemon.mark_activity()
+    manager = session.service.hubs
+    session.service.mark_activity()
 
     seconds = _scan_seconds(params)
     name = params.get("name")
@@ -225,8 +225,8 @@ async def hub_scan(session: Session, params: dict[str, Any]) -> dict[str, Any]:
 )
 async def hub_connect(session: Session, params: dict[str, Any]) -> dict[str, Any]:
     """Connect to a hub, scanning for it first if needed."""
-    manager = session.daemon.hubs
-    session.daemon.mark_activity()
+    manager = session.service.hubs
+    session.service.mark_activity()
 
     wanted_id = params.get("id")
     wanted_name = params.get("name")
@@ -328,8 +328,8 @@ async def _stop_builtin_program(connection: HubConnection) -> None:
 )
 async def hub_disconnect(session: Session, params: dict[str, Any]) -> dict[str, Any]:
     """Disconnect a hub."""
-    manager = session.daemon.hubs
-    session.daemon.mark_activity()
+    manager = session.service.hubs
+    session.service.mark_activity()
     hub_id = params.get("id")
     try:
         connection = manager.get(str(hub_id) if hub_id else None)
@@ -342,13 +342,13 @@ async def hub_disconnect(session: Session, params: dict[str, Any]) -> dict[str, 
 
 @method(
     "hub.list",
-    "List the hubs the daemon currently holds open.",
+    "List the hubs the service currently holds open.",
     returns="Every connected hub, which one commands act on, and the chosen name.",
 )
 async def hub_list(session: Session, params: dict[str, Any]) -> dict[str, Any]:
     """List connected hubs."""
-    manager = session.daemon.hubs
-    session.daemon.mark_activity()
+    manager = session.service.hubs
+    session.service.mark_activity()
     return {
         "hubs": [_hub_json(connection) for connection in manager.connected],
         "default": _acting_hub_id(manager),
@@ -364,8 +364,8 @@ async def hub_list(session: Session, params: dict[str, Any]) -> dict[str, Any]:
 )
 async def hub_info(session: Session, params: dict[str, Any]) -> dict[str, Any]:
     """Describe one hub."""
-    manager = session.daemon.hubs
-    session.daemon.mark_activity()
+    manager = session.service.hubs
+    session.service.mark_activity()
     hub_id = params.get("id")
     try:
         return _hub_json(manager.get(str(hub_id) if hub_id else None))
@@ -397,8 +397,8 @@ async def hub_use(session: Session, params: dict[str, Any]) -> dict[str, Any]:
     id for a hub that is not connected is refused, since there is no name to
     turn it into.
     """
-    manager = session.daemon.hubs
-    session.daemon.mark_activity()
+    manager = session.service.hubs
+    session.service.mark_activity()
     wanted = params.get("id")
     if wanted is None:
         manager.selection.choose(None)
@@ -420,7 +420,7 @@ def _acting_hub_id(manager: HubManager) -> str | None:
     """Return the hub a command with no hub named would act on.
 
     Args:
-        manager: The daemon's hubs.
+        manager: The service's hubs.
 
     Returns:
         Its id, or None if nothing would answer. Not the same as the

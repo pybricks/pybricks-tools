@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 The Pybricks Authors
 
-"""Talking to the daemon.
+"""Talking to the service.
 
 The shape of this API is deliberate. Nothing takes a ``timeout`` argument;
 callers scope cancellation with :func:`anyio.fail_after` or
@@ -23,13 +23,13 @@ from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStre
 
 from pb_client import __version__, stdio
 from pb_client.autostart import open_connection
-from pb_client.errors import DaemonTooOld, DaemonUnavailable
+from pb_client.errors import ServiceTooOld, ServiceUnavailable
 from pb_client.models import (
     Choice,
-    DaemonInfo,
     DeviceInfo,
     Downloaded,
     HubInfo,
+    ServiceInfo,
 )
 from pb_client.stdio import HubEvent
 from pb_core import auth, ipc
@@ -46,7 +46,7 @@ from pb_core.protocol import (
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["Daemon", "DaemonInfo", "DeviceInfo", "HubInfo", "connect"]
+__all__ = ["DeviceInfo", "HubInfo", "Service", "ServiceInfo", "connect"]
 
 
 Listener = MemoryObjectSendStream[tuple[str, dict[str, Any]]]
@@ -75,10 +75,10 @@ async def _devices(
 
 
 class _Notifications:
-    """Hands each of the daemon's notifications to whoever is listening.
+    """Hands each of the service's notifications to whoever is listening.
 
     One of these is created before the connection, because the peer needs a
-    handler at the moment it starts reading and the :class:`Daemon` that will
+    handler at the moment it starts reading and the :class:`Service` that will
     use it does not exist yet.
 
     Delivery is lossy on purpose. A subscriber that stops reading must not
@@ -128,8 +128,8 @@ class _Notifications:
                 logger.debug("dropped a %s: nobody reading", request.method)
 
 
-class Daemon:
-    """A connected daemon.
+class Service:
+    """A connected service.
 
     Obtained from :func:`connect`; not constructed directly, because the
     connection's tasks must be owned by that context manager.
@@ -146,18 +146,18 @@ class Daemon:
 
         Args:
             peer: The JSON-RPC peer, already handshaken.
-            endpoint: Where this daemon is listening.
+            endpoint: Where this service is listening.
             notifications: The router the peer was given. Without one the
                 subscription methods have nothing to read, so they refuse
                 rather than waiting forever.
-            capabilities: What the daemon said it can do, from the handshake.
+            capabilities: What the service said it can do, from the handshake.
         """
         self._peer = peer
         self.endpoint = endpoint
         self._notifications = notifications
 
         self.capabilities = capabilities
-        """What this daemon can do.
+        """What this service can do.
 
         Not the same as what this build knows how to ask for: the service
         outlives the install that started it, so a feature added since then has
@@ -165,33 +165,33 @@ class Daemon:
         """
 
     def _require(self, capability: str, feature: str) -> None:
-        """Check that the daemon has a capability before relying on it.
+        """Check that the service has a capability before relying on it.
 
         Args:
             capability: The name as the handshake reports it.
             feature: What the caller wanted, phrased to follow "cannot".
 
         Raises:
-            DaemonTooOld: If the daemon did not advertise it.
+            ServiceTooOld: If the service did not advertise it.
         """
         if capability not in self.capabilities:
-            raise DaemonTooOld(feature)
+            raise ServiceTooOld(feature)
 
     async def ping(self) -> None:
-        """Check that the daemon is responsive."""
-        await self._peer.call("daemon.ping")
+        """Check that the service is responsive."""
+        await self._peer.call("service.ping")
 
-    async def info(self) -> DaemonInfo:
-        """Ask the daemon about itself.
+    async def info(self) -> ServiceInfo:
+        """Ask the service about itself.
 
         Returns:
             Its version, uptime, endpoint and client count.
         """
-        return DaemonInfo.from_wire(await self._peer.call("daemon.info"))
+        return ServiceInfo.from_wire(await self._peer.call("service.info"))
 
     async def shutdown(self) -> None:
-        """Ask the daemon to exit."""
-        await self._peer.call("daemon.shutdown")
+        """Ask the service to exit."""
+        await self._peer.call("service.shutdown")
 
     async def scan(
         self, *, seconds: float | None = 10.0, name: str | None = None
@@ -199,7 +199,7 @@ class Daemon:
         """Look for hubs that are advertising.
 
         Args:
-            seconds: How long the daemon should look, or ``None`` for as long
+            seconds: How long the service should look, or ``None`` for as long
                 as this call is waiting. This bounds the scan itself rather
                 than the call; wrap the call in a cancel scope to bound the
                 wait.
@@ -230,7 +230,7 @@ class Daemon:
         hub it likes and get on with it.
 
         Args:
-            seconds: How long the daemon should look, or ``None`` to keep
+            seconds: How long the service should look, or ``None`` to keep
                 looking until the block is left. Use ``None`` when a person is
                 reading the results, since a deadline on a person only ever
                 expires at the worst moment.
@@ -286,7 +286,7 @@ class Daemon:
     ) -> HubInfo:
         """Connect to a hub and leave it connected.
 
-        The connection outlives this client: that is the point of the daemon.
+        The connection outlives this client: that is the point of the service.
 
         Args:
             hub_id: The hub's id, from :meth:`scan`.
@@ -311,7 +311,7 @@ class Daemon:
         await self._peer.call("hub.disconnect", {"id": hub_id} if hub_id else {})
 
     async def list_hubs(self) -> tuple[list[HubInfo], str | None]:
-        """List the hubs the daemon is holding open.
+        """List the hubs the service is holding open.
 
         Returns:
             The connected hubs, and the id of the one a command with no
@@ -490,7 +490,7 @@ class Daemon:
 
         Returns once the hub has taken every byte. That can mean waiting: a hub
         whose input buffer is full refuses a write rather than keeping part of
-        it, and the daemon waits for the program to read rather than dropping
+        it, and the service waits for the program to read rather than dropping
         what it was given.
 
         Args:
@@ -576,19 +576,19 @@ class Daemon:
 @asynccontextmanager
 async def connect(
     endpoint: Endpoint | str | None = None, *, autostart: bool = True
-) -> AsyncGenerator[Daemon, None]:
-    """Connect to the daemon for the duration of the block.
+) -> AsyncGenerator[Service, None]:
+    """Connect to the service for the duration of the block.
 
     Args:
-        endpoint: Where the daemon is. Defaults to the platform's own address,
+        endpoint: Where the service is. Defaults to the platform's own address,
             or ``PB_ENDPOINT``. Users are not expected to supply this.
-        autostart: Whether to start a daemon if none is running.
+        autostart: Whether to start a service if none is running.
 
     Yields:
-        The connected daemon.
+        The connected service.
 
     Raises:
-        DaemonUnavailable: If no daemon is running and ``autostart`` is false,
+        ServiceUnavailable: If no service is running and ``autostart`` is false,
             or if no authentication token exists to present.
     """
     resolved = endpoint if isinstance(endpoint, Endpoint) else ipc.resolve(endpoint)
@@ -596,7 +596,7 @@ async def connect(
     async with open_connection(resolved, autostart=autostart) as stream:
         token = auth.load_token()
         if token is None:
-            raise DaemonUnavailable(
+            raise ServiceUnavailable(
                 "no saved credentials; the background service has not run for this user yet"
             )
 
@@ -606,9 +606,9 @@ async def connect(
         async with connect_peer(stream, notifications.handle) as peer:
             # The handshake is mandatory and must come first: it authenticates
             # the connection and settles the protocol version, which matters
-            # because a daemon can outlive the install that started it.
+            # because a service can outlive the install that started it.
             hello = await peer.call(
-                "daemon.hello",
+                "service.hello",
                 {
                     "client": "pb-client",
                     "client_version": __version__,
@@ -620,8 +620,8 @@ async def connect(
                 str(name) for name in hello.get("capabilities", ())
             )
             logger.debug(
-                "connected to the daemon at %s (capabilities: %s)",
+                "connected to the service at %s (capabilities: %s)",
                 resolved,
                 ", ".join(sorted(capabilities)) or "none",
             )
-            yield Daemon(peer, resolved, notifications, capabilities)
+            yield Service(peer, resolved, notifications, capabilities)

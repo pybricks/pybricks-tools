@@ -1,7 +1,7 @@
 [project]
 name = "pybricks-service"
 version = "0.1.0"
-description = "The Pybricks daemon: manages hub connections"
+description = "The Pybricks service: manages hub connections"
 readme = "README.md"
 license = { text = "MIT" }
 authors = [{ name = "The Pybricks Authors", email = "dev@pybricks.com" }]

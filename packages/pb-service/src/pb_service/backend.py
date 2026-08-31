@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 The Pybricks Authors
 
-"""Choosing how the daemon reaches hubs.
+"""Choosing how the service reaches hubs.
 
-Imported lazily so that a daemon running against the simulated backend, as the
+Imported lazily so that a service running against the simulated backend, as the
 tests and CI do, never loads the Bluetooth stack at all.
 """
 
@@ -23,12 +23,12 @@ HUB_BACKEND_ENV_VAR = "PB_HUB_BACKEND"
 
 
 def get_hub_transport() -> HubTransport:
-    """Return the transport this daemon should use.
+    """Return the transport this service should use.
 
     Returns:
         A Bluetooth transport, or a simulated one when
         ``PB_HUB_BACKEND=fake``. The simulated backend is what lets the whole
-        daemon be exercised on a CI runner with no radio.
+        service be exercised on a CI runner with no radio.
     """
     backend = os.environ.get(HUB_BACKEND_ENV_VAR, "ble").lower()
 

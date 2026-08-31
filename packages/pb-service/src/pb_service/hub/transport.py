@@ -183,7 +183,7 @@ class HubTransport(Protocol):
 
     The one thing a transport knows that nothing else can find out: a hub that
     is switched off, or carried out of range, says nothing and simply stops
-    answering. Without this the daemon would go on believing it is connected
+    answering. Without this the service would go on believing it is connected
     until something tried to write to it, and anyone attached to that hub would
     wait for output that is never coming.
 

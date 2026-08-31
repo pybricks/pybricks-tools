@@ -39,17 +39,17 @@ def test_the_service_starts_without_a_console_window(
     to start something quietly and in fact gets a visible console allocated for
     it.
 
-    ``PB_DAEMON_CMD`` puts a probe where the daemon would go, so this exercises
+    ``PB_SERVICE_CMD`` puts a probe where the service would go, so this exercises
     the real spawn path. The probe ignores the ``--endpoint`` argument that
-    :func:`spawn_daemon` appends.
+    :func:`spawn_service` appends.
     """
     script = tmp_path / "probe.py"
     script.write_text(_PROBE, encoding="utf-8")
     report = tmp_path / "console.txt"
 
     command = subprocess.list2cmdline([sys.executable, str(script), str(report)])
-    monkeypatch.setenv(autostart.DAEMON_COMMAND_ENV_VAR, command)
-    autostart.spawn_daemon(Endpoint("memory", "unused"))
+    monkeypatch.setenv(autostart.SERVICE_COMMAND_ENV_VAR, command)
+    autostart.spawn_service(Endpoint("memory", "unused"))
 
     deadline = time.monotonic() + 30
     while not report.exists() and time.monotonic() < deadline:

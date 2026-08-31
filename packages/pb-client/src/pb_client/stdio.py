@@ -6,7 +6,7 @@
 Three kinds of thing arrive on one stream, and keeping them on one stream is
 the point: a caller drawing a terminal has to show output and status in the
 order they happened, and merging two streams afterwards cannot recover an order
-that was thrown away. So the daemon sends them down one connection in order,
+that was thrown away. So the service sends them down one connection in order,
 and they are parsed here into one union.
 
 Output is :class:`bytes` and stays :class:`bytes` all the way from the hub.
@@ -97,7 +97,7 @@ def _parse(method: str, params: dict[str, Any]) -> HubEvent | None:
 
     Returns:
         The event, or ``None`` for a notification this build does not know --
-        a daemon can be newer than its client, and an unknown event is not an
+        a service can be newer than its client, and an unknown event is not an
         error, it is just not for us.
     """
     seq = int(params.get("seq") or 0)

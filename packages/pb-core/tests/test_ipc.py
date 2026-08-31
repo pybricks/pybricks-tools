@@ -60,8 +60,9 @@ async def test_round_trip(endpoint: Endpoint) -> None:
     async with anyio.create_task_group() as tg:
         await _serve(endpoint, tg)
         async with ipc.connect(endpoint) as client:
-            await client.send(b"hello daemon")
-            assert await _receive_exactly(client, 12) == b"hello daemon"
+            greeting = b"hello service"
+            await client.send(greeting)
+            assert await _receive_exactly(client, len(greeting)) == greeting
         tg.cancel_scope.cancel()
 
 
@@ -136,7 +137,7 @@ async def test_server_sees_client_disconnect(endpoint: Endpoint) -> None:
 
 
 async def test_connect_without_listener_is_refused(endpoint: Endpoint) -> None:
-    # This is how the client decides the daemon is not running and starts one,
+    # This is how the client decides the service is not running and starts one,
     # so it must be prompt and must be this exact exception type.
     with anyio.fail_after(10), pytest.raises(ConnectionRefusedError):
         async with ipc.connect(endpoint):

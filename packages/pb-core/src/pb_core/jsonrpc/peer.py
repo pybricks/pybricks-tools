@@ -3,7 +3,7 @@
 
 """A symmetric JSON-RPC peer.
 
-Both sides of the connection run the same object. The daemon does not send
+Both sides of the connection run the same object. The service does not send
 requests to clients today, but making the peer symmetric means it will not need
 redesigning when it does.
 

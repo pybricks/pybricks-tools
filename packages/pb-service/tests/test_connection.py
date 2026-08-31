@@ -136,7 +136,7 @@ async def test_stdout_reaches_a_subscriber(
 async def test_two_clients_receive_identical_output(
     connected: tuple[HubConnection, FakeHub],
 ) -> None:
-    # Sharing one hub between clients is the point of the daemon.
+    # Sharing one hub between clients is the point of the service.
     connection, hub = connected
     async with (
         connection.subscribe(frozenset({Channel.STDOUT})) as first,
@@ -212,7 +212,7 @@ async def test_a_slow_client_loses_only_its_own_events(
 async def test_program_output_is_shed_before_status_when_overloaded(
     hub: FakeHub,
 ) -> None:
-    # Losing a status report would leave the daemon disagreeing with the hub
+    # Losing a status report would leave the service disagreeing with the hub
     # about whether a program is running, so output is shed first.
     transport = FakeHubTransport(hub)
     async with anyio.create_task_group() as tg:
@@ -239,7 +239,7 @@ async def test_a_late_client_can_replay_recent_output(
     connected: tuple[HubConnection, FakeHub],
 ) -> None:
     # Starting a program in one window and attaching in another is the normal
-    # sequence with a persistent daemon; without replay the first lines are
+    # sequence with a persistent service; without replay the first lines are
     # always missed.
     connection, hub = connected
     hub.send_stdout(b"printed before anyone attached\n")

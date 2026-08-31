@@ -41,7 +41,7 @@ def test_lock_records_the_holding_pid(tmp_path: Path) -> None:
 
 
 def test_lock_excludes_another_process(tmp_path: Path) -> None:
-    # The case that actually matters: two daemons started at once by two
+    # The case that actually matters: two services started at once by two
     # clients racing. Within one process the check is nearly free; across
     # processes it is the kernel doing the work.
     lock = tmp_path / "pb-service.lock"

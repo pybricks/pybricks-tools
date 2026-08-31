@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 The Pybricks Authors
 
-"""Client library for the Pybricks daemon.
+"""Client library for the Pybricks service.
 
 The public surface is deliberately shaped so that structured concurrency cannot
 be violated from outside: anything producing ongoing events is an async context
@@ -19,20 +19,20 @@ from pb_client.compile import (
     compile_source,
     describe_compiler,
 )
-from pb_client.daemon import Daemon, connect
 from pb_client.errors import (
-    DaemonStartError,
-    DaemonTooOld,
-    DaemonUnavailable,
     PbClientError,
+    ServiceStartError,
+    ServiceTooOld,
+    ServiceUnavailable,
 )
 from pb_client.models import (
     Choice,
-    DaemonInfo,
     DeviceInfo,
     Downloaded,
     HubInfo,
+    ServiceInfo,
 )
+from pb_client.service import Service, connect
 from pb_client.stdio import REPL_PROGRAM_ID, HubEvent, Output, State, Status
 from pb_core.jsonrpc import JsonRpcError
 
@@ -41,11 +41,6 @@ __all__ = [
     "SOURCE_NAME",
     "Choice",
     "CompileError",
-    "Daemon",
-    "DaemonInfo",
-    "DaemonStartError",
-    "DaemonTooOld",
-    "DaemonUnavailable",
     "DeviceInfo",
     "Downloaded",
     "HubEvent",
@@ -53,6 +48,11 @@ __all__ = [
     "JsonRpcError",
     "Output",
     "PbClientError",
+    "Service",
+    "ServiceInfo",
+    "ServiceStartError",
+    "ServiceTooOld",
+    "ServiceUnavailable",
     "State",
     "Status",
     "__version__",

@@ -28,7 +28,7 @@ from pb_core.logging import log_context
 from pb_service.methods import METHODS
 
 if TYPE_CHECKING:
-    from pb_service.daemon import Daemon
+    from pb_service.service import Service
 
 logger = logging.getLogger(__name__)
 
@@ -40,15 +40,15 @@ class Session:
 
     _next_id = 0
 
-    def __init__(self, daemon: Daemon) -> None:
+    def __init__(self, service: Service) -> None:
         """Create a session.
 
         Args:
-            daemon: The daemon this client is talking to.
+            service: The service this client is talking to.
         """
         Session._next_id += 1
         self.id = f"c{Session._next_id}"
-        self.daemon = daemon
+        self.service = service
         self.authenticated = False
         self.client_name = "unknown"
         self.client_version = "unknown"
@@ -75,22 +75,22 @@ class Session:
         if entry.needs_hello and not self.authenticated:
             raise JsonRpcError(
                 ErrorCode.HELLO_REQUIRED,
-                "daemon.hello must be the first call on a connection",
+                "service.hello must be the first call on a connection",
             )
         return await entry.func(self, request.params or {})
 
 
-async def serve_session(daemon: Daemon, stream: ByteStream) -> None:
+async def serve_session(service: Service, stream: ByteStream) -> None:
     """Serve one client until it disconnects.
 
     Args:
-        daemon: The daemon.
+        service: The service.
         stream: The client's transport.
     """
-    session = Session(daemon)
+    session = Session(service)
     with log_context(client=session.id):
         logger.info("client connected")
-        daemon.sessions.add(session)
+        service.sessions.add(session)
         try:
             async with connect_peer(stream, session.dispatch) as peer:
                 session.peer = peer
@@ -98,8 +98,8 @@ async def serve_session(daemon: Daemon, stream: ByteStream) -> None:
         except (anyio.BrokenResourceError, anyio.ClosedResourceError):
             logger.debug("client connection failed")
         finally:
-            daemon.sessions.discard(session)
-            daemon.mark_activity()
+            service.sessions.discard(session)
+            service.mark_activity()
             logger.info(
                 "client disconnected (%s %s)",
                 session.client_name,

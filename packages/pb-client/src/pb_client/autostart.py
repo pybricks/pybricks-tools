@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 The Pybricks Authors
 
-"""Starting a daemon on demand.
+"""Starting a service on demand.
 
-Two clients running at once may both find no daemon and both start one. That is
+Two clients running at once may both find no service and both start one. That is
 deliberately not coordinated: one wins the single-instance lock, the loser exits
 quietly, and both clients' readiness loops then connect to the winner. There are
 no PID files to go stale and no startup handshake to get wrong.
@@ -25,31 +25,31 @@ from typing import Any
 import anyio
 from anyio.abc import ByteStream
 
-from pb_client.errors import DaemonStartError, DaemonUnavailable
+from pb_client.errors import ServiceStartError, ServiceUnavailable
 from pb_core import ipc, paths
 from pb_core.ipc import Endpoint
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["DAEMON_COMMAND_ENV_VAR", "open_connection", "spawn_daemon"]
+__all__ = ["SERVICE_COMMAND_ENV_VAR", "open_connection", "spawn_service"]
 
-DAEMON_COMMAND_ENV_VAR = "PB_DAEMON_CMD"
+SERVICE_COMMAND_ENV_VAR = "PB_SERVICE_CMD"
 
 READY_TIMEOUT = 15.0
-"""How long to keep polling for a daemon we just started.
+"""How long to keep polling for a service we just started.
 
 Deliberately a module constant rather than a parameter. The repository's async
 rules say public APIs take no ``timeout`` argument -- callers scope cancellation
 with ``anyio.fail_after`` instead. This is not a caller-facing deadline but an
 internal safety bound, whose real job is to turn "hung forever" into a message
-naming the daemon's log file.
+naming the service's log file.
 """
 _FIRST_DELAY = 0.02
 _MAX_DELAY = 0.25
 _BACKOFF = 1.6
 
 _NOT_LISTENING = (ConnectionRefusedError, FileNotFoundError)
-"""What "no daemon there" looks like.
+"""What "no service there" looks like.
 
 On Windows, connecting to a pipe that does not exist raises FileNotFoundError
 straight away rather than waiting, so the retry loop is what supplies the
@@ -57,14 +57,14 @@ patience.
 """
 
 
-def _daemon_command() -> list[str]:
-    """Return the command that starts a daemon.
+def _service_command() -> list[str]:
+    """Return the command that starts a service.
 
-    The fallback to ``-m pb_service`` is why the CLI package depends on the daemon
+    The fallback to ``-m pb_service`` is why the CLI package depends on the service
     package even though it never imports it: installing the CLI alone must
     still give a working autostart.
     """
-    override = os.environ.get(DAEMON_COMMAND_ENV_VAR)
+    override = os.environ.get(SERVICE_COMMAND_ENV_VAR)
     if override:
         # posix=False on Windows, or shlex treats the backslashes in a path
         # like C:\Python\python.exe as escapes and silently mangles it. That
@@ -79,23 +79,23 @@ def _daemon_command() -> list[str]:
 
 
 _spawned: list[subprocess.Popen[bytes]] = []
-"""Handles for daemons this process started.
+"""Handles for services this process started.
 
-Kept only so that Popen objects are not garbage collected while the daemon is
-still running, which would emit a ResourceWarning. The daemon is meant to
+Kept only so that Popen objects are not garbage collected while the service is
+still running, which would emit a ResourceWarning. The service is meant to
 outlive us, so it is never waited on; Popen is simply not the right abstraction
 for a process we deliberately do not manage.
 """
 
 
-def spawn_daemon(endpoint: Endpoint) -> None:
-    """Start a daemon in the background and return immediately.
+def spawn_service(endpoint: Endpoint) -> None:
+    """Start a service in the background and return immediately.
 
     Args:
-        endpoint: Where the daemon should listen.
+        endpoint: Where the service should listen.
     """
-    command = [*_daemon_command(), "--endpoint", str(endpoint)]
-    logger.info("starting a daemon: %s", " ".join(command))
+    command = [*_service_command(), "--endpoint", str(endpoint)]
+    logger.info("starting a service: %s", " ".join(command))
 
     common: dict[str, Any] = {
         "stdin": subprocess.DEVNULL,
@@ -114,11 +114,11 @@ def spawn_daemon(endpoint: Endpoint) -> None:
         # as ignored in combination with DETACHED_PROCESS, and measurement
         # agrees.
         #
-        # On its own, CREATE_NO_WINDOW leaves the daemon with no console
+        # On its own, CREATE_NO_WINDOW leaves the service with no console
         # window of the parent's or of its own, so no console control event
         # can reach it -- including the one Windows sends when the terminal
         # that started it is closed. CREATE_NEW_PROCESS_GROUP keeps Ctrl+C out
-        # as well. Shutting down deliberately goes through daemon.shutdown.
+        # as well. Shutting down deliberately goes through service.shutdown.
         child = subprocess.Popen(
             command,
             creationflags=subprocess.CREATE_NO_WINDOW
@@ -133,7 +133,7 @@ def spawn_daemon(endpoint: Endpoint) -> None:
 
 
 async def _enter_with_retry(stack: AsyncExitStack, endpoint: Endpoint) -> ByteStream:
-    """Keep trying to connect until the daemon is up, or give up."""
+    """Keep trying to connect until the service is up, or give up."""
     deadline = time.monotonic() + READY_TIMEOUT
     delay = _FIRST_DELAY
     while True:
@@ -141,7 +141,7 @@ async def _enter_with_retry(stack: AsyncExitStack, endpoint: Endpoint) -> ByteSt
             return await stack.enter_async_context(ipc.connect(endpoint))
         except _NOT_LISTENING:
             if time.monotonic() >= deadline:
-                raise DaemonStartError(str(endpoint), paths.log_file()) from None
+                raise ServiceStartError(str(endpoint), paths.log_file()) from None
             await anyio.sleep(delay)
             delay = min(delay * _BACKOFF, _MAX_DELAY)
 
@@ -150,28 +150,28 @@ async def _enter_with_retry(stack: AsyncExitStack, endpoint: Endpoint) -> ByteSt
 async def open_connection(
     endpoint: Endpoint, *, autostart: bool = True
 ) -> AsyncGenerator[ByteStream, None]:
-    """Connect to the daemon, starting one if necessary.
+    """Connect to the service, starting one if necessary.
 
     Args:
-        endpoint: Where the daemon is, or should be.
-        autostart: Whether to start a daemon when none is running.
+        endpoint: Where the service is, or should be.
+        autostart: Whether to start a service when none is running.
 
     Yields:
         The connected stream.
 
     Raises:
-        DaemonUnavailable: If no daemon is running and ``autostart`` is false.
-        DaemonStartError: If a daemon was started but never became reachable.
+        ServiceUnavailable: If no service is running and ``autostart`` is false.
+        ServiceStartError: If a service was started but never became reachable.
     """
     async with AsyncExitStack() as stack:
         try:
             stream = await stack.enter_async_context(ipc.connect(endpoint))
         except _NOT_LISTENING:
             if not autostart:
-                raise DaemonUnavailable(
+                raise ServiceUnavailable(
                     f"the background service is not running ({endpoint})"
                 ) from None
-            logger.debug("no daemon at %s; starting one", endpoint)
-            spawn_daemon(endpoint)
+            logger.debug("no service at %s; starting one", endpoint)
+            spawn_service(endpoint)
             stream = await _enter_with_retry(stack, endpoint)
         yield stream

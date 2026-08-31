@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 The Pybricks Authors
 
-"""The daemon's RPC method registry.
+"""The service's RPC method registry.
 
 Methods are registered once, in one table, so that a single definition provides
 the dispatch entry, the runtime parameter validation, and the material for the
@@ -60,7 +60,7 @@ def method(
     """Register an RPC method.
 
     Args:
-        name: Wire name, for example ``daemon.info``.
+        name: Wire name, for example ``service.info``.
         summary: One line describing what it does, used in the reference.
         since: Protocol version that introduced it.
         needs_hello: Whether the handshake must have completed first.
@@ -91,7 +91,7 @@ def method(
 def require(params: dict[str, Any], key: str, kind: type[Any]) -> Any:
     """Read a required parameter, or raise an invalid-params error.
 
-    The daemon does not trust its input: a client is another process, and over
+    The service does not trust its input: a client is another process, and over
     TCP potentially another machine.
 
     Args:

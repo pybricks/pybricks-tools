@@ -22,11 +22,11 @@ uv run properdocs build --strict
 ## Layout
 
 ```
-pb ──> pb-client ──> pb-core
- └───> pb_service        ──> pb-core
+pb-cli ──> pb-client ──> pb-core
+   └───> pb-service ──> pb-core
 ```
 
-`pb` depends on `pb_service` so that installing the CLI gives a working daemon
+`pb-cli` depends on `pb-service` so that installing the CLI gives a working service
 autostart, but it must never *import* it — importing is what costs startup time.
 There is a test asserting `bleak` is not in `sys.modules` after `pb --help`.
 
@@ -70,7 +70,7 @@ callback from a third-party library:
   pipes. It is wrapped into an `anyio.abc.ByteStream`.
 
 Separately, and by design, **hub connections outlive the client session that
-created them** — that is the entire point of the daemon. This is contained by
+created them** — that is the entire point of the service. This is contained by
 having the `HubManager` own the hub's task group, so connecting is *handle
 acquisition* against a running supervisor rather than a spawn.
 
@@ -109,8 +109,8 @@ service that is not running -- and they use `errors.find` for the same reason.
 
 Adding a JSON-RPC error code means adding its wording to `_RULES`; a test walks
 `ErrorCode` and fails if one is missing. Dispatch is keyed on the code, never on
-message text, so daemon-side wording can be changed freely. Keep daemon messages
-factual and let the CLI give the advice: the daemon does not know whether the
+message text, so service-side wording can be changed freely. Keep service messages
+factual and let the CLI give the advice: the service does not know whether the
 user was trying to connect to a hub or to use one.
 
 ## Docs

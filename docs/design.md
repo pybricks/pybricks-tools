@@ -2,25 +2,25 @@
 
 This page is about the internals. Nothing here is needed to use the tools.
 
-## Why a background daemon
+## Why a background service
 
 Connecting to a hub over Bluetooth is slow — seconds, not milliseconds. A tool
 that connects afresh on every invocation pays that cost every time you run a
 program, which is exactly the thing you do most while writing one. It also
 means only one thing can talk to the hub at a time.
 
-So connection state lives in a background process, `pb_service`, which outlives any
-single command:
+So connection state lives in a background process, the `pb-service` command,
+which outlives any single command:
 
 ```
-pb ──> pb-client ──> JSON-RPC ──> pb_service ──> hub
+pb-cli ──> pb-client ──> JSON-RPC ──> pb-service ──> hub
 ```
 
-`pb connect` hands the hub to the daemon and exits. `pb run` connects to the
-daemon, not to the hub. Two shells, an editor plugin and a telemetry script can
+`pb connect` hands the hub to the service and exits. `pb run` connects to the
+service, not to the hub. Two shells, an editor plugin and a telemetry script can
 all be attached to one hub at once, each seeing the same output.
 
-The daemon starts itself the first time something needs it, and exits on its
+The service starts itself the first time something needs it, and exits on its
 own once it has been idle for a while with no hubs connected. A connected hub
 keeps it alive indefinitely, because holding that connection open is the point.
 
@@ -30,18 +30,18 @@ keeps it alive indefinitely, because holding that connection open is the point.
 | --- | --- | --- |
 | `pybricks-core` | `pb_core` | Wire protocol, transport, logging, paths |
 | `pybricks-client` | `pb_client` | The library, and compilation |
-| `pybricks-service` | `pb_service` | The daemon and hub protocol |
-| `pybricks-cli` | `pb` | The `pb` command |
+| `pybricks-service` | `pb_service` | The service and hub protocol |
+| `pybricks-cli` | `pb_cli` | The `pb` command |
 
-`pb` depends on `pb_service` so that installing the CLI alone gives a working
+`pb-cli` depends on `pb-service` so that installing the CLI alone gives a working
 autostart, but never imports it: loading the Bluetooth stack on every
 invocation would be slow, and there is a test asserting it does not happen.
 
-## Talking to the daemon
+## Talking to the service
 
-The daemon listens on a per-user endpoint that the client finds by itself — a
+The service listens on a per-user endpoint that the client finds by itself — a
 UNIX socket on Linux and macOS, a named pipe on Windows. You never type it. TCP
-is also supported, for a daemon on another machine.
+is also supported, for a service on another machine.
 
 Every connection authenticates with a shared secret from a file only your user
 can read. This is not only for TCP: the default permissions on a Windows named
@@ -53,14 +53,14 @@ travel as base64.
 
 ## Compilation happens on your computer
 
-`mpy-cross` runs in the client, not the daemon. The script is on your
-filesystem, and having the daemon read files on your behalf stops being
+`mpy-cross` runs in the client, not the service. The script is on your
+filesystem, and having the service read files on your behalf stops being
 reasonable as soon as it is on a different machine. It also keeps a native
-compiler binary out of the daemon.
+compiler binary out of the service.
 
 ## Why a hub stays connected
 
-The daemon's hub manager is entered *before* the listener that accepts clients,
+The service's hub manager is entered *before* the listener that accepts clients,
 and left *after* it. Hub connections therefore live in a scope that is a
 sibling of the client sessions rather than a child of any one of them. When a
 client disconnects, only that client's tasks are cancelled; the hubs it was
@@ -74,7 +74,7 @@ which is why it is worth arranging the scopes this way round.
 Program output arrives in a Bluetooth callback that must never block — stalling
 there stalls the radio for every hub. So that callback only ever hands bytes
 over without waiting, into an unbounded queue, which means the handover cannot
-fail. Losing a status report would leave the daemon disagreeing with the hub
+fail. Losing a status report would leave the service disagreeing with the hub
 about whether a program is running, and that must not happen.
 
 What keeps an unbounded queue safe is byte accounting: past a high-water mark,
@@ -91,7 +91,7 @@ reuse. The seam speaks in terms of reading and writing characteristics, because
 that is the Pybricks protocol's own vocabulary — the USB interface deliberately
 mirrors the same characteristics.
 
-A simulated hub implements the same seam. It is what lets the whole daemon be
+A simulated hub implements the same seam. It is what lets the whole service be
 tested on a machine with no Bluetooth adapter, including cases that are
 otherwise hard to reach: a hub that refuses a command, or disconnects halfway
 through a download.

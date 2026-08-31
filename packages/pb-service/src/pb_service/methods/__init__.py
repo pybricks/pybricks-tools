@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 The Pybricks Authors
 
-"""The RPC surface the daemon serves.
+"""The RPC surface the service serves.
 
-One module per namespace -- :mod:`pb_service.methods.daemon` for the session itself,
+One module per namespace -- :mod:`pb_service.methods.service` for the session itself,
 :mod:`pb_service.methods.hub` for finding and holding hubs, :mod:`pb_service.methods.program`
 for getting programs onto them and :mod:`pb_service.methods.stdio` for talking to what
 is running. :mod:`pb_service.methods.registry` holds the table they all register into.

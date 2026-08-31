@@ -107,7 +107,7 @@ DEFAULT_SCROLLBACK_BYTES: Final = 256 * 1024
 class StdoutRing:
     """Recent program output, kept whether or not anyone is listening.
 
-    With a daemon that outlives commands, the usual sequence is to start a
+    With a service that outlives commands, the usual sequence is to start a
     program in one window and attach a terminal in another moments later.
     Without a buffer that always loses the program's first lines.
     """

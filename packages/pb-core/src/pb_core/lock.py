@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 The Pybricks Authors
 
-"""Single-instance locking for the daemon.
+"""Single-instance locking for the service.
 
-Two clients may try to start a daemon at the same moment. Rather than
+Two clients may try to start a service at the same moment. Rather than
 coordinating, both are allowed to spawn: one wins the lock, the loser exits, and
 both clients' readiness loops then connect to the winner.
 
@@ -12,12 +12,12 @@ it when the process dies, however it dies. A PID file has to be validated
 against a process that may have exited, or worse, whose id has been reused.
 
 On POSIX the lock is ``flock`` rather than ``lockf``, which is not a detail:
-``lockf`` locks on behalf of the *process*, so it would grant a second daemon
+``lockf`` locks on behalf of the *process*, so it would grant a second service
 in the same process the very lock it exists to refuse, and it is released as
 soon as any descriptor for the file is closed anywhere in the process.
 
 The lock also makes it safe to remove a stale AF_UNIX socket: holding it proves
-no other daemon is serving, so any socket left on disk is debris from a crash.
+no other service is serving, so any socket left on disk is debris from a crash.
 """
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ __all__ = ["AlreadyRunningError", "single_instance"]
 
 
 class AlreadyRunningError(RuntimeError):
-    """Another daemon already holds the lock."""
+    """Another service already holds the lock."""
 
 
 def _try_lock(handle: IO[str]) -> bool:
@@ -61,7 +61,7 @@ def _try_lock(handle: IO[str]) -> bool:
 
     try:
         # flock, not lockf. POSIX record locks belong to the process rather
-        # than to the open file, so a second daemon started inside the same
+        # than to the open file, so a second service started inside the same
         # process would be handed the lock it was meant to be refused, and
         # closing any other descriptor for this file anywhere in the process
         # would silently drop it. flock belongs to the open file description,
@@ -103,7 +103,7 @@ def _private_opener(path: str, flags: int) -> int:
 
 @contextmanager
 def single_instance(path: Path | None = None) -> Generator[Path, None, None]:
-    """Hold the daemon's single-instance lock for the duration of the block.
+    """Hold the service's single-instance lock for the duration of the block.
 
     This is a synchronous context manager on purpose. Releasing the lock must
     not be cancellable, and a synchronous ``__exit__`` cannot be cancelled at
@@ -116,7 +116,7 @@ def single_instance(path: Path | None = None) -> Generator[Path, None, None]:
         The lock file path.
 
     Raises:
-        AlreadyRunningError: If another daemon holds the lock.
+        AlreadyRunningError: If another service holds the lock.
     """
     lock_path = path or paths.lock_file()
     paths.ensure_private_dir(lock_path.parent)
@@ -138,7 +138,7 @@ def single_instance(path: Path | None = None) -> Generator[Path, None, None]:
             handle.flush()
 
         if not _try_lock(handle):
-            raise AlreadyRunningError(f"another daemon already holds {lock_path}")
+            raise AlreadyRunningError(f"another service already holds {lock_path}")
 
         # Written after the lock is held, and past the locked byte. The pid is
         # only ever diagnostic; the lock itself provides mutual exclusion.

@@ -37,7 +37,7 @@ def test_every_warning_names_a_real_status_flag() -> None:
     # the hub protocol. This is what stops the two drifting apart: a renamed
     # or removed flag silently stops warning anybody otherwise.
     #
-    # Importing pb_service is fine here and only here: pb depends on the daemon so
+    # Importing pb_service is fine here and only here: pb depends on the service so
     # that installing the CLI alone can start one, and never imports it.
     known = {flag.name for flag in StatusFlag}
     assert set(ui.HUB_WARNINGS) <= known

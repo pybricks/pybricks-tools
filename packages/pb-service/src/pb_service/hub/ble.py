@@ -43,7 +43,7 @@ SCHEME = "ble"
 
 
 def device_id_for(address: str) -> str:
-    """Return the daemon-facing id for a Bluetooth address.
+    """Return the service-facing id for a Bluetooth address.
 
     Args:
         address: The address bleak reports. A MAC address on Linux and Windows,

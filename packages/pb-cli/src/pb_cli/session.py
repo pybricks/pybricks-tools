@@ -260,7 +260,7 @@ def needs_terminal(command: str) -> int | None:
 
 
 async def attached(
-    daemon: pb_client.Daemon,
+    service: pb_client.Service,
     info: pb_client.HubInfo,
     hub: str | None,
     *,
@@ -271,7 +271,7 @@ async def attached(
     """Attach to a hub, take the terminal, and run one session.
 
     Args:
-        daemon: The connected service.
+        service: The connected service.
         info: The hub being talked to.
         hub: Which hub, as the user named it.
         replay: How much earlier output to show first, in bytes.
@@ -283,13 +283,13 @@ async def attached(
     """
     # Attached before anything is started, so that the first thing it prints is
     # already being listened for by the time it arrives.
-    async with daemon.attach(hub_id=hub, replay_bytes=replay) as events:
+    async with service.attach(hub_id=hub, replay_bytes=replay) as events:
         with console_module.raw_console() as console:
-            return await _session(daemon, info, console, events, hub, running, start)
+            return await _session(service, info, console, events, hub, running, start)
 
 
 async def _session(
-    daemon: pb_client.Daemon,
+    service: pb_client.Service,
     info: pb_client.HubInfo,
     console: console_module.Console,
     events: AsyncIterator[pb_client.HubEvent],
@@ -300,7 +300,7 @@ async def _session(
     """Run one session, returning when it ends.
 
     Args:
-        daemon: The connected service.
+        service: The connected service.
         info: The hub being talked to.
         console: The terminal, already raw.
         events: Everything the hub says.
@@ -323,14 +323,14 @@ async def _session(
 
         async with anyio.create_task_group() as tg:
             tg.start_soon(_show_hub, events, bar, ended, running, tg.cancel_scope)
-            tg.start_soon(_send_input, daemon, hub, receiver, bar, ended)
+            tg.start_soon(_send_input, service, hub, receiver, bar, ended)
             tg.start_soon(
-                _read_keys, daemon, hub, console, keys, sender, bar, ended, tg
+                _read_keys, service, hub, console, keys, sender, bar, ended, tg
             )
             tg.start_soon(_tick, bar)
 
         if running.ours and running.running and not ended.disconnected:
-            await _stop_what_we_started(daemon, hub, bar, running.noun)
+            await _stop_what_we_started(service, hub, bar, running.noun)
         elif running.ours and running.running:
             # Nothing can be sent to a hub that has gone, so whatever it was
             # doing, it is still doing -- and a hub with something running does
@@ -372,7 +372,7 @@ def _ending(disconnected: bool, running: Running) -> int:
 
 
 async def streamed(
-    daemon: pb_client.Daemon,
+    service: pb_client.Service,
     info: pb_client.HubInfo,
     hub: str | None,
     *,
@@ -389,7 +389,7 @@ async def streamed(
     printed and nothing else.
 
     Args:
-        daemon: The connected service.
+        service: The connected service.
         info: The hub being talked to. Unused, but taken so that this and
             :func:`attached` can stand in for one another.
         hub: Which hub.
@@ -405,7 +405,7 @@ async def streamed(
     out = sys.stdout.buffer
     disconnected = False
 
-    async with daemon.attach(hub_id=hub, replay_bytes=replay) as events:
+    async with service.attach(hub_id=hub, replay_bytes=replay) as events:
         try:
             await start(err.print)
             async for event in events:
@@ -428,16 +428,16 @@ async def streamed(
             # -- a program this command started must not be left running on a
             # hub that then cannot be found.
             if running.ours and running.running and not disconnected:
-                await _stop_quietly(daemon, hub, running.noun)
+                await _stop_quietly(service, hub, running.noun)
 
     return _ending(disconnected, running)
 
 
-async def _stop_quietly(daemon: pb_client.Daemon, hub: str | None, noun: str) -> None:
+async def _stop_quietly(service: pb_client.Service, hub: str | None, noun: str) -> None:
     """Stop what we started, saying nothing about it.
 
     Args:
-        daemon: The connected service.
+        service: The connected service.
         hub: Which hub.
         noun: What is being stopped, for the log.
     """
@@ -445,13 +445,13 @@ async def _stop_quietly(daemon: pb_client.Daemon, hub: str | None, noun: str) ->
     # command was interrupted, and stopping the program is the whole point.
     with anyio.CancelScope(shield=True), anyio.move_on_after(STOP_SECONDS):
         try:
-            await daemon.stop_program(hub)
+            await service.stop_program(hub)
         except pb_client.JsonRpcError as exc:
             logger.info("could not stop the %s: %s", noun, exc)
 
 
 async def _stop_what_we_started(
-    daemon: pb_client.Daemon,
+    service: pb_client.Service,
     hub: str | None,
     bar: banner_module.Banner,
     noun: str,
@@ -467,7 +467,7 @@ async def _stop_what_we_started(
     is left alone: it was not ours to stop.
 
     Args:
-        daemon: The connected service.
+        service: The connected service.
         hub: Which hub.
         bar: The status line, for saying what was done and why.
         noun: What to call what was stopped.
@@ -476,7 +476,7 @@ async def _stop_what_we_started(
     # and a hub that will not answer must not hold the command open.
     with anyio.move_on_after(STOP_SECONDS, shield=True):
         try:
-            await daemon.stop_program(hub)
+            await service.stop_program(hub)
         except pb_client.JsonRpcError as exc:
             logger.info("could not stop the %s: %s", noun, exc)
             return
@@ -543,7 +543,7 @@ async def _show_hub(
 
 
 async def _send_input(
-    daemon: pb_client.Daemon,
+    service: pb_client.Service,
     hub: str | None,
     keystrokes: MemoryObjectReceiveStream[bytes],
     bar: banner_module.Banner,
@@ -557,7 +557,7 @@ async def _send_input(
     one key that could not get through.
 
     Args:
-        daemon: The connected service.
+        service: The connected service.
         hub: Which hub.
         keystrokes: What has been typed and not yet sent.
         bar: The status line, for saying when the hub would not take it.
@@ -566,7 +566,7 @@ async def _send_input(
     async with keystrokes:
         async for data in keystrokes:
             try:
-                await daemon.write_stdin(data, hub_id=hub)
+                await service.write_stdin(data, hub_id=hub)
             except pb_client.JsonRpcError as exc:
                 logger.info("the hub would not take input: %s", exc)
                 bar.notice(str(exc))
@@ -576,7 +576,7 @@ async def _send_input(
 
 
 async def _read_keys(
-    daemon: pb_client.Daemon,
+    service: pb_client.Service,
     hub: str | None,
     console: console_module.Console,
     keys: escape.Filter,
@@ -588,7 +588,7 @@ async def _read_keys(
     """Read the keyboard, sorting keys for the hub from commands for us.
 
     Args:
-        daemon: The connected service.
+        service: The connected service.
         hub: Which hub.
         console: The terminal.
         keys: The escape filter, which holds what a half-typed command needs.
@@ -598,7 +598,7 @@ async def _read_keys(
         tg: The session's task group, cancelled when the user leaves.
     """
     try:
-        await _keys_until_done(daemon, hub, console, keys, keystrokes, bar)
+        await _keys_until_done(service, hub, console, keys, keystrokes, bar)
     finally:
         # Closed before waiting, so that what is queued is what gets sent and
         # the writer knows nothing more is coming.
@@ -610,7 +610,7 @@ async def _read_keys(
 
 
 async def _keys_until_done(
-    daemon: pb_client.Daemon,
+    service: pb_client.Service,
     hub: str | None,
     console: console_module.Console,
     keys: escape.Filter,
@@ -620,7 +620,7 @@ async def _keys_until_done(
     """Read the keyboard until the user asks to leave.
 
     Args:
-        daemon: The connected service.
+        service: The connected service.
         hub: Which hub.
         console: The terminal.
         keys: The escape filter.
@@ -635,7 +635,7 @@ async def _keys_until_done(
 
         for_hub, actions = keys.feed(typed)
         for action in actions:
-            if await _act(action, daemon, hub, bar):
+            if await _act(action, service, hub, bar):
                 return
         if for_hub:
             try:
@@ -649,7 +649,7 @@ async def _keys_until_done(
 
 async def _act(
     action: Action,
-    daemon: pb_client.Daemon,
+    service: pb_client.Service,
     hub: str | None,
     bar: banner_module.Banner,
 ) -> bool:
@@ -657,7 +657,7 @@ async def _act(
 
     Args:
         action: What was asked for.
-        daemon: The connected service.
+        service: The connected service.
         hub: Which hub.
         bar: The status line and the screen above it.
 
@@ -668,7 +668,7 @@ async def _act(
         return True
     if action is Action.STOP:
         try:
-            await daemon.stop_program(hub)
+            await service.stop_program(hub)
         except pb_client.JsonRpcError as exc:
             # A refusal is worth a word in the status line and nothing more:
             # the session is still perfectly usable.

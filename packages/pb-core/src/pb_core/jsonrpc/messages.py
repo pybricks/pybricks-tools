@@ -7,7 +7,7 @@ Binary payloads travel as base64 strings. That is a deliberate choice over
 latin-1, which round-trips but makes JSON escape every byte above 0x7f as
 ``\\u00XX`` -- six bytes per byte, worse than base64's 1.33x, and a trap for any
 client not written in Python. It also matters that hub output is arbitrary
-bytes: it can be cut mid-character, so the daemon must never try to decode it.
+bytes: it can be cut mid-character, so the service must never try to decode it.
 Base64 pushes decoding to the client, which owns the terminal and knows the
 encoding it wants.
 """
@@ -42,7 +42,7 @@ CANCEL_METHOD: Final = "$/cancelRequest"
 
 JSON-RPC has no cancellation of its own, so this borrows the Language Server
 Protocol's convention. It matters because a client-side deadline only abandons
-the client's wait; without telling the daemon, in-flight work would continue.
+the client's wait; without telling the service, in-flight work would continue.
 """
 
 RequestId: TypeAlias = int | str

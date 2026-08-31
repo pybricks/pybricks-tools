@@ -55,8 +55,8 @@ async def _repl(hub: str | None, replay: int) -> int:
     if no_terminal is not None:
         return no_terminal
 
-    async with pb_client.connect(autostart=False) as daemon:
-        info = await daemon.hub_info(hub)
+    async with pb_client.connect(autostart=False) as service:
+        info = await service.hub_info(hub)
         busy = _refuse_if_busy(info)
         if busy is not None:
             return busy
@@ -77,11 +77,11 @@ async def _repl(hub: str | None, replay: int) -> int:
             if joining:
                 announce("Joining the interpreter that is already running.")
                 return
-            await daemon.start_repl(hub)
+            await service.start_repl(hub)
             running.ours = True
 
         return await session.attached(
-            daemon, info, hub, replay=replay, running=running, start=start
+            service, info, hub, replay=replay, running=running, start=start
         )
 
 

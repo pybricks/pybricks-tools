@@ -3,7 +3,7 @@
 
 """An in-process transport, used by the test suite.
 
-Running the whole daemon and client stack in one process with no OS resources
+Running the whole service and client stack in one process with no OS resources
 makes the integration tests fast and identical on every platform, which leaves
 the real per-platform backends needing only a conformance suite.
 """

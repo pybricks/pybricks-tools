@@ -56,8 +56,8 @@ def test_null_result_is_preserved() -> None:
 
 
 def test_string_ids_are_allowed() -> None:
-    assert _round_trip(jsonrpc.Request("abc", "daemon.ping")) == jsonrpc.Request(
-        "abc", "daemon.ping"
+    assert _round_trip(jsonrpc.Request("abc", "service.ping")) == jsonrpc.Request(
+        "abc", "service.ping"
     )
 
 
@@ -112,7 +112,7 @@ async def _framed() -> tuple[
 async def test_framer_round_trip() -> None:
     a, b, left, right = await _framed()
     async with left, right:
-        sent = jsonrpc.Request(1, "daemon.ping")
+        sent = jsonrpc.Request(1, "service.ping")
         await a.send(sent)
         assert await b.receive() == sent
 

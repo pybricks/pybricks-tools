@@ -1,3 +1,3 @@
 # pb-client
 
-Client library for the Pybricks daemon.
+Client library for the Pybricks service.
