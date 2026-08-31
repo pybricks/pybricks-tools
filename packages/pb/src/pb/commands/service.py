@@ -45,7 +45,7 @@ so the type to catch is not the type that was raised.
 
 
 @service_app.command(name="status")
-async def service_status(*, verbose: Verbose = 0, start: bool = False) -> int:
+async def service_status(*, verbose: Verbose = (), start: bool = False) -> int:
     """Show whether the background service is running.
 
     Args:
@@ -88,7 +88,7 @@ async def _service_status(start: bool) -> int:
 
 
 @service_app.command(name="start")
-async def service_start(*, verbose: Verbose = 0) -> int:
+async def service_start(*, verbose: Verbose = ()) -> int:
     """Start the background service if it is not already running.
 
     Args:
@@ -107,7 +107,7 @@ async def _service_start() -> int:
 
 
 @service_app.command(name="stop")
-async def service_stop(*, verbose: Verbose = 0) -> int:
+async def service_stop(*, verbose: Verbose = ()) -> int:
     """Stop the background service, disconnecting any hubs.
 
     Args:
@@ -152,7 +152,7 @@ async def service_log(
     *,
     lines: int = 50,
     follow: Annotated[bool, cyclopts.Parameter(name=["-f", "--follow"])] = False,
-    verbose: Verbose = 0,
+    verbose: Verbose = (),
 ) -> int:
     """Show what the background service has been doing.
 
