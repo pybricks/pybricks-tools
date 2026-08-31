@@ -159,6 +159,40 @@ _RULES: Mapping[int, _Rule] = {
         "You may release the button on the hub now.",
         message="The hub's button interrupted this.",
     ),
+    # Firmware.
+    ErrorCode.FIRMWARE_NOT_FOUND: _Rule(
+        "Run [bold]pb firmware list[/] to see what there is.",
+        exit_code=EXIT_ERROR,
+    ),
+    ErrorCode.FIRMWARE_UNAVAILABLE: _Rule(
+        "Check the network, or fetch it on another computer and copy it into "
+        "the folder [bold]pb firmware dir[/] prints.",
+        exit_code=EXIT_ERROR,
+    ),
+    ErrorCode.FIRMWARE_BAD_ARCHIVE: _Rule(
+        "If it was downloaded, try again with [bold]pb firmware fetch[/]; the "
+        "copy here may be incomplete.",
+        exit_code=EXIT_ERROR,
+    ),
+    ErrorCode.FIRMWARE_INCOMPATIBLE: _Rule(
+        "Leave the version out and let [bold]pb[/] pick the firmware for this hub.",
+    ),
+    # The one that is not a failure so much as a message about what to do
+    # next, so it keeps the service's wording -- which names the hub and its
+    # buttons -- and adds only where to look.
+    ErrorCode.FIRMWARE_UPDATE_MODE_FAILED: _Rule(
+        "Put the hub into update mode by hand and try again."
+    ),
+    ErrorCode.FIRMWARE_LICENSE_NOT_ACCEPTED: _Rule(
+        "Run it again on a terminal to read and accept the licence, or pass "
+        "[bold]--accept-license[/].",
+        exit_code=EXIT_ERROR,
+    ),
+    ErrorCode.FIRMWARE_HUB_NAME_TOO_LONG: _Rule(
+        "Hub names are limited to fifteen characters, and fewer if they are "
+        "not all ASCII.",
+        exit_code=EXIT_ERROR,
+    ),
     # Transport and lifecycle.
     ErrorCode.BLUETOOTH_UNAVAILABLE: _Rule(
         "Connect or enable a Bluetooth Low Energy adapter, and check that this "
