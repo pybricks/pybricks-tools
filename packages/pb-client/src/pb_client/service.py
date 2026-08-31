@@ -22,9 +22,10 @@ from typing import Any
 import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 
-from pb_client import __version__, stdio
+from pb_client import __version__, firmware, stdio
 from pb_client.autostart import open_connection
 from pb_client.errors import ServiceTooOld, ServiceUnavailable
+from pb_client.firmware import FirmwareCatalogue, FirmwareEvent, Removed
 from pb_client.models import (
     Choice,
     DeviceInfo,
@@ -37,6 +38,9 @@ from pb_core import auth, ipc
 from pb_core.ipc import Endpoint
 from pb_core.jsonrpc import JsonRpcPeer, Request, connect_peer, encode_binary
 from pb_core.protocol import (
+    FIRMWARE_CAPABILITY,
+    FIRMWARE_PROGRESS,
+    FIRMWARE_STEP,
     HUB_FOUND,
     HUB_STATE,
     HUB_STATUS,
@@ -575,6 +579,135 @@ class Service:
                     yield stream
             finally:
                 for name in (HUB_STDOUT, HUB_STATUS, HUB_STATE):
+                    self._notifications.discard(name, sender)
+                tg.cancel_scope.cancel()
+
+    # ------------------------------------------------------------- firmware
+
+    async def firmware_catalogue(
+        self,
+        *,
+        hub_type: int | None = None,
+        cached_only: bool = False,
+        refresh: bool = False,
+    ) -> FirmwareCatalogue:
+        """Report the firmware that can be installed, and what is already here.
+
+        Args:
+            hub_type: Only report firmware for this hub type.
+            cached_only: Do not go to the network. Faster, works offline, and
+                answers "what do I actually have" rather than "what exists".
+            refresh: Look again even if the last listing is still recent.
+
+        Returns:
+            What is available, what is cached, and where the cache is. Check
+            [`reached_index`][pb_client.firmware.FirmwareCatalogue] before
+            presenting the list as current: losing the network is answered
+            from the cache rather than by failing.
+        """
+        self._require(FIRMWARE_CAPABILITY, "install firmware")
+        params: dict[str, Any] = {}
+        if hub_type is not None:
+            params["hub_type"] = hub_type
+        if cached_only:
+            params["cached_only"] = True
+        if refresh:
+            params["refresh"] = True
+        return FirmwareCatalogue.from_wire(
+            await self._peer.call("firmware.list", params)
+        )
+
+    async def clean_firmware(
+        self,
+        *,
+        hub_type: int | None = None,
+        version: str | None = None,
+        everything: bool = False,
+    ) -> Removed:
+        """Remove downloaded firmware from this computer.
+
+        Acts on the cache and never on a hub. Taking firmware *off* a hub is
+        `restore`, which is a different thing entirely.
+
+        Args:
+            hub_type: Only remove firmware for this hub type.
+            version: Which version to remove.
+            everything: Remove all of it, rather than one version.
+
+        Returns:
+            What was removed.
+        """
+        self._require(FIRMWARE_CAPABILITY, "install firmware")
+        params: dict[str, Any] = {}
+        if hub_type is not None:
+            params["hub_type"] = hub_type
+        if version:
+            params["version"] = version
+        if everything:
+            params["all"] = True
+        return Removed.from_wire(await self._peer.call("firmware.clean", params))
+
+    @asynccontextmanager
+    async def fetching_firmware(
+        self,
+        *,
+        hub_type: int,
+        version: str | None = None,
+        allow_prerelease: bool = False,
+    ) -> AsyncGenerator[AsyncIterator[FirmwareEvent], None]:
+        """Put a firmware archive in the cache, reporting progress as it comes.
+
+        The iterator ends with a
+        [`Fetched`][pb_client.firmware.Fetched], so the outcome arrives in
+        the same order as everything else rather than having to be collected
+        separately. A caller that only wants the file can ignore everything
+        until that last item.
+
+        Args:
+            hub_type: Which hub the firmware is for.
+            version: Which version, exactly or in part. ``None`` is the newest.
+            allow_prerelease: Consider betas when resolving the version.
+
+        Yields:
+            Progress and narration, then the outcome.
+
+        Raises:
+            RuntimeError: If this connection has no notification router, which
+                would leave the iterator silently empty.
+        """
+        self._require(FIRMWARE_CAPABILITY, "install firmware")
+        if self._notifications is None:
+            raise RuntimeError("this connection does not receive notifications")
+
+        params: dict[str, Any] = {"hub_type": hub_type}
+        if version:
+            params["version"] = version
+        if allow_prerelease:
+            params["allow_prerelease"] = True
+
+        sender, receiver = anyio.create_memory_object_stream[
+            tuple[str, dict[str, Any]]
+        ](256)
+        for name in (FIRMWARE_PROGRESS, FIRMWARE_STEP):
+            self._notifications.add(name, sender)
+
+        async def fetch_until_done() -> None:
+            try:
+                result = await self._peer.call("firmware.fetch", params)
+                # Put the outcome on the same stream rather than beside it, so
+                # that a caller sees it after the progress it belongs with.
+                sender.send_nowait((firmware.FETCHED, result))
+            finally:
+                sender.close()
+
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(fetch_until_done)
+            stream = firmware.events(receiver)
+            try:
+                async with aclosing(stream):
+                    yield stream
+            finally:
+                for name in (FIRMWARE_PROGRESS, FIRMWARE_STEP):
                     self._notifications.discard(name, sender)
                 tg.cancel_scope.cancel()
 

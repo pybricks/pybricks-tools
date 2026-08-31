@@ -27,6 +27,7 @@ import anyio
 from pb_core import auth, ipc
 from pb_core.ipc import Endpoint
 from pb_core.logging import log_startup_banner
+from pb_service.firmware.library import Library, get_library
 from pb_service.hub.manager import HubManager, run_hub_manager
 from pb_service.hub.transport import HubTransport
 
@@ -76,6 +77,20 @@ class Service:
         self._last_activity = time.monotonic()
         self._shutdown = anyio.Event()
         self.shutdown_reason = "not requested"
+        self._firmware: Library | None = None
+
+    @property
+    def firmware(self) -> Library:
+        """What is known about firmware, built on first use.
+
+        Lazily, so a service that never installs any never loads an HTTP
+        client, and held here rather than per request because remembering the
+        release listing is what keeps a session inside the sixty calls an hour
+        GitHub allows.
+        """
+        if self._firmware is None:
+            self._firmware = get_library()
+        return self._firmware
 
     @property
     def uptime(self) -> float:

@@ -19,10 +19,10 @@ from typing import Any
 
 import anyio
 
+# Imported to register the RPC methods.
+import pb_service.methods.firmware
 import pb_service.methods.hub
 import pb_service.methods.program
-
-# Imported to register the RPC methods.
 import pb_service.methods.service
 import pb_service.methods.stdio  # noqa: F401
 from pb_core import ipc, lock
