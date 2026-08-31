@@ -69,7 +69,13 @@ def _looks_like_id(value: str) -> bool:
 @app.command(name="scan", group=HUB_COMMANDS, sort_key=5)
 async def scan_cmd(
     *,
-    timeout: float = 10.0,  # noqa: ASYNC109 - see below
+    # ASYNC109 catches a timeout threaded into an async API, and this is the
+    # exception it cannot know about: the name is the spelling of a
+    # command-line option, not a deadline. It says how long the radio should
+    # listen, which is a real parameter of scanning, and reaches pb-client as
+    # `seconds`. A caller wanting to bound its own wait still opens a cancel
+    # scope, as the house rules require.
+    timeout: float = 10.0,  # noqa: ASYNC109
     name: str | None = None,
     verbose: Verbose = (),
 ) -> int:
@@ -78,13 +84,6 @@ async def scan_cmd(
     Nothing is connected to, which is the point: this answers "is it on, and
     can I hear it?" without taking the hub away from whatever else might want
     it.
-
-    The ``timeout`` parameter is what ASYNC109 exists to catch, and this is the
-    exception it does not know about: it is the spelling of a command-line
-    option, not a deadline threaded into an async API. It says how long the
-    radio should listen, which is a real parameter of scanning, and reaches
-    ``pb-client`` as ``seconds``. A caller wanting to bound its own wait still
-    opens a cancel scope, as the house rules require.
 
     Args:
         timeout: How long to scan, in seconds.
