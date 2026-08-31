@@ -20,6 +20,7 @@ import sys
 import time
 from collections.abc import AsyncGenerator
 from contextlib import AsyncExitStack, asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 import anyio
@@ -31,9 +32,28 @@ from pb_core.ipc import Endpoint
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["SERVICE_COMMAND_ENV_VAR", "open_connection", "spawn_service"]
+__all__ = [
+    "SERVICE_COMMAND_ENV_VAR",
+    "neutral_directory",
+    "open_connection",
+    "spawn_service",
+]
 
 SERVICE_COMMAND_ENV_VAR = "PB_SERVICE_CMD"
+
+
+def neutral_directory() -> Path:
+    """Return where the service should be started from: the filesystem root.
+
+    Computed rather than a constant so that it cannot depend on what the
+    working directory happened to be when this module was imported -- ``pb -C``
+    may have moved to another drive since.
+
+    Returns:
+        The root of the current drive, which is always a directory that exists.
+    """
+    return Path(Path.cwd().anchor)
+
 
 READY_TIMEOUT = 15.0
 """How long to keep polling for a service we just started.
@@ -102,6 +122,14 @@ def spawn_service(endpoint: Endpoint) -> None:
         "stdout": subprocess.DEVNULL,
         "stderr": subprocess.DEVNULL,
         "close_fds": True,
+        # The filesystem root, which is what a daemon has always done and for
+        # the same reason: a running process holds its working directory, so
+        # inheriting this one would stop that directory being renamed or
+        # deleted for as long as the service lives -- which is well past the
+        # shell that started it, and on Windows is enforced rather than
+        # merely untidy. The service never uses a relative path; everything
+        # it writes comes from pb_core.paths, which is absolute.
+        "cwd": neutral_directory(),
     }
     if sys.platform == "win32":
         # CREATE_NO_WINDOW, emphatically not DETACHED_PROCESS. Both are
