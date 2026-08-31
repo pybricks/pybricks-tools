@@ -26,7 +26,7 @@ import mkdocs_gen_files
 import pb.cli  # noqa: F401  # pyright: ignore[reportUnusedImport]
 from pb.app import app
 
-PAGE = Path("commands.md")
+PAGE = Path("cli/commands.md")
 
 TITLE = """<!-- Generated from the pb command line by docs/gen_cli_page.py. -->
 

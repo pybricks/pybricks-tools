@@ -46,7 +46,7 @@ And the same hub is there from your own Python:
 
 ```python
 async with pb_client.connect() as service:
-    await service.connect_hub(name="Pybricks Hub")
+    await service.connect_hub(name="Rover")
     await service.run_program(await pb_client.compile_script(Path("my_robot.py")))
 ```
 
