@@ -9,7 +9,7 @@ order they happened, and merging two streams afterwards cannot recover an order
 that was thrown away. So the service sends them down one connection in order,
 and they are parsed here into one union.
 
-Output is :class:`bytes` and stays :class:`bytes` all the way from the hub.
+Output is [`bytes`][] and stays [`bytes`][] all the way from the hub.
 A chunk can end in the middle of a multi-byte character, so anything that
 decodes on the way through corrupts it; only the end that owns a terminal is in
 a position to decode, and it needs an incremental decoder to do it.

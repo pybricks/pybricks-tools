@@ -148,7 +148,8 @@ async def compile_source(source: str, *, name: str = SOURCE_NAME) -> bytes:
     Args:
         source: The Python code.
         name: What to call it in compiler diagnostics and in tracebacks from
-            the hub. Defaults to :data:`SOURCE_NAME`.
+            the hub. Defaults to
+                [SOURCE_NAME][pb_client.compile.SOURCE_NAME].
 
     Returns:
         The compiled program, ready to download.

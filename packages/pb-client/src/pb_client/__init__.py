@@ -6,8 +6,9 @@
 The public surface is deliberately shaped so that structured concurrency cannot
 be violated from outside: anything producing ongoing events is an async context
 manager yielding an async iterator, and no function takes a ``timeout``
-argument. Callers scope cancellation with :func:`anyio.fail_after` or
-:func:`anyio.move_on_after` instead.
+argument. Callers scope cancellation with
+[fail_after][anyio.fail_after] or
+[move_on_after][anyio.move_on_after] instead.
 """
 
 __version__ = "0.1.0"
