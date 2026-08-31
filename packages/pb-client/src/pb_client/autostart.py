@@ -34,7 +34,6 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "SERVICE_COMMAND_ENV_VAR",
-    "neutral_directory",
     "open_connection",
     "spawn_service",
 ]
