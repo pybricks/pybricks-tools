@@ -114,14 +114,21 @@ branch = true
 source = ["pb_cli", "pb_client", "pb_core", "pb_service"]
 parallel = true
 
+[tool.coverage.paths]
+# One package's file has a different absolute path on every runner, so without
+# this a combined report lists the Windows copy and the POSIX copy as two
+# files and credits neither with what the other covered. The first entry is
+# what they are all reported as.
+source = ["packages/", "*/packages/"]
+
 [tool.coverage.report]
 show_missing = true
-# A CI gate on the report combined across the three operating systems. One OS
-# on its own reads a few points lower, because the other platforms' backends
-# -- the AF_UNIX listener, the named pipe, the two ways of reading a keystroke
-# -- count as missed there and are only credited once the runs are combined.
-# So a local `coverage report` is a rough guide, not the gate. The target is
-# 85; this rises to meet it as the gaps named in the plan are filled.
+# The floor for a report from one machine, which is a rough guide rather than
+# the gate. One runner on its own reads several points lower, because the other
+# platforms' backends -- the AF_UNIX listener, the named pipe, the two ways of
+# reading a keystroke -- count as missed there and are only credited once the
+# runs are put together. The gate is the coverage job in CI, which combines
+# every runner's data and asks for 85.
 fail_under = 80
 exclude_also = [
     "if TYPE_CHECKING:",

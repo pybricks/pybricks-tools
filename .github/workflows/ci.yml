@@ -75,12 +75,53 @@ jobs:
         if: always()
       - run: uv run coverage xml
         if: always()
+      # Named per runner so that the coverage job can put them in one folder,
+      # and kept as data rather than only as XML: a report combined across the
+      # runners needs what each of them measured, not each one's conclusion.
+      - name: Name the coverage data after this runner
+        if: always()
+        run: mv .coverage .coverage.${{ matrix.os }}-${{ matrix.python }}
+        shell: bash
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: coverage-${{ matrix.os }}-${{ matrix.python }}
+          name: coverage-xml-${{ matrix.os }}-${{ matrix.python }}
           path: coverage.xml
           if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-data-${{ matrix.os }}-${{ matrix.python }}
+          # Hidden files are skipped unless asked for, and every coverage data
+          # file begins with a dot.
+          include-hidden-files: true
+          path: .coverage.${{ matrix.os }}-${{ matrix.python }}
+          if-no-files-found: ignore
+
+  coverage:
+    # The gate, and the only place the number means anything. One runner on
+    # its own reads several points lower, because the other platforms' backends
+    # -- the AF_UNIX listener, the named pipe, the two ways of reading a
+    # keystroke -- count as missed there and are only credited once the runs
+    # are put together.
+    needs: test
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with: { enable-cache: true }
+      - run: uv sync --all-packages --all-groups
+      - uses: actions/download-artifact@v4
+        with:
+          # The data files only. Flattening the XML reports as well would put
+          # several files called coverage.xml in one folder.
+          pattern: coverage-data-*
+          path: coverage-data
+          merge-multiple: true
+      - run: uv run coverage combine coverage-data
+      # Explicit rather than the fail_under in pyproject.toml, which is the
+      # weaker number a single-runner report is measured against.
+      - run: uv run coverage report --fail-under=85
 
   docs:
     runs-on: ubuntu-24.04
