@@ -30,6 +30,7 @@ from __future__ import annotations
 import logging
 import sys
 from collections.abc import AsyncIterator, Awaitable, Callable
+from dataclasses import dataclass, replace
 
 import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
@@ -81,8 +82,15 @@ stop ``pb`` from noticing the key that ends the session.
 Announce = Callable[[str], None]
 """Says one line to the user, wherever this session's lines go."""
 
-StartFunc = Callable[[Announce], Awaitable[None]]
-"""Starts whatever the session is here to talk to, once the screen is ready."""
+StartFunc = Callable[[Announce], Awaitable[bool]]
+"""Starts whatever the session is here to talk to, once the screen is ready.
+
+Returns whether it started something. False when there was already
+something running to join, which is the interpreter case, and is what
+decides whether leaving should stop it again. A return value rather than
+a flag the caller sets on something shared: what a function did is the
+thing a function is best at reporting.
+"""
 
 TRACEBACK = b"Traceback (most recent call last):"
 """How the hub begins the report of a program that ended in an exception.
@@ -118,6 +126,7 @@ earlier and recovered from has scrolled out of it by the time the program ends.
 """
 
 
+@dataclass(frozen=True, slots=True)
 class Running:
     """What the session knows about the thing it is talking to.
 
@@ -125,59 +134,84 @@ class Running:
     makes this the answer to both of the questions a session keeps asking: is
     stopping it on the way out ours to do, and is there still anything on the
     other end.
+
+    A value, so every method here answers "what does this mean" without also
+    deciding when it happens. That matters most for the last question a session
+    asks -- how the program ended, which has to be read out of what it printed
+    -- because the reading is then a function of a value that a test can build
+    in one line, rather than something only a whole session can produce.
     """
 
-    def __init__(
-        self, noun: str, *, arrived: bool = False, watch_for_crash: bool = False
-    ) -> None:
-        """Describe what the session expects to find running.
+    noun: str
+    """What this is called when the session has something to say about it."""
 
-        Args:
-            noun: What to call it in messages, such as ``"interpreter"``.
-            arrived: True if it is known to be running already, which is the
-                case for a session joining something rather than starting it.
-            watch_for_crash: Whether ending in an exception should make the
-                command fail. True for a program, whose failure is the
-                command's failure; false for the interpreter, where an
-                exception is an ordinary thing to type.
+    watch_for_crash: bool = False
+    """Whether ending in an exception should make the command fail.
+
+    True for a program, whose failure is the command's failure; false for the
+    interpreter, where an exception is an ordinary thing to type.
+    """
+
+    ours: bool = False
+    """Whether this session started it, and so should stop it again."""
+
+    arrived: bool = False
+    """Whether it has been seen running during this session.
+
+    Until it has, a hub reporting nothing running is the moment before the
+    start command took effect rather than the end of the session.
+    """
+
+    running: bool = True
+    """Whether the hub last said anything was running on it.
+
+    True to begin with: a session only gets this far with something either
+    started or already going.
+    """
+
+    gone: bool = False
+    """Whether it ran and has since stopped."""
+
+    tail: bytes = b""
+    """The end of what it printed, which is where it says how it ended.
+
+    Kept to :data:`TAIL_BYTES`, so carrying it in a value costs a bounded copy
+    per chunk of output rather than a growing one.
+    """
+
+    def we_started_it(self) -> Running:
+        """Note that this session is what set it going.
+
+        Returns:
+            The same, now ours to stop again on the way out.
         """
-        self.noun = noun
-        """What this is called when the session has something to say about it."""
+        return replace(self, ours=True)
 
-        self.ours = False
-        """Whether this session started it, and so should stop it again."""
-
-        self.arrived = arrived
-        """Whether it has been seen running during this session.
-
-        Until it has, a hub reporting nothing running is the moment before the
-        start command took effect rather than the end of the session.
-        """
-
-        self.running = True
-        """Whether the hub last said anything was running on it.
-
-        True to begin with: a session only gets this far with something either
-        started or already going.
-        """
-
-        self.gone = False
-        """Whether it ran and has since stopped."""
-
-        self._watch_for_crash = watch_for_crash
-        self._tail = bytearray()
-        """The end of what it printed, which is where it says how it ended."""
-
-    def saw(self, data: bytes) -> None:
+    def saw(self, data: bytes) -> Running:
         """Take in some of what it printed.
 
         Args:
             data: The bytes, exactly as the hub sent them.
+
+        Returns:
+            The same, remembering the end of the output.
         """
-        if not self._watch_for_crash:
-            return
-        self._tail.extend(data)
-        del self._tail[:-TAIL_BYTES]
+        if not self.watch_for_crash:
+            return self
+        return replace(self, tail=(self.tail + data)[-TAIL_BYTES:])
+
+    def note(self, status: pb_client.Status) -> Running:
+        """Take in what the hub says about itself.
+
+        Args:
+            status: The hub's latest report.
+
+        Returns:
+            The same, brought up to date with the report.
+        """
+        if status.program_running:
+            return replace(self, running=True, arrived=True)
+        return replace(self, running=False, gone=self.gone or self.arrived)
 
     def _final_exception(self) -> bytes:
         """Name the exception the hub last reported, if it reported one.
@@ -186,14 +220,14 @@ class Running:
             The line naming it, such as ``b"ZeroDivisionError: divide by
             zero"``, or empty if the tail holds no traceback.
         """
-        if not self._watch_for_crash:
+        if not self.watch_for_crash:
             return b""
-        start = self._tail.rfind(TRACEBACK)
+        start = self.tail.rfind(TRACEBACK)
         if start < 0:
             return b""
         # A traceback's frames are indented and the exception that ends it is
         # not, so the first unindented line after the header is the answer.
-        after = bytes(self._tail[start + len(TRACEBACK) :])
+        after = self.tail[start + len(TRACEBACK) :]
         for line in after.splitlines():
             if line and not line.startswith((b" ", b"\t")):
                 return line
@@ -209,19 +243,6 @@ class Running:
     def interrupted(self) -> bool:
         """Whether what ended it was Ctrl-C rather than a fault of its own."""
         return self._final_exception().startswith(INTERRUPT)
-
-    def note(self, status: pb_client.Status) -> None:
-        """Take in what the hub says about itself.
-
-        Args:
-            status: The hub's latest report.
-        """
-        was_running = self.running
-        self.running = status.program_running
-        if status.program_running:
-            self.arrived = True
-        elif was_running and self.arrived:
-            self.gone = True
 
 
 def have_terminal() -> bool:
@@ -311,24 +332,23 @@ async def _session(
     Returns:
         The exit code: zero unless the hub went away or the program failed.
     """
-    ended = _Ending()
-    keys = escape.Filter()
+    ended = _Ending(running)
     sender, receiver = anyio.create_memory_object_stream[bytes](INPUT_QUEUE)
 
     with banner_module.Banner(console, info) as bar:
         bar.line(f"{escape.describe()} q to leave, {escape.describe()} h for help.")
         # Before the tasks, not inside them, so that leaving in the same breath
         # as starting cannot race the decision about what to leave running.
-        await start(bar.line)
+        if await start(bar.line):
+            ended.running = ended.running.we_started_it()
 
         async with anyio.create_task_group() as tg:
-            tg.start_soon(_show_hub, events, bar, ended, running, tg.cancel_scope)
+            tg.start_soon(_show_hub, events, bar, ended, tg.cancel_scope)
             tg.start_soon(_send_input, service, hub, receiver, bar, ended)
-            tg.start_soon(
-                _read_keys, service, hub, console, keys, sender, bar, ended, tg
-            )
+            tg.start_soon(_read_keys, service, hub, console, sender, bar, ended, tg)
             tg.start_soon(_tick, bar)
 
+        running = ended.running
         if running.ours and running.running and not ended.disconnected:
             await _stop_what_we_started(service, hub, bar, running.noun)
         elif running.ours and running.running:
@@ -407,14 +427,15 @@ async def streamed(
 
     async with service.attach(hub_id=hub, replay_bytes=replay) as events:
         try:
-            await start(err.print)
+            if await start(err.print):
+                running = running.we_started_it()
             async for event in events:
                 if isinstance(event, pb_client.Output):
-                    running.saw(event.data)
+                    running = running.saw(event.data)
                     out.write(event.data)
                     out.flush()
                 elif isinstance(event, pb_client.Status):
-                    running.note(event)
+                    running = running.note(event)
                     if running.gone:
                         break
                 elif not event.connected and event.state == "disconnected":
@@ -486,10 +507,23 @@ async def _stop_what_we_started(
 
 
 class _Ending:
-    """How the session is going to stop, shared by the tasks that decide it."""
+    """What the session's tasks learn, in the one place they all can reach.
 
-    def __init__(self) -> None:
-        """Start out having ended for no reason yet."""
+    A session is four tasks and the code that reads the answer afterwards is
+    none of them, so something has to be shared. This is deliberately the only
+    thing that is: what each new state *means* is worked out by
+    :class:`Running`, which is a value, and this only holds the latest one.
+    """
+
+    def __init__(self, running: Running) -> None:
+        """Start out having ended for no reason yet.
+
+        Args:
+            running: What the session expects to be talking to.
+        """
+        self.running = running
+        """What is on the other end, as the tasks last saw it."""
+
         self.disconnected = False
         """Set when the hub went away rather than the user leaving."""
 
@@ -501,7 +535,6 @@ async def _show_hub(
     events: AsyncIterator[pb_client.HubEvent],
     bar: banner_module.Banner,
     ended: _Ending,
-    running: Running,
     scope: anyio.CancelScope,
 ) -> None:
     """Put everything the hub says on the screen, and notice when it stops.
@@ -509,25 +542,24 @@ async def _show_hub(
     Args:
         events: The hub's output, status and state.
         bar: The status line and the screen above it.
-        ended: Where to record that the hub went away.
-        running: What is running on the hub, kept up to date here.
+        ended: What the session has learned, kept up to date here.
         scope: The session's scope, cancelled when there is nothing left to
             listen to.
     """
     async for event in events:
         if isinstance(event, pb_client.Output):
-            running.saw(event.data)
+            ended.running = ended.running.saw(event.data)
             bar.write(event.data)
         elif isinstance(event, pb_client.Status):
-            running.note(event)
+            ended.running = ended.running.note(event)
             bar.update(event)
-            if running.gone:
+            if ended.running.gone:
                 # A program ends by itself, and Ctrl-D ends the interpreter, as
                 # does stopping either from anywhere else. However it happened
                 # there is nothing left to type at, and a session sitting at a
                 # prompt that is not there would be the tool pretending
                 # otherwise.
-                bar.line(f"The {running.noun} stopped, so the session is over.")
+                bar.line(f"The {ended.running.noun} stopped, so the session is over.")
                 scope.cancel()
                 return
         elif not event.connected and event.state == "disconnected":
@@ -579,7 +611,6 @@ async def _read_keys(
     service: pb_client.Service,
     hub: str | None,
     console: console_module.Console,
-    keys: escape.Filter,
     keystrokes: MemoryObjectSendStream[bytes],
     bar: banner_module.Banner,
     ended: _Ending,
@@ -591,14 +622,13 @@ async def _read_keys(
         service: The connected service.
         hub: Which hub.
         console: The terminal.
-        keys: The escape filter, which holds what a half-typed command needs.
         keystrokes: Where to put the bytes bound for the hub.
         bar: The status line.
         ended: How the session is ending.
         tg: The session's task group, cancelled when the user leaves.
     """
     try:
-        await _keys_until_done(service, hub, console, keys, keystrokes, bar)
+        await _keys_until_done(service, hub, console, keystrokes, bar)
     finally:
         # Closed before waiting, so that what is queued is what gets sent and
         # the writer knows nothing more is coming.
@@ -613,7 +643,6 @@ async def _keys_until_done(
     service: pb_client.Service,
     hub: str | None,
     console: console_module.Console,
-    keys: escape.Filter,
     keystrokes: MemoryObjectSendStream[bytes],
     bar: banner_module.Banner,
 ) -> None:
@@ -623,17 +652,17 @@ async def _keys_until_done(
         service: The connected service.
         hub: Which hub.
         console: The terminal.
-        keys: The escape filter.
         keystrokes: Where to put the bytes bound for the hub.
         bar: The status line.
     """
+    keys = escape.Filter()
     while True:
         typed = console.read()
         if not typed:
             await anyio.sleep(KEY_POLL_SECONDS)
             continue
 
-        for_hub, actions = keys.feed(typed)
+        keys, for_hub, actions = keys.feed(typed)
         for action in actions:
             if await _act(action, service, hub, bar):
                 return

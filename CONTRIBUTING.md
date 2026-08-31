@@ -84,6 +84,32 @@ with real close/EOF semantics.
 
 [nsc]: https://vorpus.org/blog/notes-on-structured-concurrency-or-go-statement-considered-harmful/
 
+## Values, not things that get edited
+
+A leaning rather than a law, in the same spirit as the async rules.
+
+**Anything that is a value gets an immutable type** — a frozen dataclass, a
+`NamedTuple`, a tuple, a `frozenset` — and its methods return the next value
+rather than editing this one. Reserve mutable objects for things with a
+lifetime: something owning a socket, a task or a terminal. A session's four
+tasks all read the same `Running`, and none of them can change what another is
+looking at, which is the property to aim for.
+
+**`Final` means "do not mutate this, or anything in it."** It stops rebinding
+and not mutation, and that is accepted rather than worked around: a constant
+mapping needs no `MappingProxyType` and no defensive copy. Use `Final` wherever
+it applies.
+
+**Avoid multiple inheritance.** Inheritance itself is fine, and so is an `ABC`
+where an `ABC` fits — `pb_core.ipc` has two, deliberately, next to the
+`Protocol`s used elsewhere. Where behaviour needs sharing, prefer composition,
+a protocol, or a function that takes what it needs.
+
+**What a function did is best said by returning it.** A callback that reaches
+into a shared object to record what it has done is harder to follow than one
+that says so: `pb run` and `pb repl` hand the session a start function, and it
+returns whether it started something rather than setting a flag on the session.
+
 ## Errors the user sees
 
 Two kinds of failure, presented differently.

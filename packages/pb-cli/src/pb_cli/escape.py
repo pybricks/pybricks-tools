@@ -23,8 +23,9 @@ use it for anything. Checked rather than assumed -- neither ``readline.c`` nor
 ``pyexec.c`` mentions ``0x1d`` at all. Sending the escape key to the hub is
 still possible, by pressing it twice, which is also telnet's convention.
 
-The matching is a byte at a time and holds its state between calls, because the
-escape byte and the command byte can easily arrive in separate reads: on
+The matching is a byte at a time and carries its state in the value it hands
+back, because the escape byte and the command byte can easily arrive in
+separate reads: on
 Windows the console hands over one key at a time, so a user typing at any
 ordinary speed splits the pair almost always. Assuming a whole sequence arrives
 in one read is the single most common bug in code like this, and a state
@@ -35,12 +36,13 @@ exhaustively without a terminal anywhere near it.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, replace
 from enum import Enum
+from typing import Final
 
 __all__ = ["ESCAPE_KEY", "Action", "Filter", "describe", "help_lines"]
 
-ESCAPE_KEY = 0x1D
+ESCAPE_KEY: Final = 0x1D
 """Ctrl-], the byte that means the next key is for ``pb``.
 
 Telnet's, and free: MicroPython gives it no meaning, so nothing is taken away
@@ -59,7 +61,7 @@ class Action(Enum):
     ignored, so the user is shown the help instead of wondering."""
 
 
-COMMANDS: Mapping[int, Action] = {
+COMMANDS: Final[Mapping[int, Action]] = {
     ord("q"): Action.QUIT,
     ord("Q"): Action.QUIT,
     0x04: Action.QUIT,
@@ -119,49 +121,55 @@ def describe(key: int = ESCAPE_KEY) -> str:
     return repr(chr(key))
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class Filter:
     """Splits what was typed into bytes for the hub and commands for ``pb``.
 
-    Keeps whatever state a half-finished escape needs, so it must be one
-    instance for the whole session rather than one per read.
+    A value rather than something a session edits: :meth:`feed` returns the
+    filter to read the *next* keys with, so what a half-finished escape needs
+    is carried in the value rather than accumulated in an object. That is worth
+    the extra name at the call site, because a read ending between the escape
+    key and its command is the ordinary case and not an edge one -- a console
+    hands over one key at a time, so the two halves nearly always arrive in
+    separate reads -- and a value makes each step of that a thing a test can
+    state on one line.
     """
 
     key: int = ESCAPE_KEY
     """The byte that starts a command."""
 
-    _armed: bool = field(default=False, init=False)
+    armed: bool = False
     """Whether the escape key has been seen and its command is awaited."""
 
-    @property
-    def armed(self) -> bool:
-        """Whether the next key will be taken as a command."""
-        return self._armed
-
-    def feed(self, data: bytes) -> tuple[bytes, list[Action]]:
+    def feed(self, data: bytes) -> tuple[Filter, bytes, tuple[Action, ...]]:
         """Sort one read from the terminal.
 
         Args:
             data: The bytes just typed.
 
         Returns:
-            What to send to the hub, and the commands that were asked for, in
-            the order they were typed.
+            The filter to read the next keys with, what to send to the hub,
+            and the commands that were asked for, in the order they were
+            typed.
         """
+        armed = self.armed
         for_hub = bytearray()
         actions: list[Action] = []
 
         for byte in data:
-            if self._armed:
-                self._armed = False
+            if armed:
+                armed = False
                 if byte == self.key:
                     # Pressed twice, so it was meant for the hub after all.
                     for_hub.append(byte)
                 else:
                     actions.append(COMMANDS.get(byte, Action.UNKNOWN))
             elif byte == self.key:
-                self._armed = True
+                armed = True
             else:
                 for_hub.append(byte)
 
-        return bytes(for_hub), actions
+        # Unchanged is the common case, and a value that did not change has no
+        # reason to be a different object.
+        rest = self if armed == self.armed else replace(self, armed=armed)
+        return rest, bytes(for_hub), tuple(actions)
