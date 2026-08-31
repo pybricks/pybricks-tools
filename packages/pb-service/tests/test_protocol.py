@@ -331,6 +331,9 @@ def _pnp(product: int, version: int = 0, *, vendor: int | None = None) -> p.PnpI
         # One product id, two hubs on the shelf: the version says which.
         (p.HubType.TECHNIC_LARGE_HUB, 0, "Prime hub"),
         (p.HubType.TECHNIC_LARGE_HUB, 1, "Inventor hub"),
+        # Variant 2 is the STM32H5 Prime hub, which is the same product to
+        # look at and had no name at all until this entry existed.
+        (p.HubType.TECHNIC_LARGE_HUB, 2, "Prime hub"),
         (p.HubType.TECHNIC_SMALL_HUB, 0, "Essential hub"),
     ],
 )

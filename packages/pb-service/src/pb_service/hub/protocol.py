@@ -537,6 +537,12 @@ _HUB_TYPE_NAMES: Final[Mapping[tuple[int, int | None], str]] = {
     # and the product version is what says which.
     (HubType.TECHNIC_LARGE_HUB, 0): "Prime hub",
     (HubType.TECHNIC_LARGE_HUB, 1): "Inventor hub",
+    # The same Prime hub, built on an STM32H5 instead of an STM32F4. The
+    # firmware hard-codes this variant for the prime_hub_h5 platform, where
+    # the F4 build reads 0 or 1 out of the stock bootloader's flash instead.
+    # It is the same product to whoever bought it, so it gets the same name;
+    # the two need telling apart when installing firmware, not here.
+    (HubType.TECHNIC_LARGE_HUB, 2): "Prime hub",
     (HubType.TECHNIC_SMALL_HUB, 0): "Essential hub",
 }
 """What to call each hub, following Pybricks Code so that the two agree.
