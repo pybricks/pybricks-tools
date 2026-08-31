@@ -172,7 +172,7 @@ hub or your program was the problem, `4` if no hub is connected, `1` otherwise.
 
 - [The command line](cli/index.md) — every command, every option, and where an
   option comes from when you do not type it.
-- [API reference](reference/pb_client.md) — the library, generated from the code.
+- [API reference](reference/pb_client/index.md) — the library, generated from the code.
 - [How it works](design.md) — what keeps a hub connected between commands, and
   why the tools are split the way they are.
 - [Contributing](contributing.md) — getting set up, and the rules the code
