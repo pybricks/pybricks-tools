@@ -1,11 +1,16 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 The Pybricks Authors
 
-"""Generate one API reference page per documented object, plus the nav.
+"""Generate the API reference for the library, one page per object.
 
 Run by mkdocs-gen-files at build time. Generating rather than hand-listing
 means a newly added module, class or method cannot be silently left
 undocumented.
+
+**The library only.** ``pb_client`` is what somebody imports; the other three
+packages are how the tools are built, and publishing a reference for them would
+say that their surface is something to write against, which it is not. Whoever
+works on them has the source, where the docstrings already are.
 
 One page per object rather than one per module. A module page carries the
 module's own docstring and links to what is in it; a class page carries the
@@ -26,16 +31,23 @@ import griffe
 import mkdocs_gen_files
 from mkdocs_gen_files.nav import Nav
 
-PACKAGES = {
-    "pb-core": "pb_core",
-    "pb-client": "pb_client",
-    "pbd": "pbd",
-    "pb": "pb",
-}
+LIBRARY = "pb_client"
+"""The one package with a public surface, and so the one with a reference."""
+
+WORKSPACE = ("pb-core", "pb-client", "pbd", "pb")
+"""Every package, so that griffe can resolve what the library refers to."""
 
 ROOT = Path(__file__).parent.parent
 
-SEARCH_PATHS = [ROOT / "packages" / dist / "src" for dist in PACKAGES]
+SEARCH_PATHS = [ROOT / "packages" / dist / "src" for dist in WORKSPACE]
+
+SECTION = "API reference"
+"""What the library's own page is called in the nav.
+
+It is the section's landing page rather than a page inside it: with one package
+documented, a level called ``pb_client`` between the section and its contents
+would be a click that says nothing.
+"""
 
 GROUPS = (
     ("module", "Modules", "Modules"),
@@ -268,7 +280,7 @@ def write_page(
             lines.append(f"- {link}{tail}\n")
 
     emit(page, "".join(lines), obj)
-    nav[parts] = page.as_posix()
+    nav[parts or (SECTION,)] = page.as_posix()
 
     taken: set[str] = {"index"}
     for name, member in members:
@@ -302,20 +314,9 @@ def emit(page: Path, text: str, obj: griffe.Object | griffe.Alias) -> None:
     mkdocs_gen_files.set_edit_path(Path("reference") / page, filepath.relative_to(ROOT))
 
 
-loaded = {
-    module: griffe.load(module, search_paths=SEARCH_PATHS, allow_inspection=False)
-    for module in PACKAGES.values()
-}
-
-for package in loaded.values():
-    collect(package)
-
-# The section's own page, written by hand in docs/reference/index.md and
-# listed first so that it is what the section opens on.
-nav["API reference"] = "index.md"
-
-for module, package in loaded.items():
-    write_page(package, (module,), Path(module))
+library = griffe.load(LIBRARY, search_paths=SEARCH_PATHS, allow_inspection=False)
+collect(library)
+write_page(library, (), Path())
 
 with mkdocs_gen_files.open("reference/SUMMARY.md", "w") as fd:
     fd.writelines(nav.build_literate_nav())
