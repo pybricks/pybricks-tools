@@ -24,9 +24,10 @@ pb run demo.py      # compile the script, send it, and run it
 ```
 
 `pb run` stays with the program: what it prints appears as it prints it, and
-what you type goes to the hub, so `input()` works and Ctrl-C interrupts. Press
-Ctrl-] q to leave, or Ctrl-] h for the rest. Down a pipe or in a build there is
-no terminal to do that with, so the output simply comes through on stdout.
+what you type goes to the hub, so `input()` works and ++ctrl+c++ interrupts.
+Press ++ctrl+"]"++ ++q++ to leave, or ++ctrl+"]"++ ++h++ for the rest. Down a
+pipe or in a build there is no terminal to do that with, so the output simply
+comes through on stdout.
 
 `pb connect` only needs doing once. Later commands reuse the connection, so
 `pb run` is quick to repeat while you are working on a program.
@@ -43,16 +44,10 @@ pb run demo.py      # again, without reconnecting
 | `pb run SCRIPT` | Compile a script, send it, and run it |
 | `pb run -c CODE` | Run a line or two of Python without a file |
 | `pb repl` | Talk to the hub's interpreter, a line at a time |
-| `pb download SCRIPT` | Send a script without running it |
-| `pb start` | Start the program already on the hub |
-| `pb stop` | Stop the running program |
-| `pb status` | Show what a hub is doing |
-| `pb list` | Show which hubs are connected |
-| `pb use` | Choose the hub the other commands act on |
-| `pb disconnect` | Disconnect a hub |
-| `pb check` | Check a program compiles, with no hub involved |
-| `pb scan` | Watch for hubs that are switched on and nearby |
-| `pb service log` | Show what the background service has been doing |
+
+That is most of what a day looks like. The rest — stopping a program, sending
+one without running it, seeing which hubs are connected — is on the
+[Commands](cli/commands.md) page, along with every option each one takes.
 
 You never have to run `pb scan`: `pb connect` does its own looking. It is there
 for when you want to know what is out there without connecting to any of it. It
@@ -62,12 +57,14 @@ and how strong its signal is:
 
 ```
   Name           Type           Signal
-  prime_hub      Inventor hub     ▁▃▅▇
-  Pybricks Hub   City hub         ▁▃▅·
+  Bumblebee      Inventor hub     ▁▃▅▇
+  Rover          City hub         ▁▃▅·
 ```
 
-Both columns are worth having when two hubs share a name: one of these is on
-the desk and the other is through a wall.
+A hub is named when its firmware is installed, and a hub flashed without a name
+being chosen answers to `Pybricks Hub` like every other one. So the two columns
+are what tell those apart: which kind of hub it is, and whether it is on the
+desk or through a wall. Both are known without connecting to anything.
 
 `pb check` needs no hub and no service at all -- it is the compiler on its own,
 which makes it the right thing to put in a commit hook or a build:
@@ -76,23 +73,23 @@ which makes it the right thing to put in a commit hook or a build:
 pb check demo.py
 ```
 
-To pick a hub from that list instead of reading it, use `pb connect --scan`. The
-arrow keys move the selection and Enter connects. There is no time limit, so
-you can switch the hub on while it is watching, and Ctrl-C gives up without
-connecting to anything.
+To pick a hub from that list instead of reading it, use `pb connect --scan`.
+++up++ and ++down++ move the selection and ++enter++ connects. There is no time
+limit, so you can switch the hub on while it is watching, and ++ctrl+c++ gives
+up without connecting to anything.
 
 With more than one hub connected, name the one you mean with `--hub`, which
 every command takes:
 
 ```bash
-pb run demo.py --hub "Spare Hub"
+pb run demo.py --hub "Rover"
 ```
 
 If it is always the same hub, choose it once instead of saying so every time:
 
 ```bash
 pb use                      # choose from the hubs connected and nearby
-pb use --hub "Spare Hub"    # or name it
+pb use --hub "Rover"        # or name it
 ```
 
 What is remembered is the hub's name, so the choice survives switching the hub
@@ -101,24 +98,19 @@ The hub does not have to be connected, or even switched on, so the hub a
 project belongs to can be chosen before any of it is plugged in.
 `pb use --clear` forgets it again.
 
-A project can name its own hub, which is the better answer when the project is
-shared. Put it in the project's `pyproject.toml`:
+When the project is a shared one, it should name its own hub instead, in its
+`pyproject.toml`:
 
 ```toml
 [tool.pb]
-hub = "Workshop Hub"
+hub = "Bumblebee"
 ```
 
-Every command run anywhere inside that project uses that hub, so a robot
-project works for whoever clones it without anybody having to remember a flag.
-It beats the hub remembered by `pb use`, because a project is more specific
-than a standing preference, and inside such a project `pb use` on its own pins
-the project's hub rather than offering a list.
-
-`PB_HUB` sits between the two, for pointing one shell or one CI job somewhere
-else. In fact every option can be set that way -- `PB_SLOT`, `PB_VERBOSE` and
-so on -- though the hub is the one worth knowing about. What you type always
-wins over all of it.
+Then every command run inside that project uses that hub, and a robot project
+works for whoever clones it without anybody having to remember a flag. See
+[the project file](cli/pyproject.md) for what else goes in there, and
+[environment variables](cli/environment.md) for `PB_HUB`, which sits between
+the two and is how you point one shell or one CI job somewhere else.
 
 Every command takes `-v` for more detail, and `-vv` or `-vvv` when something
 is going wrong and you want to see why.
@@ -137,7 +129,7 @@ import pb_client
 
 async def main() -> None:
     async with pb_client.connect() as service:
-        hub = await service.connect_hub(name="Pybricks Hub")
+        hub = await service.connect_hub(name="Rover")
         print(f"connected to {hub.name}, firmware {hub.firmware}")
 
         program = await pb_client.compile_script(Path("demo.py"))
@@ -178,6 +170,8 @@ hub or your program was the problem, `4` if no hub is connected, `1` otherwise.
 
 ## Where to next
 
+- [The command line](cli/index.md) — every command, every option, and where an
+  option comes from when you do not type it.
 - [How it works](design.md) — what keeps a hub connected between commands, and
   why the tools are split the way they are.
 - [API reference](reference/pb_client.md) — the library, generated from the code.

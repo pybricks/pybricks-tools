@@ -7,6 +7,7 @@ theme:
   name: material
   features:
     - navigation.sections
+    - navigation.indexes
     - navigation.top
     - content.code.copy
     - search.suggest
@@ -45,12 +46,17 @@ markdown_extensions:
       base_path: [.]
       check_paths: true
   - pymdownx.details
+  - pymdownx.keys
   - pymdownx.superfences
   - toc: { permalink: true }
 
 nav:
   - Home: index.md
-  - Commands: commands.md
+  - Command line:
+      - cli/index.md
+      - Commands: cli/commands.md
+      - Environment variables: cli/environment.md
+      - Project file: cli/pyproject.md
   - How it works: design.md
   - Contributing: contributing.md
   - API reference: reference/
