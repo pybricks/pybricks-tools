@@ -238,16 +238,20 @@ async def _stay_with_it(
     info = await service.hub_info(hub)
     running = session.Running("program", watch_for_crash=True)
 
-    async def start(announce: session.Announce) -> None:
+    async def start(announce: session.Announce) -> bool:
         """Set the program going, now that its output is being listened for.
 
         Args:
             announce: Says one line to the user. Unused: the program speaks
                 for itself.
+
+        Returns:
+            True, always: this command is what started it, so leaving is what
+            has to stop it.
         """
         del announce
         await service.start_program(hub_id=hub, slot=slot, wait=False)
-        running.ours = True
+        return True
 
     # Both have to hold: something to take over, and a reason to.
     use_terminal = terminal and session.have_terminal()

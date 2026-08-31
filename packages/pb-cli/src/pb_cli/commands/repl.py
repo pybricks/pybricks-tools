@@ -64,7 +64,7 @@ async def _repl(hub: str | None, replay: int) -> int:
         joining = _is_the_interpreter(info)
         running = session.Running("interpreter", arrived=joining)
 
-        async def start(announce: session.Announce) -> None:
+        async def start(announce: session.Announce) -> bool:
             """Start the interpreter, or join the one already running.
 
             Restarting an interpreter that is already going would throw away
@@ -73,12 +73,16 @@ async def _repl(hub: str | None, replay: int) -> int:
 
             Args:
                 announce: Says one line to the user.
+
+            Returns:
+                Whether an interpreter was started here, which is what decides
+                whether leaving should stop it again.
             """
             if joining:
                 announce("Joining the interpreter that is already running.")
-                return
+                return False
             await service.start_repl(hub)
-            running.ours = True
+            return True
 
         return await session.attached(
             service, info, hub, replay=replay, running=running, start=start

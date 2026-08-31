@@ -1,7 +1,12 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 The Pybricks Authors
 
-"""Telling keys meant for the hub from keys meant for us."""
+"""Telling keys meant for the hub from keys meant for us.
+
+The filter is a value, so each of these says what one read means and nothing
+about when it happened: feed bytes to a filter, and check what comes back and
+which filter the next read would use.
+"""
 
 from __future__ import annotations
 
@@ -33,10 +38,22 @@ one is the only way to do something at the hub's prompt.
 """
 
 
+def sorted_by(keys: Filter, data: bytes) -> tuple[bytes, tuple[Action, ...]]:
+    """Feed one read to a filter, for a test that does not care what is next.
+
+    Args:
+        keys: The filter to read with.
+        data: What was typed.
+
+    Returns:
+        What goes to the hub, and what was asked of ``pb``.
+    """
+    _, for_hub, actions = keys.feed(data)
+    return for_hub, actions
+
+
 def test_ordinary_typing_goes_straight_to_the_hub() -> None:
-    for_hub, actions = Filter().feed(b"print(1)\r")
-    assert for_hub == b"print(1)\r"
-    assert actions == []
+    assert sorted_by(Filter(), b"print(1)\r") == (b"print(1)\r", ())
 
 
 @pytest.mark.parametrize("key", MICROPYTHON_CONTROL_KEYS)
@@ -44,64 +61,71 @@ def test_micropython_control_keys_are_never_intercepted(key: int) -> None:
     # Every one of these means something at the hub's prompt, so taking any of
     # them for ourselves would remove the only way to do that thing.
     assert key != escape.ESCAPE_KEY
-    for_hub, actions = Filter().feed(bytes([key]))
-    assert for_hub == bytes([key])
-    assert actions == []
+    assert sorted_by(Filter(), bytes([key])) == (bytes([key]), ())
 
 
 def test_the_escape_key_is_not_passed_on() -> None:
-    for_hub, actions = Filter().feed(bytes([escape.ESCAPE_KEY, ord("q")]))
-    assert for_hub == b""
-    assert actions == [Action.QUIT]
+    typed = bytes([escape.ESCAPE_KEY, ord("q")])
+    assert sorted_by(Filter(), typed) == (b"", (Action.QUIT,))
 
 
 def test_a_command_split_across_two_reads_still_works() -> None:
     # The usual case rather than an edge case: a console hands over one key at
-    # a time, so the escape and its command almost never arrive together.
+    # a time, so the escape and its command almost never arrive together. The
+    # filter handed back by the first read is what carries the half-typed
+    # command into the second.
+    half, for_hub, actions = Filter().feed(bytes([escape.ESCAPE_KEY]))
+    assert (for_hub, actions) == (b"", ())
+    assert half.armed
+
+    rest, for_hub, actions = half.feed(b"q")
+    assert (for_hub, actions) == (b"", (Action.QUIT,))
+    assert not rest.armed
+
+
+def test_feeding_a_filter_leaves_it_alone() -> None:
+    # The point of a value: the filter that read the escape key still reads it
+    # the same way afterwards, so nothing can be quietly carried between two
+    # sessions that happen to share one.
     keys = Filter()
-    assert keys.feed(bytes([escape.ESCAPE_KEY])) == (b"", [])
-    assert keys.armed
-    assert keys.feed(b"q") == (b"", [Action.QUIT])
+    keys.feed(bytes([escape.ESCAPE_KEY]))
     assert not keys.armed
+    assert sorted_by(keys, b"q") == (b"q", ())
 
 
 def test_pressing_the_escape_key_twice_sends_it_to_the_hub() -> None:
-    for_hub, actions = Filter().feed(bytes([escape.ESCAPE_KEY, escape.ESCAPE_KEY]))
-    assert for_hub == bytes([escape.ESCAPE_KEY])
-    assert actions == []
+    typed = bytes([escape.ESCAPE_KEY, escape.ESCAPE_KEY])
+    assert sorted_by(Filter(), typed) == (bytes([escape.ESCAPE_KEY]), ())
 
 
 def test_a_key_that_is_not_a_command_is_reported_rather_than_eaten() -> None:
     # Silently swallowing it would leave the user wondering where their
     # keystroke went; saying so lets the session offer the help.
-    for_hub, actions = Filter().feed(bytes([escape.ESCAPE_KEY, ord("z")]))
-    assert for_hub == b""
-    assert actions == [Action.UNKNOWN]
+    typed = bytes([escape.ESCAPE_KEY, ord("z")])
+    assert sorted_by(Filter(), typed) == (b"", (Action.UNKNOWN,))
 
 
 def test_typing_around_a_command_is_kept_in_order() -> None:
-    for_hub, actions = Filter().feed(
-        b"ab" + bytes([escape.ESCAPE_KEY, ord("s")]) + b"cd"
-    )
-    assert for_hub == b"abcd"
-    assert actions == [Action.STOP]
+    typed = b"ab" + bytes([escape.ESCAPE_KEY, ord("s")]) + b"cd"
+    assert sorted_by(Filter(), typed) == (b"abcd", (Action.STOP,))
 
 
 def test_several_commands_in_one_read_all_arrive() -> None:
-    keys = bytes([escape.ESCAPE_KEY, ord("s"), escape.ESCAPE_KEY, ord("q")])
-    assert Filter().feed(keys) == (b"", [Action.STOP, Action.QUIT])
+    typed = bytes([escape.ESCAPE_KEY, ord("s"), escape.ESCAPE_KEY, ord("q")])
+    assert sorted_by(Filter(), typed) == (b"", (Action.STOP, Action.QUIT))
 
 
 def test_an_arrow_key_reaches_the_hub_whole() -> None:
     # Both platforms deliver this as the same three bytes, and the hub's line
     # editor needs all three.
-    assert Filter().feed(b"\x1b[A") == (b"\x1b[A", [])
+    assert sorted_by(Filter(), b"\x1b[A") == (b"\x1b[A", ())
 
 
 def test_the_escape_key_can_be_changed() -> None:
     keys = Filter(key=0x1C)
-    assert keys.feed(bytes([escape.ESCAPE_KEY])) == (bytes([escape.ESCAPE_KEY]), [])
-    assert keys.feed(bytes([0x1C, ord("q")])) == (b"", [Action.QUIT])
+    ours = bytes([escape.ESCAPE_KEY])
+    assert sorted_by(keys, ours) == (ours, ())
+    assert sorted_by(keys, bytes([0x1C, ord("q")])) == (b"", (Action.QUIT,))
 
 
 def test_control_bytes_are_named_the_way_people_say_them() -> None:
@@ -123,5 +147,5 @@ def test_help_answers_to_the_key_the_other_tools_use_as_well() -> None:
     # h is what is advertised, but ? is what a user of screen or telnet will
     # try first, and refusing it would be a needless surprise.
     for key in (b"h", b"H", b"?"):
-        _, actions = escape.Filter().feed(bytes([escape.ESCAPE_KEY]) + key)
-        assert actions == [escape.Action.HELP]
+        typed = bytes([escape.ESCAPE_KEY]) + key
+        assert sorted_by(Filter(), typed) == (b"", (Action.HELP,))
