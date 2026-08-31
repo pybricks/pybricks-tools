@@ -7,7 +7,7 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
-- Workspace skeleton: `pb-core`, `pb-client`, `pbd` and `pb` packages, with
+- Workspace skeleton: `pb-core`, `pb-client`, `pb_service` and `pb` packages, with
   ruff, pyright strict, pytest, MkDocs and CI across Linux, macOS, Windows and
   Windows ARM64.
 - IPC transport with four backends behind one interface -- AF_UNIX, Windows

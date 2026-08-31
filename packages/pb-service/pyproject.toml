@@ -1,0 +1,30 @@
+[project]
+name = "pybricks-service"
+version = "0.1.0"
+description = "The Pybricks daemon: manages hub connections"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "The Pybricks Authors", email = "dev@pybricks.com" }]
+maintainers = [{ name = "David Lechner", email = "david@pybricks.com" }]
+requires-python = ">=3.11"
+dependencies = [
+    "pybricks-core",
+    "anyio>=4.14",
+    "bleak>=1.1.0",
+    "packaging>=22",
+    "semver>=3",
+    "typing-extensions>=4.15",
+]
+
+[project.scripts]
+pb-service = "pb_service.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.11.8,<0.12.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "pb_service"
+
+[tool.uv.sources]
+pybricks-core = { workspace = true }

@@ -9,11 +9,11 @@ that connects afresh on every invocation pays that cost every time you run a
 program, which is exactly the thing you do most while writing one. It also
 means only one thing can talk to the hub at a time.
 
-So connection state lives in a background process, `pbd`, which outlives any
+So connection state lives in a background process, `pb_service`, which outlives any
 single command:
 
 ```
-pb ──> pb-client ──> JSON-RPC ──> pbd ──> hub
+pb ──> pb-client ──> JSON-RPC ──> pb_service ──> hub
 ```
 
 `pb connect` hands the hub to the daemon and exits. `pb run` connects to the
@@ -30,10 +30,10 @@ keeps it alive indefinitely, because holding that connection open is the point.
 | --- | --- | --- |
 | `pybricks-core` | `pb_core` | Wire protocol, transport, logging, paths |
 | `pybricks-client` | `pb_client` | The library, and compilation |
-| `pybricks-daemon` | `pbd` | The daemon and hub protocol |
+| `pybricks-service` | `pb_service` | The daemon and hub protocol |
 | `pybricks-cli` | `pb` | The `pb` command |
 
-`pb` depends on `pbd` so that installing the CLI alone gives a working
+`pb` depends on `pb_service` so that installing the CLI alone gives a working
 autostart, but never imports it: loading the Bluetooth stack on every
 invocation would be slow, and there is a test asserting it does not happen.
 

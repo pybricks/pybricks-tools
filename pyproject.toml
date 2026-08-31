@@ -75,7 +75,7 @@ ignore = [
 convention = "google"
 
 [tool.ruff.lint.isort]
-known-first-party = ["pb", "pb_client", "pb_core", "pbd"]
+known-first-party = ["pb_cli", "pb_client", "pb_core", "pb_service"]
 
 # Structured concurrency, enforced mechanically. See CONTRIBUTING.md.
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
@@ -87,8 +87,8 @@ known-first-party = ["pb", "pb_client", "pb_core", "pbd"]
 
 [tool.ruff.lint.per-file-ignores]
 # Docstrings are required on the library surface, not on CLI/daemon internals.
-"packages/pb/src/**" = ["D100", "D101", "D102", "D103", "D104", "D105", "D107"]
-"packages/pbd/src/**" = ["D100", "D101", "D102", "D103", "D104", "D105", "D107"]
+"packages/pb-cli/src/**" = ["D100", "D101", "D102", "D103", "D104", "D105", "D107"]
+"packages/pb-service/src/**" = ["D100", "D101", "D102", "D103", "D104", "D105", "D107"]
 "**/tests/**" = ["D"]
 "docs/**" = ["D"]
 
@@ -111,7 +111,7 @@ filterwarnings = ["error"]
 # ---------------------------------------------------------------- coverage
 [tool.coverage.run]
 branch = true
-source = ["pb", "pb_client", "pb_core", "pbd"]
+source = ["pb_cli", "pb_client", "pb_core", "pb_service"]
 parallel = true
 
 [tool.coverage.report]

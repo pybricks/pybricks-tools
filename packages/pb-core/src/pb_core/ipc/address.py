@@ -5,8 +5,8 @@
 
 An endpoint is written as a URI so that one string can name any transport:
 
-* ``unix:///run/user/1000/pybricks/pbd.sock`` -- AF_UNIX socket (Linux, macOS)
-* ``pipe://pybricks-pbd-david`` -- Windows named pipe
+* ``unix:///run/user/1000/pybricks/pb-service.sock`` -- AF_UNIX socket (Linux, macOS)
+* ``pipe://pybricks-pb-service-david`` -- Windows named pipe
 * ``tcp://127.0.0.1:47823`` -- TCP, for remote daemons and for tests
 * ``memory://name`` -- in-process, used by the test suite
 

@@ -34,7 +34,7 @@ from mkdocs_gen_files.nav import Nav
 LIBRARY = "pb_client"
 """The one package with a public surface, and so the one with a reference."""
 
-WORKSPACE = ("pb-core", "pb-client", "pbd", "pb")
+WORKSPACE = ("pb-core", "pb-client", "pb_service", "pb")
 """Every package, so that griffe can resolve what the library refers to."""
 
 ROOT = Path(__file__).parent.parent

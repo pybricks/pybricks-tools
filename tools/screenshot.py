@@ -17,7 +17,7 @@ Connect a hub first, then::
 
     uv run python tools/screenshot.py
 
-It works by redirecting :mod:`pb.ui`, which exists to be the one place every
+It works by redirecting :mod:`pb_cli.ui`, which exists to be the one place every
 command draws through. ``console`` is what captures the output at all;
 ``spinner`` and ``live`` are replaced because a still picture of an animation
 is either a stray line of dots or the same table half a dozen times over.
@@ -36,13 +36,13 @@ import anyio
 from rich.console import Console, RenderableType
 
 import pb_client
-from pb import (
+from pb_cli import (
     keys,
     ui,
 )
-from pb.commands import hub as hub_commands
-from pb.commands import program as program_commands
-from pb.keys import Key
+from pb_cli.commands import hub as hub_commands
+from pb_cli.commands import program as program_commands
+from pb_cli.keys import Key
 
 WIDTH = 74
 """Columns to render, chosen to fit a README on GitHub without scrolling."""
@@ -123,7 +123,7 @@ class _StillLive:
     def __init__(self, renderable: object, target: Console) -> None:
         """Start with the display's first frame.
 
-        Takes the same arguments as :func:`pb.ui.live`, which it stands in for.
+        Takes the same arguments as :func:`pb_cli.ui.live`, which it stands in for.
 
         Args:
             renderable: What the display starts out showing.

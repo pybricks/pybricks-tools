@@ -5,7 +5,7 @@
 
 This package holds everything both the daemon and the client need to agree on:
 the JSON-RPC wire protocol, the per-platform IPC transport, logging setup and
-platform paths. It deliberately depends on neither ``pbd`` nor ``pb_client``.
+platform paths. It deliberately depends on neither ``pb_service`` nor ``pb_client``.
 """
 
 __version__ = "0.1.0"

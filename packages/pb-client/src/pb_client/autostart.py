@@ -60,7 +60,7 @@ patience.
 def _daemon_command() -> list[str]:
     """Return the command that starts a daemon.
 
-    The fallback to ``-m pbd`` is why the CLI package depends on the daemon
+    The fallback to ``-m pb_service`` is why the CLI package depends on the daemon
     package even though it never imports it: installing the CLI alone must
     still give a working autostart.
     """
@@ -72,10 +72,10 @@ def _daemon_command() -> list[str]:
         if sys.platform == "win32":
             return [token.strip('"') for token in shlex.split(override, posix=False)]
         return shlex.split(override)
-    found = shutil.which("pbd")
+    found = shutil.which("pb-service")
     if found:
         return [found]
-    return [sys.executable, "-m", "pbd"]
+    return [sys.executable, "-m", "pb_service"]
 
 
 _spawned: list[subprocess.Popen[bytes]] = []
