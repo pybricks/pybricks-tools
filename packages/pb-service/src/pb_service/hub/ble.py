@@ -26,6 +26,7 @@ from bleak.backends.device import BLEDevice
 from bleak.backends.scanner import AdvertisementData
 from bleak.exc import BleakGATTProtocolError
 
+from pb_service.firmware.bootloader import lwp3
 from pb_service.hub import protocol as p
 from pb_service.hub.transport import (
     DeviceInfo,
@@ -81,6 +82,63 @@ def _advertised_pnp_id(advertisement: AdvertisementData) -> p.PnpId | None:
     except ValueError:
         logger.debug("ignoring a malformed advertised PnP ID: %r", data)
         return None
+
+
+def _lego_advertisement(advertisement: AdvertisementData) -> lwp3.Advertisement | None:
+    """Read a LEGO advertisement, if this is one.
+
+    A hub running LEGO's own firmware, or one sitting in its bootloader, puts
+    six bytes under LEGO's company id and advertises a service that says
+    which of the two it is. A hub running Pybricks does neither, so this
+    returns ``None`` for one and the Pybricks path below handles it.
+
+    Args:
+        advertisement: What bleak reported.
+
+    Returns:
+        What it says, or ``None``.
+    """
+    data = advertisement.manufacturer_data.get(lwp3.LEGO_COMPANY_ID)
+    if data is None:
+        return None
+    services = frozenset(uuid.lower() for uuid in advertisement.service_uuids)
+    return lwp3.read_advertisement(bytes(data), services)
+
+
+def _described(found: lwp3.Advertisement) -> str:
+    """Name a device that has no name of its own to give.
+
+    Args:
+        found: What its advertisement said.
+
+    Returns:
+        Something to show a user, since a blank row would be worse.
+    """
+    return "LEGO bootloader" if found.in_bootloader else "LEGO firmware"
+
+
+def _services_for(scan_filter: ScanFilter) -> list[str]:
+    """Return the service UUIDs a scan should look for.
+
+    Asked for by kind rather than always looking for all three: a scan filtered
+    at the radio is a scan that does not wake this process for every unrelated
+    device in the building, and the ordinary commands only ever want Pybricks
+    hubs.
+
+    Args:
+        scan_filter: What the caller is looking for.
+
+    Returns:
+        The UUIDs to give the scanner.
+    """
+    wanted: list[str] = []
+    if "pybricks" in scan_filter.kinds:
+        wanted.append(p.PYBRICKS_SERVICE_UUID)
+    if "lego" in scan_filter.kinds:
+        wanted.append(lwp3.HUB_SERVICE_UUID)
+    if "bootloader" in scan_filter.kinds:
+        wanted.append(lwp3.BOOTLOADER_SERVICE_UUID)
+    return wanted
 
 
 def _rejection(exc: BleakGATTProtocolError) -> HubCommandError:
@@ -164,10 +222,10 @@ class BleHubTransport:
             Hubs as they are seen. A hub may be reported more than once as its
             advertisement repeats; callers deduplicate by id.
         """
-        async with BleakScanner(service_uuids=[p.PYBRICKS_SERVICE_UUID]) as scanner:
+        async with BleakScanner(service_uuids=_services_for(scan_filter)) as scanner:
             async for device, advertisement in scanner.advertisement_data():
                 info = self._to_device_info(device, advertisement)
-                if info is None:
+                if info is None or info.kind not in scan_filter.kinds:
                     continue
                 if scan_filter.name is not None and info.name != scan_filter.name:
                     continue
@@ -179,6 +237,28 @@ class BleHubTransport:
     def _to_device_info(
         self, device: BLEDevice, advertisement: AdvertisementData
     ) -> DeviceInfo | None:
+        lego = _lego_advertisement(advertisement)
+        if lego is not None:
+            # A hub in its bootloader has no name of its own worth showing --
+            # it is not running the firmware that would know one -- so it is
+            # described by what it is instead.
+            return DeviceInfo(
+                id=device_id_for(device.address),
+                name=advertisement.local_name or device.name or _described(lego),
+                address=device.address,
+                rssi=advertisement.rssi,
+                transport=SCHEME,
+                hub_type=p.hub_type_name(
+                    p.PnpId(
+                        vendor_id_source=p.VendorIdSource.BLUETOOTH_SIG,
+                        vendor_id=p.LEGO_COMPANY_ID,
+                        product_id=lego.hub_type,
+                        product_version=0,
+                    )
+                ),
+                kind="bootloader" if lego.in_bootloader else "lego",
+            )
+
         # The name arrives in the scan response, which may lag the advertisement,
         # so a hub without one yet is skipped rather than shown as unnamed.
         name = advertisement.local_name or device.name
