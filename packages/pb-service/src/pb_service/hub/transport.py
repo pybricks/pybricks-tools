@@ -18,12 +18,13 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Callable
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
-from typing import Protocol, runtime_checkable
+from typing import Literal, Protocol, runtime_checkable
 
 from pb_service.hub import protocol as p
 
 __all__ = [
     "DeviceInfo",
+    "DeviceKind",
     "HubCommandError",
     "HubLink",
     "HubTransport",
@@ -86,6 +87,17 @@ the radio for every hub.
 """
 
 
+DeviceKind = Literal["pybricks", "lego", "bootloader"]
+"""What is running on a device that was found.
+
+``pybricks`` is a hub running Pybricks firmware; ``lego`` one running LEGO's
+own; ``bootloader`` one sitting in its firmware updater with nothing running
+at all. Told apart from the advertisement alone -- Pybricks advertises its own
+service and a PnP ID, while the other two advertise LEGO manufacturer data
+under different service UUIDs.
+"""
+
+
 @dataclass(frozen=True, slots=True)
 class DeviceInfo:
     """A hub seen while scanning."""
@@ -117,6 +129,16 @@ class DeviceInfo:
     or one this build has no name for.
     """
 
+    kind: DeviceKind = "pybricks"
+    """What is running on it, as far as the advertisement says.
+
+    A hub can be found in three states and they need different treatment:
+    installing firmware on one running LEGO's own software means rebooting it
+    a different way, and one already in its bootloader needs no rebooting at
+    all. All three are distinguishable without connecting, which is what lets
+    the tool say what it found rather than guess.
+    """
+
 
 @dataclass(frozen=True, slots=True)
 class ScanFilter:
@@ -127,6 +149,15 @@ class ScanFilter:
 
     exclude: frozenset[str] = field(default_factory=frozenset[str])
     """Ids to skip, typically ones already connected."""
+
+    kinds: frozenset[DeviceKind] = frozenset({"pybricks"})
+    """Which states of hub to report.
+
+    Only Pybricks hubs by default, because that is what every command except
+    installing firmware is looking for, and showing somebody a device in its
+    bootloader when they asked what hubs are around would be noise. Installing
+    firmware asks for all three.
+    """
 
 
 @runtime_checkable
