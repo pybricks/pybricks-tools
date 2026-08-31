@@ -94,8 +94,8 @@ async def _run(
     program = b""
     with ui.spinner(err, "Compiling..."):
         if script is not None:
-            root = await project.module_root(script)
-            compiled = await pb_client.compile_program(script, root=root)
+            roots = await project.module_roots(script)
+            compiled = await pb_client.compile_program(script, roots=roots)
         else:
             # Exactly one of the two is given; the command line was checked
             # before any of this ran.
@@ -170,8 +170,8 @@ async def download_cmd(
 
 async def _download(script: Path, hub: str | None, slot: int | None) -> int:
     err = ui.console(err=True)
-    root = await project.module_root(script)
-    compiled = await pb_client.compile_program(script, root=root)
+    roots = await project.module_roots(script)
+    compiled = await pb_client.compile_program(script, roots=roots)
 
     async with pb_client.connect(autostart=False) as service:
         program = compiled.pack(legacy_main=await _legacy_main(service, hub))
@@ -342,10 +342,10 @@ async def check_cmd(
 async def _check(script: Path | None, command: str | None) -> int:
     err = ui.console(err=True)
     if script is not None:
-        root = await project.module_root(script)
+        roots = await project.module_roots(script)
         # Packed with the modern naming, which nothing here depends on: no
         # program is being sent, so the entry module's name is never read.
-        program = await pb_client.compile_script(script, root=root)
+        program = await pb_client.compile_script(script, roots=roots)
         named = script.name
     else:
         assert command is not None

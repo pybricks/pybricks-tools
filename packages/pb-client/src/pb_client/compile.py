@@ -306,24 +306,27 @@ async def _already_compiled(module: Module) -> CompiledModule:
     # refuses the whole program without saying which module was wrong, so
     # they are much more useful here.
     if not mpy.startswith(b"M"):
-        raise CompileError(f"{module.path} is not a .mpy file")
+        raise CompileError(f"cannot use {module.path}: it is not a .mpy file")
     if mpy[1] != MPY_ABI_VERSION:
         raise CompileError(
-            f"{module.path} is .mpy version {mpy[1]}, but the hub needs "
-            f"version {MPY_ABI_VERSION}"
+            f"cannot use {module.path}: it is .mpy version {mpy[1]}, but the "
+            f"hub needs version {MPY_ABI_VERSION}"
         )
     logger.info("%s arrived compiled, %d bytes", module.name, len(mpy))
     return CompiledModule(module.name, mpy)
 
 
-async def compile_program(entry: Path, *, root: Path | None = None) -> CompiledProgram:
+async def compile_program(
+    entry: Path, *, roots: Sequence[Path] | None = None
+) -> CompiledProgram:
     """Compile a script and every module of its own that it imports.
 
     Args:
         entry: The script the program starts at.
-        root: What module names are relative to. Defaults to the script's own
-            directory, which is right for a program whose modules sit beside
-            it; ``pb_core.project.module_root`` is what works it out for a
+        roots: The directories module names are looked for in, in order.
+            Defaults to the script's own directory, which is right for a
+            program whose modules sit beside it;
+            ``pb_core.project.module_roots`` is what works the list out for a
             project that keeps its source somewhere else.
 
     Returns:
@@ -337,7 +340,7 @@ async def compile_program(entry: Path, *, root: Path | None = None) -> CompiledP
             do, so it is refused here where the line can be named.
     """
     try:
-        found = await discover(entry, root if root is not None else entry.parent)
+        found = await discover(entry, roots if roots is not None else (entry.parent,))
     except OSError as exc:
         # Which file could not be read matters: with several modules, "no such
         # file" on its own would not say which import was wrong.
@@ -365,7 +368,7 @@ async def compile_program(entry: Path, *, root: Path | None = None) -> CompiledP
     return CompiledProgram(tuple(compiled))
 
 
-async def compile_script(path: Path, *, root: Path | None = None) -> bytes:
+async def compile_script(path: Path, *, roots: Sequence[Path] | None = None) -> bytes:
     """Compile a script into a program, for a hub whose profile is not known.
 
     Packs immediately with the modern naming, so it is for callers with no hub
@@ -376,7 +379,7 @@ async def compile_script(path: Path, *, root: Path | None = None) -> bytes:
 
     Args:
         path: The script to compile.
-        root: What module names are relative to.
+        roots: The directories module names are looked for in.
 
     Returns:
         The compiled program.
@@ -384,5 +387,5 @@ async def compile_script(path: Path, *, root: Path | None = None) -> bytes:
     Raises:
         CompileError: If the file cannot be read or the compiler rejects it.
     """
-    program = await compile_program(path, root=root)
+    program = await compile_program(path, roots=roots)
     return program.pack()
