@@ -45,11 +45,13 @@ from typing import Any, Final, cast
 
 import anyio
 
+from pb_core import modules
+
 __all__ = [
     "PROJECT_FILE",
     "SOURCE_DIR",
     "find_project",
-    "module_root",
+    "module_roots",
     "source_root",
 ]
 
@@ -207,11 +209,19 @@ async def _read_project(path: Path) -> Mapping[str, Any] | None:
     """
     try:
         text = await anyio.Path(path).read_text(encoding="utf-8")
+    except FileNotFoundError:
+        # The ordinary case while walking up a tree, and not worth a line in
+        # the log: "could not read C:\\pyproject.toml" reads like a problem.
+        return None
+    except OSError:
+        logger.debug("could not read %s", path)
+        return None
+    try:
         document = tomllib.loads(text)
-    except (OSError, tomllib.TOMLDecodeError):
+    except tomllib.TOMLDecodeError:
         # Not this tool's file to complain about. Somebody else's broken
         # pyproject.toml is not a reason to refuse to run a script.
-        logger.debug("could not read %s", path)
+        logger.debug("%s is not valid TOML", path)
         return None
     if not isinstance(document.get("project"), dict):
         return None
@@ -259,33 +269,53 @@ async def source_root(project_file: Path) -> Path:
     return project
 
 
-async def module_root(entry: Path, *, directory: Path | None = None) -> Path:
-    """Work out what a program's imports are relative to.
+async def module_roots(
+    entry: Path, *, directory: Path | None = None
+) -> tuple[Path, ...]:
+    """Work out what a program's imports are looked for in.
 
     Args:
         entry: The script the program starts at.
         directory: What ``-C`` named, if it was given.
 
     Returns:
-        The import root, by these rules:
+        The directories to try, in order, and never empty.
 
-        | Given | The root is |
+        **The entry script's own directory comes first**, the way Python puts a
+        script's directory at the front of ``sys.path``. Without it a project
+        with a ``src`` layout swallows any script kept outside that tree: a
+        helper module sitting beside the script would not be found, and the
+        program would compile happily and then fail on the hub with an
+        ImportError. Found by running the command rather than by a test.
+
+        Then the project's source root, by these rules:
+
+        | Given | The next root is |
         |---|---|
         | a directory with a project file at or above it | derived from that file |
         | a directory with none | the directory itself |
         | no directory, but a project file at or above the working directory | derived from that file |
-        | neither | the entry script's own directory |
+        | neither | nothing; only the script's own directory applies |
 
-        The last is what the tool this replaces always did, and keeping it is
-        what lets ``pb run examples/demo.py`` import ``examples/helpers.py``
-        with no configuration anywhere. It is also the only row a beginner
-        ever meets.
+        Which root gives the entry module its *name* is a separate question --
+        see :func:`pb_core.modules.entry_name`, which takes the most qualified
+        name any of them yields.
     """
+    # The entry script's own directory first, the way Python puts a script's
+    # directory at the front of sys.path -- so a bare "import helpers" beside a
+    # script finds that script's neighbour rather than a file of the same name
+    # at the top of the project.
+    roots: list[Path] = [entry.parent]
+
     project = await find_project(directory)
     if project is not None:
-        root = await source_root(project)
-        logger.debug("import root %s, from %s", root, project)
-        return root
-    if directory is not None:
-        return directory
-    return entry.parent
+        roots.append(await source_root(project))
+        logger.debug("import roots %s, from %s", roots, project)
+    elif directory is not None:
+        roots.append(directory)
+
+    seen: list[Path] = []
+    for root in roots:
+        if not any(modules.canonical(root) == modules.canonical(kept) for kept in seen):
+            seen.append(root)
+    return tuple(seen)

@@ -55,7 +55,7 @@ program:
 
 ```console
 $ pb run demo.py
-robot/motors.py:3: the hub cannot do relative imports
+The hub cannot do relative imports (robot/motors.py:3).
 ```
 
 Write `from robot import helpers` instead, or `import helpers` if it sits at the

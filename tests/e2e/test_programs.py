@@ -127,7 +127,7 @@ async def test_a_program_of_several_files(tmp_path: Path) -> None:
     (tmp_path / "robot" / "motors.py").write_text("import helpers\n", encoding="utf-8")
     script = _script(tmp_path, "from robot.motors import helpers\nimport helpers\n")
 
-    compiled = await pb_client.compile_program(script, root=tmp_path)
+    compiled = await pb_client.compile_program(script, roots=[tmp_path])
 
     # Entry first, because position is what the firmware uses to choose the
     # program to run. A dotted name is one flat module name to the hub, and

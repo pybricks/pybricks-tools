@@ -17,6 +17,13 @@ replaces turns that into advice to add an ``__init__.py``, which is advice to
 do something with no effect. A dotted name maps to a path by replacing the dots
 with slashes, and that is the whole of the resolution rule.
 
+**Modules are looked for in more than one directory.** A project that keeps
+its source in ``src`` resolves ``robot.motors`` against ``src``, and the entry
+script's own directory is searched as well -- as Python puts it on ``sys.path``
+-- so a helper beside a loose script is found even when that script sits
+outside the project's source tree. :func:`pb_core.project.module_roots` is what
+works the list out.
+
 **Anything that does not resolve is assumed to be built into the firmware.**
 ``pybricks.hubs``, ``umath`` and the rest are on the hub already, so a name
 this cannot find is not an error; it is the normal case for most of what a
@@ -39,6 +46,7 @@ from __future__ import annotations
 import ast
 import logging
 import os
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Final, NamedTuple
 
@@ -51,6 +59,7 @@ __all__ = [
     "Module",
     "RelativeImportError",
     "candidates",
+    "canonical",
     "discover",
     "entry_name",
     "find_imports",
@@ -91,7 +100,10 @@ class RelativeImportError(Exception):
             path: The file it is in, when known.
         """
         where = f"{path}:{lineno}" if path is not None else f"line {lineno}"
-        super().__init__(f"{where}: the hub cannot do relative imports")
+        # The location goes last, not first. A message beginning with a path
+        # gets its first letter capitalised on the way to the user, which
+        # turns rel.py into Rel.py.
+        super().__init__(f"the hub cannot do relative imports ({where})")
         self.lineno = lineno
         self.path = path
 
@@ -168,24 +180,26 @@ def candidates(name: str, root: Path) -> tuple[Path, ...]:
     )
 
 
-async def resolve(name: str, root: Path) -> Path | None:
+async def resolve(name: str, roots: Sequence[Path]) -> Path | None:
     """Find the file a module name refers to.
 
     Args:
         name: A fully qualified module name, such as ``robot.motors``.
-        root: The directory names are relative to.
+        roots: The directories names are relative to, in the order to try
+            them.
 
     Returns:
         The file, or ``None`` if there is none -- which means the module is
         expected to be part of the firmware.
     """
-    for candidate in candidates(name, root):
-        if await anyio.Path(candidate).is_file():
-            return candidate
+    for root in roots:
+        for candidate in candidates(name, root):
+            if await anyio.Path(candidate).is_file():
+                return candidate
     return None
 
 
-def _canonical(path: Path) -> Path:
+def canonical(path: Path) -> Path:
     """Put a path in a form two spellings of one file agree on.
 
     Deliberately not ``Path.resolve``, which reads the filesystem to follow
@@ -204,24 +218,38 @@ def _canonical(path: Path) -> Path:
     return Path(os.path.normpath(path.absolute()))
 
 
-def entry_name(entry: Path, root: Path) -> str:
+def entry_name(entry: Path, roots: Sequence[Path]) -> str:
     """Name the module a program starts from.
 
     Args:
         entry: The script the program starts at.
-        root: The directory module names are relative to.
+        roots: The directories module names are looked for in.
 
     Returns:
-        The dotted name the entry script would be imported by -- so
-        ``src/robot/demo.py`` under a root of ``src`` is ``robot.demo``. A
-        script outside the root keeps its stem, since there is no dotted name
-        for it and nothing can import it anyway.
+        The dotted name the entry script would be imported by. Where more than
+        one root contains it -- ``src`` and ``src/robot`` both contain
+        ``src/robot/demo.py`` -- the **most qualified** name wins, so this is
+        ``robot.demo`` rather than ``demo``. That is deliberately not the
+        resolution order, which puts the script's own directory first the way
+        Python does: the fully qualified name is the one another module would
+        have to write to import the program, and it is the more informative
+        thing for the hub to display. A script under none of the roots keeps
+        its stem, since there is no dotted name for it and nothing can import
+        it anyway.
     """
-    try:
-        relative = _canonical(entry).relative_to(_canonical(root))
-    except ValueError:
-        return entry.stem
-    return ".".join((*relative.parent.parts, relative.stem))
+    where = canonical(entry)
+    best = entry.stem
+    parts = 0
+    for root in roots:
+        try:
+            relative = where.relative_to(canonical(root))
+        except ValueError:
+            continue
+        pieces = (*relative.parent.parts, relative.stem)
+        if len(pieces) > parts:
+            best = ".".join(pieces)
+            parts = len(pieces)
+    return best
 
 
 async def _read(path: Path) -> str:
@@ -236,12 +264,13 @@ async def _read(path: Path) -> str:
     return await anyio.Path(path).read_text(encoding="utf-8")
 
 
-async def discover(entry: Path, root: Path) -> tuple[Module, ...]:
+async def discover(entry: Path, roots: Sequence[Path]) -> tuple[Module, ...]:
     """Work out every module a program needs.
 
     Args:
         entry: The script the program starts at.
-        root: The directory module names are relative to.
+        roots: The directories module names are relative to, in the order to
+            try them.
 
     Returns:
         The modules, **entry first**. Position is what the firmware uses to
@@ -252,11 +281,11 @@ async def discover(entry: Path, root: Path) -> tuple[Module, ...]:
         RelativeImportError: If any module imports relative to its package.
         OSError: If a module that resolved cannot be read.
     """
-    found = [Module(entry_name(entry, root), entry, precompiled=False)]
+    found = [Module(entry_name(entry, roots), entry, precompiled=False)]
     # The entry's own file, so that a module importing the program by name is
     # not packed a second time. On current firmware both copies would carry
     # the same name and the import would re-execute the program.
-    seen_paths = {_canonical(entry)}
+    seen_paths = {canonical(entry)}
     seen_names = {found[0].name}
 
     pending = list(find_imports(await _read(entry), path=entry))
@@ -266,14 +295,14 @@ async def discover(entry: Path, root: Path) -> tuple[Module, ...]:
             continue
         seen_names.add(name)
 
-        path = await resolve(name, root)
+        path = await resolve(name, roots)
         if path is None:
             logger.debug("%s is not a local module; assuming the hub has it", name)
             continue
-        if _canonical(path) in seen_paths:
+        if canonical(path) in seen_paths:
             logger.debug("%s is the program itself; not packing it twice", name)
             continue
-        seen_paths.add(_canonical(path))
+        seen_paths.add(canonical(path))
 
         precompiled = path.suffix == PRECOMPILED_SUFFIX
         found.append(Module(name, path, precompiled=precompiled))

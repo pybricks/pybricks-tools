@@ -132,8 +132,13 @@ async def test_a_named_directory_with_a_project(tmp_path: Path) -> None:
     entry = tmp_path / "robot-a" / "src" / "robot" / "demo.py"
     entry.parent.mkdir(parents=True)
     entry.touch()
-    root = await project.module_root(entry, directory=tmp_path / "robot-a")
-    assert root == tmp_path / "robot-a" / "src"
+    roots = await project.module_roots(entry, directory=tmp_path / "robot-a")
+    # The script's own directory first, as Python does, then the project's
+    # source root -- which is what gives the entry module its dotted name.
+    assert roots == (
+        tmp_path / "robot-a" / "src" / "robot",
+        tmp_path / "robot-a" / "src",
+    )
 
 
 async def test_a_named_directory_with_no_project_is_the_root(tmp_path: Path) -> None:
@@ -141,7 +146,10 @@ async def test_a_named_directory_with_no_project_is_the_root(tmp_path: Path) -> 
     entry = scripts / "sub" / "demo.py"
     entry.parent.mkdir(parents=True)
     entry.touch()
-    assert await project.module_root(entry, directory=scripts) == scripts
+    assert await project.module_roots(entry, directory=scripts) == (
+        scripts / "sub",
+        scripts,
+    )
 
 
 async def test_with_neither_the_script_decides(
@@ -153,7 +161,7 @@ async def test_with_neither_the_script_decides(
     entry.parent.mkdir(parents=True)
     entry.touch()
     monkeypatch.chdir(tmp_path)
-    assert await project.module_root(entry) == tmp_path / "examples"
+    assert await project.module_roots(entry) == (tmp_path / "examples",)
 
 
 async def test_the_working_directory_finds_the_project(
@@ -164,4 +172,28 @@ async def test_the_working_directory_finds_the_project(
     entry.parent.mkdir(parents=True)
     entry.touch()
     monkeypatch.chdir(tmp_path / "src" / "robot")
-    assert await project.module_root(entry) == tmp_path / "src"
+    assert await project.module_roots(entry) == (
+        tmp_path / "src" / "robot",
+        tmp_path / "src",
+    )
+
+
+async def test_a_script_outside_the_source_tree_keeps_its_own_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The bug that made roots plural, found by running the command.
+
+    A project with a src layout and a script kept somewhere else: with src as
+    the only root, a helper module sitting beside that script is silently left
+    out of the program, which then fails on the hub with an ImportError.
+    """
+    make(tmp_path, src=True)
+    entry = tmp_path / "scratch" / "demo.py"
+    entry.parent.mkdir()
+    entry.touch()
+    monkeypatch.chdir(tmp_path)
+
+    assert await project.module_roots(entry) == (
+        tmp_path / "scratch",
+        tmp_path / "src",
+    )

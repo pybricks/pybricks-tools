@@ -37,7 +37,7 @@ async def test_a_precompiled_module_passes_through(tmp_path: Path) -> None:
     entry = script(tmp_path, "demo.py", "import native\n")
     (tmp_path / "native.mpy").write_bytes(a_mpy())
 
-    compiled = await compiling.compile_program(entry, root=tmp_path)
+    compiled = await compiling.compile_program(entry, roots=[tmp_path])
 
     assert [module.name for module in compiled.modules] == ["demo", "native"]
     assert compiled.modules[1].mpy == a_mpy()
@@ -52,7 +52,7 @@ async def test_a_precompiled_module_of_the_wrong_version_is_refused(
     (tmp_path / "native.mpy").write_bytes(a_mpy(version=5))
 
     with pytest.raises(compiling.CompileError) as caught:
-        await compiling.compile_program(entry, root=tmp_path)
+        await compiling.compile_program(entry, roots=[tmp_path])
     assert "native.mpy" in str(caught.value)
     assert "version 5" in str(caught.value)
 
@@ -62,7 +62,7 @@ async def test_something_that_is_not_a_mpy_at_all_is_refused(tmp_path: Path) -> 
     (tmp_path / "native.mpy").write_bytes(b"not a mpy file")
 
     with pytest.raises(compiling.CompileError, match=r"not a \.mpy"):
-        await compiling.compile_program(entry, root=tmp_path)
+        await compiling.compile_program(entry, roots=[tmp_path])
 
 
 # ------------------------------------------------------------------- failures
@@ -72,7 +72,7 @@ async def test_a_missing_module_is_left_to_the_firmware(tmp_path: Path) -> None:
     # pybricks.hubs is on the hub already, so not finding it is the normal
     # case rather than an error.
     entry = script(tmp_path, "demo.py", "from pybricks.hubs import ThisHub\n")
-    compiled = await compiling.compile_program(entry, root=tmp_path)
+    compiled = await compiling.compile_program(entry, roots=[tmp_path])
     assert len(compiled.modules) == 1
 
 
@@ -84,7 +84,7 @@ async def test_a_relative_import_is_a_friendly_error(tmp_path: Path) -> None:
     script(tmp_path / "robot", "motors.py", "from . import wheels\n")
 
     with pytest.raises(compiling.CompileError) as caught:
-        await compiling.compile_program(entry, root=tmp_path)
+        await compiling.compile_program(entry, roots=[tmp_path])
     assert "relative import" in str(caught.value)
     assert "motors.py" in str(caught.value)
 
@@ -99,11 +99,11 @@ async def test_an_unreadable_module_names_itself(tmp_path: Path) -> None:
 
     # Nothing to read, so the module is simply not local. The entry script
     # itself is the case that must name a file.
-    compiled = await compiling.compile_program(entry, root=tmp_path)
+    compiled = await compiling.compile_program(entry, roots=[tmp_path])
     assert len(compiled.modules) == 1
 
     with pytest.raises(compiling.CompileError) as caught:
-        await compiling.compile_program(tmp_path / "gone.py", root=tmp_path)
+        await compiling.compile_program(tmp_path / "gone.py", roots=[tmp_path])
     assert "gone.py" in str(caught.value)
 
 
@@ -112,7 +112,7 @@ async def test_a_syntax_error_comes_from_the_compiler(tmp_path: Path) -> None:
     # the compiler names the line, which is a better message.
     entry = script(tmp_path, "demo.py", "def (:\n")
     with pytest.raises(compiling.CompileError) as caught:
-        await compiling.compile_program(entry, root=tmp_path)
+        await compiling.compile_program(entry, roots=[tmp_path])
     assert "demo.py" in str(caught.value)
 
 
@@ -123,7 +123,7 @@ async def test_packing_twice_gives_two_names(tmp_path: Path) -> None:
     # One compile, two hubs: the whole reason compiling and packing are
     # separate steps.
     entry = script(tmp_path, "demo.py", "print('hi')\n")
-    compiled = await compiling.compile_program(entry, root=tmp_path)
+    compiled = await compiling.compile_program(entry, roots=[tmp_path])
 
     modern, _, _ = compiled.pack()[4:].partition(b"\x00")
     legacy, _, _ = compiled.pack(legacy_main=True)[4:].partition(b"\x00")
