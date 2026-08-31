@@ -2,16 +2,16 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "pbd: foreground (trace)",
+      "name": "pb-service: foreground (trace)",
       "type": "debugpy",
       "request": "launch",
-      "module": "pbd",
+      "module": "pb_service",
       "console": "integratedTerminal",
       "justMyCode": false,
       "args": ["--foreground", "-vv"]
     },
     {
-      "name": "pbd: attach to running daemon",
+      "name": "pb-service: attach to running daemon",
       "type": "debugpy",
       "request": "attach",
       "justMyCode": false,

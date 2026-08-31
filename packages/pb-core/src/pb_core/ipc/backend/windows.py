@@ -57,7 +57,7 @@ def pipe_path(endpoint: Endpoint) -> str:
             name or an already-qualified path.
 
     Returns:
-        The qualified path, for example ``\\.\pipe\pybricks-pbd-david``.
+        The qualified path, for example ``\\.\pipe\pybricks-pb-service-david``.
     """
     target = endpoint.target
     if target.startswith("\\\\"):

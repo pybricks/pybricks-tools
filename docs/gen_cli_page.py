@@ -23,8 +23,8 @@ import mkdocs_gen_files
 
 # Importing the CLI module is what registers the commands, exactly as it is
 # for the real entry point.
-import pb.cli  # noqa: F401  # pyright: ignore[reportUnusedImport]
-from pb.app import app
+import pb_cli.cli  # noqa: F401  # pyright: ignore[reportUnusedImport]
+from pb_cli.app import app
 
 PAGE = Path("cli/commands.md")
 

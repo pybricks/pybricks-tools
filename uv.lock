@@ -7,7 +7,7 @@ members = [
     "pybricks-cli",
     "pybricks-client",
     "pybricks-core",
-    "pybricks-daemon",
+    "pybricks-service",
 ]
 
 [manifest.dependency-groups]
@@ -873,13 +873,13 @@ wheels = [
 [[package]]
 name = "pybricks-cli"
 version = "0.1.0"
-source = { editable = "packages/pb" }
+source = { editable = "packages/pb-cli" }
 dependencies = [
     { name = "anyio" },
     { name = "cyclopts" },
     { name = "pybricks-client" },
     { name = "pybricks-core" },
-    { name = "pybricks-daemon" },
+    { name = "pybricks-service" },
     { name = "rich" },
     { name = "typing-extensions" },
 ]
@@ -890,7 +890,7 @@ requires-dist = [
     { name = "cyclopts", specifier = ">=4.22" },
     { name = "pybricks-client", editable = "packages/pb-client" },
     { name = "pybricks-core", editable = "packages/pb-core" },
-    { name = "pybricks-daemon", editable = "packages/pbd" },
+    { name = "pybricks-service", editable = "packages/pb-service" },
     { name = "rich", specifier = ">=13.7" },
     { name = "typing-extensions", specifier = ">=4.15" },
 ]
@@ -932,9 +932,9 @@ requires-dist = [
 ]
 
 [[package]]
-name = "pybricks-daemon"
+name = "pybricks-service"
 version = "0.1.0"
-source = { editable = "packages/pbd" }
+source = { editable = "packages/pb-service" }
 dependencies = [
     { name = "anyio" },
     { name = "bleak" },

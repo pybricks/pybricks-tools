@@ -35,19 +35,19 @@ import anyio
 import pytest
 
 # Imported to register the RPC methods.
-import pbd.methods.daemon  # pyright: ignore[reportUnusedImport]
-import pbd.methods.hub  # pyright: ignore[reportUnusedImport]
-import pbd.methods.program  # pyright: ignore[reportUnusedImport]
-import pbd.methods.stdio  # noqa: F401  # pyright: ignore[reportUnusedImport]
-from pb import console as console_module
-from pb import errors, escape, session
-from pb.commands import hub as hub_commands
-from pb.commands import program as program_commands
-from pb.commands import repl as repl_command
+import pb_service.methods.daemon  # pyright: ignore[reportUnusedImport]
+import pb_service.methods.hub  # pyright: ignore[reportUnusedImport]
+import pb_service.methods.program  # pyright: ignore[reportUnusedImport]
+import pb_service.methods.stdio  # noqa: F401  # pyright: ignore[reportUnusedImport]
+from pb_cli import console as console_module
+from pb_cli import errors, escape, session
+from pb_cli.commands import hub as hub_commands
+from pb_cli.commands import program as program_commands
+from pb_cli.commands import repl as repl_command
 from pb_core.ipc import Endpoint
-from pbd import daemon as daemon_module
-from pbd.hub import protocol as p
-from pbd.hub.fake import FakeHub, FakeHubTransport
+from pb_service import daemon as daemon_module
+from pb_service.hub import protocol as p
+from pb_service.hub.fake import FakeHub, FakeHubTransport
 
 pytestmark = pytest.mark.anyio
 

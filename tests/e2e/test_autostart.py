@@ -58,7 +58,7 @@ def _private_runtime(  # pyright: ignore[reportUnusedFunction]
     # The spawned daemon must land in the same private runtime directory.
     monkeypatch.setenv(
         "PB_DAEMON_CMD",
-        f"{sys.executable} -m pbd --idle-timeout 20",
+        f"{sys.executable} -m pb_service --idle-timeout 20",
     )
     yield
 
@@ -121,7 +121,7 @@ async def test_second_daemon_exits_rather_than_fighting(endpoint: Endpoint) -> N
         # In a worker thread: subprocess.run would block the event loop.
         result = await anyio.to_thread.run_sync(
             lambda: subprocess.run(
-                [sys.executable, "-m", "pbd", "--endpoint", str(endpoint)],
+                [sys.executable, "-m", "pb_service", "--endpoint", str(endpoint)],
                 capture_output=True,
                 text=True,
                 timeout=60,
@@ -136,9 +136,7 @@ async def test_second_daemon_exits_rather_than_fighting(endpoint: Endpoint) -> N
 def test_cli_does_not_import_bleak() -> None:
     # The CLI must stay thin: importing the Bluetooth stack would cost startup
     # time on every invocation and break the layering.
-    code = (
-        "import sys; import pb.cli; print('bleak' in sys.modules, 'pbd' in sys.modules)"
-    )
+    code = "import sys; import pb_cli.cli; print('bleak' in sys.modules, 'pb_service' in sys.modules)"
     result = subprocess.run(
         [sys.executable, "-c", code], capture_output=True, text=True, check=True
     )

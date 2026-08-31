@@ -21,15 +21,15 @@ import pytest
 import pb_client
 
 # Imported to register the RPC methods.
-import pbd.methods.daemon  # pyright: ignore[reportUnusedImport]
-import pbd.methods.hub  # pyright: ignore[reportUnusedImport]
-import pbd.methods.program  # pyright: ignore[reportUnusedImport]
-import pbd.methods.stdio  # noqa: F401  # pyright: ignore[reportUnusedImport]
+import pb_service.methods.daemon  # pyright: ignore[reportUnusedImport]
+import pb_service.methods.hub  # pyright: ignore[reportUnusedImport]
+import pb_service.methods.program  # pyright: ignore[reportUnusedImport]
+import pb_service.methods.stdio  # noqa: F401  # pyright: ignore[reportUnusedImport]
 from pb_core.ipc import Endpoint
 from pb_core.jsonrpc import ErrorCode, JsonRpcError
-from pbd import daemon as daemon_module
-from pbd.hub import protocol as p
-from pbd.hub.fake import FakeHub, FakeHubTransport
+from pb_service import daemon as daemon_module
+from pb_service.hub import protocol as p
+from pb_service.hub.fake import FakeHub, FakeHubTransport
 
 pytestmark = pytest.mark.anyio
 

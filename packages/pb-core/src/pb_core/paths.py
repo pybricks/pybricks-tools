@@ -52,7 +52,7 @@ a test or a sandbox can put the user's preferences somewhere of its own rather
 than editing the real ones.
 """
 
-_DAEMON = "pbd"
+_SERVICE = "pb-service"
 
 
 def _uid() -> int:
@@ -93,7 +93,7 @@ def runtime_dir() -> Path:
 
 def socket_path() -> Path:
     """Return the AF_UNIX socket path. Not meaningful on Windows."""
-    return runtime_dir() / f"{_DAEMON}.sock"
+    return runtime_dir() / f"{_SERVICE}.sock"
 
 
 def windows_pipe_name() -> str:
@@ -104,12 +104,12 @@ def windows_pipe_name() -> str:
     """
     user = os.environ.get("USERNAME") or "user"
     safe = "".join(c for c in user if c.isalnum() or c in "-_") or "user"
-    return rf"\.\pipe\{APP_NAME}-{_DAEMON}-{safe}"
+    return rf"\.\pipe\{APP_NAME}-{_SERVICE}-{safe}"
 
 
 def lock_file() -> Path:
     """Return the single-instance lock file path."""
-    return runtime_dir() / f"{_DAEMON}.lock"
+    return runtime_dir() / f"{_SERVICE}.lock"
 
 
 def cookie_file() -> Path:
@@ -119,7 +119,7 @@ def cookie_file() -> Path:
     DACL grants Everyone read access, so without a shared secret another local
     user could read a hub's output.
     """
-    return runtime_dir() / f"{_DAEMON}.cookie"
+    return runtime_dir() / f"{_SERVICE}.cookie"
 
 
 def state_dir() -> Path:
@@ -145,7 +145,9 @@ def cache_dir() -> Path:
 
 def log_file() -> Path:
     """Return the daemon's log file path."""
-    return Path(platformdirs.user_log_dir(APP_NAME, appauthor=False)) / f"{_DAEMON}.log"
+    return (
+        Path(platformdirs.user_log_dir(APP_NAME, appauthor=False)) / f"{_SERVICE}.log"
+    )
 
 
 def ensure_private_dir(path: Path) -> Path:

@@ -23,10 +23,10 @@ uv run properdocs build --strict
 
 ```
 pb ──> pb-client ──> pb-core
- └───> pbd        ──> pb-core
+ └───> pb_service        ──> pb-core
 ```
 
-`pb` depends on `pbd` so that installing the CLI gives a working daemon
+`pb` depends on `pb_service` so that installing the CLI gives a working daemon
 autostart, but it must never *import* it — importing is what costs startup time.
 There is a test asserting `bleak` is not in `sys.modules` after `pb --help`.
 
