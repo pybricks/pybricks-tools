@@ -21,6 +21,7 @@ events, so nothing here knows about Bluetooth.
 from __future__ import annotations
 
 import struct
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import IntEnum, IntFlag
 from typing import Final
@@ -527,7 +528,7 @@ class VendorIdSource(IntEnum):
     USB_IMPLEMENTERS_FORUM = 2
 
 
-_HUB_TYPE_NAMES: Final[dict[tuple[int, int | None], str]] = {
+_HUB_TYPE_NAMES: Final[Mapping[tuple[int, int | None], str]] = {
     (HubType.MOVE_HUB, None): "Move hub",
     (HubType.CITY_HUB, None): "City hub",
     (HubType.TECHNIC_HUB, None): "Technic hub",

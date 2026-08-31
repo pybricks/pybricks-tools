@@ -31,6 +31,7 @@ screen instead.
 from __future__ import annotations
 
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Final
 
@@ -43,7 +44,7 @@ __all__ = ["NOTICE_SECONDS", "WARNINGS", "Banner", "describe_running"]
 NOTICE_SECONDS: Final = 4.0
 """How long a passing message stays in the status line before it fades."""
 
-WARNINGS: Final[dict[str, str]] = {
+WARNINGS: Final[Mapping[str, str]] = {
     "BATTERY_LOW_VOLTAGE_SHUTDOWN": "battery empty",
     "BATTERY_HIGH_TEMP_SHUTDOWN": "battery too hot",
     "BATTERY_LOW_VOLTAGE_WARNING": "battery low",
