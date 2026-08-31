@@ -45,9 +45,9 @@ pb run my_robot.py
 And the same hub is there from your own Python:
 
 ```python
-async with pb_client.connect() as service:
-    await service.connect_hub(name="Rover")
-    await service.run_program(await pb_client.compile_script(Path("my_robot.py")))
+async with pb_client.connect() as pb:
+    await pb.connect_hub(name="Rover")
+    await pb.run_program(await pb_client.compile_script(Path("my_robot.py")))
 ```
 
 > **Status:** early development. Nothing is stable yet.

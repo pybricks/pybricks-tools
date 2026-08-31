@@ -4,7 +4,7 @@
 """What the commands put on screen.
 
 Everything a command draws goes through here, for two reasons. Commands stay
-thin, which is what keeps them readable as "ask the daemon, then say what
+thin, which is what keeps them readable as "ask the service, then say what
 happened"; and the whole of the tool's appearance can be redirected at once,
 which is how :mod:`tools.screenshot` records a real session for the README.
 

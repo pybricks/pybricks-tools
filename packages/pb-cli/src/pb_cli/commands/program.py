@@ -100,18 +100,18 @@ async def _run(
 
     # Sending and running are two steps to the user, and were one spinner
     # that said "Downloading" for as long as the program ran.
-    async with pb_client.connect(autostart=False) as daemon:
+    async with pb_client.connect(autostart=False) as service:
         with ui.spinner(err, f"Downloading {len(program)} bytes..."):
-            await daemon.download(program, hub_id=hub, slot=slot)
+            await service.download(program, hub_id=hub, slot=slot)
         if wait is not False:
             # The hub stays connected either way, so there is nothing to be
             # gained by watching a spinner instead of the program. Asking for
             # --wait by name is asking for less than that: it says stay, and
             # says nothing about wanting the terminal taken over, so it is
             # taken to mean the plain form.
-            return await _stay_with_it(daemon, hub, slot, terminal=wait is None)
+            return await _stay_with_it(service, hub, slot, terminal=wait is None)
         with ui.spinner(err, "Starting..."):
-            await daemon.start_program(hub_id=hub, slot=slot, wait=False)
+            await service.start_program(hub_id=hub, slot=slot, wait=False)
 
     err.print("Program started.")
     return EXIT_OK
@@ -148,8 +148,8 @@ async def _download(script: Path, hub: str | None, slot: int | None) -> int:
     err = ui.console(err=True)
     program = await pb_client.compile_script(script)
 
-    async with pb_client.connect(autostart=False) as daemon:
-        written = await daemon.download(program, hub_id=hub, slot=slot)
+    async with pb_client.connect(autostart=False) as service:
+        written = await service.download(program, hub_id=hub, slot=slot)
 
     # Which slot is only worth saying on a hub that has more than one, where
     # it is also the thing most worth saying: it is the hub's choice, not
@@ -198,16 +198,16 @@ async def _start(hub: str | None, slot: int | None, wait: bool | None) -> int:
         # At a terminal the opposite is true: somebody typing pb start wants
         # to see what it does.
         wait = False
-    async with pb_client.connect(autostart=False) as daemon:
+    async with pb_client.connect(autostart=False) as service:
         if wait is not False:
-            return await _stay_with_it(daemon, hub, slot, terminal=wait is None)
-        await daemon.start_program(hub_id=hub, slot=slot)
+            return await _stay_with_it(service, hub, slot, terminal=wait is None)
+        await service.start_program(hub_id=hub, slot=slot)
     err.print("Program started.")
     return EXIT_OK
 
 
 async def _stay_with_it(
-    daemon: pb_client.Daemon, hub: str | None, slot: int | None, *, terminal: bool
+    service: pb_client.Service, hub: str | None, slot: int | None, *, terminal: bool
 ) -> int:
     """Start a program and stay with it until it ends.
 
@@ -224,7 +224,7 @@ async def _stay_with_it(
     ended. That is what a build or a pipeline gets.
 
     Args:
-        daemon: The connected service.
+        service: The connected service.
         hub: Which hub.
         slot: Which program slot, or None for the hub's own choice.
         terminal: Whether taking the terminal over is wanted at all. A script
@@ -235,7 +235,7 @@ async def _stay_with_it(
         program that failed in front of the user is not a command that
         succeeded.
     """
-    info = await daemon.hub_info(hub)
+    info = await service.hub_info(hub)
     running = session.Running("program", watch_for_crash=True)
 
     async def start(announce: session.Announce) -> None:
@@ -246,13 +246,13 @@ async def _stay_with_it(
                 for itself.
         """
         del announce
-        await daemon.start_program(hub_id=hub, slot=slot, wait=False)
+        await service.start_program(hub_id=hub, slot=slot, wait=False)
         running.ours = True
 
     # Both have to hold: something to take over, and a reason to.
     use_terminal = terminal and session.have_terminal()
     stay = session.attached if use_terminal else session.streamed
-    return await stay(daemon, info, hub, replay=0, running=running, start=start)
+    return await stay(service, info, hub, replay=0, running=running, start=start)
 
 
 @app.command(name="stop", group=PROGRAM_COMMANDS, sort_key=4)
@@ -269,8 +269,8 @@ async def stop_cmd(*, hub: str | None = None, verbose: Verbose = ()) -> int:
 
 async def _stop(hub: str | None) -> int:
     err = ui.console(err=True)
-    async with pb_client.connect(autostart=False) as daemon:
-        await daemon.stop_program(hub)
+    async with pb_client.connect(autostart=False) as service:
+        await service.stop_program(hub)
     err.print("Stopped.")
     return EXIT_OK
 

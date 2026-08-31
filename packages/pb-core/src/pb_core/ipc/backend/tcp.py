@@ -1,13 +1,13 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 The Pybricks Authors
 
-"""TCP transport, for remote daemons and for tests.
+"""TCP transport, for remote services and for tests.
 
-Remote use works because compilation happens on the client: the daemon never
+Remote use works because compilation happens on the client: the service never
 reads the caller's filesystem, so it does not need to share one.
 
 Anything beyond loopback carries the shared secret over a plaintext socket, so
-it needs TLS or an SSH tunnel in front of it. The daemon logs a warning when it
+it needs TLS or an SSH tunnel in front of it. The service logs a warning when it
 binds a non-loopback address.
 """
 
@@ -62,7 +62,7 @@ class TcpBackend(IpcBackend):
             # ConnectionRefusedError that autostart keys on is only visible in
             # the cause. Recover it, and let anything else propagate unchanged.
             if _was_refused(exc):
-                raise ConnectionRefusedError(f"no daemon at {endpoint}") from exc
+                raise ConnectionRefusedError(f"no service at {endpoint}") from exc
             raise
         logger.debug("tcp: connected to %s", endpoint)
         async with stream:

@@ -6,7 +6,7 @@
 Each platform reports "something is already listening there" differently: a
 ``PermissionError`` from ``FILE_FLAG_FIRST_PIPE_INSTANCE`` on Windows named
 pipes, ``EADDRINUSE`` from a socket bind, ``WSAEADDRINUSE`` on Windows TCP.
-The daemon needs one signal meaning "another daemon already holds this
+The service needs one signal meaning "another service already holds this
 endpoint", so backends raise :class:`AddressInUseError` instead of leaving
 callers to match on OS error strings.
 """

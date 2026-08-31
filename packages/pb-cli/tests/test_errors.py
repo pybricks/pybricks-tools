@@ -59,8 +59,8 @@ def test_flatten_reaches_into_nested_groups() -> None:
 
 
 def test_find_looks_inside_a_group() -> None:
-    wanted = pb_client.DaemonUnavailable("nothing there")
-    assert errors.find(_grouped(wanted), pb_client.DaemonUnavailable) is wanted
+    wanted = pb_client.ServiceUnavailable("nothing there")
+    assert errors.find(_grouped(wanted), pb_client.ServiceUnavailable) is wanted
 
 
 def test_find_returns_none_when_absent() -> None:
@@ -89,7 +89,7 @@ _BUG_CODES = {
 }
 """Codes that mean the two halves disagree about the protocol.
 
-There is nothing to suggest to a user about a message the daemon could not
+There is nothing to suggest to a user about a message the service could not
 parse or could not use, so these keep their traceback like any other bug.
 """
 
@@ -223,7 +223,7 @@ def test_the_compiler_output_is_kept_verbatim() -> None:
 
 
 def test_a_service_that_will_not_start_names_its_log() -> None:
-    exc = pb_client.DaemonStartError("pipe://pb", Path("C:/logs/pb-service.log"))
+    exc = pb_client.ServiceStartError("pipe://pb", Path("C:/logs/pb-service.log"))
     problems = errors.explain(exc)
     assert problems is not None
     assert problems[0].hint is not None
@@ -254,7 +254,7 @@ def test_rendering_shows_the_message_then_the_suggestion() -> None:
 
 
 def test_rendering_does_not_interpret_markup_in_a_message() -> None:
-    # Messages carry text from the daemon and paths from the filesystem, and
+    # Messages carry text from the service and paths from the filesystem, and
     # a stray bracket must not eat the rest of the line.
     text, _ = _render([errors.Problem("could not read [draft].py")])
     assert "[draft].py" in text
@@ -342,7 +342,7 @@ async def test_a_service_that_goes_away_mid_call_is_not_called_a_bug(
     # connection ended before the answer came. It used to print a traceback
     # under "this looks like a bug in pb", which is the wrong thing to say
     # about a service that simply went away -- and it does go away, because a
-    # daemon that loses the startup race exits while a client is attached.
+    # service that loses the startup race exits while a client is attached.
     code = await errors.run(_raise, PeerClosedError("connection closed"))
     assert code == errors.EXIT_ERROR
     captured = capsys.readouterr()
@@ -355,7 +355,7 @@ def _version_error(client: int, lowest: int, highest: int) -> JsonRpcError:
     """Build the error a service raises when the handshake does not agree."""
     return JsonRpcError(
         ErrorCode.UNSUPPORTED_PROTOCOL_VERSION,
-        f"client speaks protocol {client}; this daemon serves {lowest}..{highest}",
+        f"client speaks protocol {client}; this service serves {lowest}..{highest}",
         {"client": client, "min": lowest, "max": highest},
     )
 
@@ -387,7 +387,7 @@ def test_a_service_too_old_to_say_is_blamed_anyway() -> None:
     # the answer: it is the old one.
     stale = JsonRpcError(
         ErrorCode.UNSUPPORTED_PROTOCOL_VERSION,
-        "client speaks protocol 2; this daemon serves 1..1",
+        "client speaks protocol 3; this service serves 1..1",
     )
     problems = errors.explain(stale)
     assert problems is not None

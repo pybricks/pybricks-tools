@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 The Pybricks Authors
 
-"""The daemon's lifecycle.
+"""The service's lifecycle.
 
 Scope ordering is the design. The hub manager is entered *before* the
 listener and exited *after* it, so hub connections live in a scope that is a
@@ -35,10 +35,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["DEFAULT_IDLE_TIMEOUT", "Daemon", "run_daemon"]
+__all__ = ["DEFAULT_IDLE_TIMEOUT", "Service", "run_service"]
 
 DEFAULT_IDLE_TIMEOUT: Final = 300.0
-"""Seconds of inactivity before an idle daemon exits."""
+"""Seconds of inactivity before an idle service exits."""
 
 _TICK: Final = 0.25
 """Watchdog period.
@@ -48,8 +48,8 @@ in GetQueuedCompletionStatus and can be slow to notice Ctrl+C.
 """
 
 
-class Daemon:
-    """Shared state for one running daemon."""
+class Service:
+    """Shared state for one running service."""
 
     def __init__(
         self,
@@ -58,7 +58,7 @@ class Daemon:
         idle_timeout: float,
         hubs: HubManager,
     ) -> None:
-        """Create the daemon state.
+        """Create the service state.
 
         Args:
             endpoint: Where it listens.
@@ -79,7 +79,7 @@ class Daemon:
 
     @property
     def uptime(self) -> float:
-        """Seconds since the daemon started."""
+        """Seconds since the service started."""
         return time.monotonic() - self.started_at
 
     def mark_activity(self) -> None:
@@ -87,7 +87,7 @@ class Daemon:
         self._last_activity = time.monotonic()
 
     def request_shutdown(self, reason: str) -> None:
-        """Ask the daemon to stop.
+        """Ask the service to stop.
 
         Args:
             reason: Why, for logging and for the notification to clients.
@@ -101,13 +101,13 @@ class Daemon:
     def has_work(self) -> bool:
         """Whether anything would be lost by exiting now.
 
-        A connected hub keeps the daemon alive even with no clients attached,
+        A connected hub keeps the service alive even with no clients attached,
         because holding that connection open between commands is the point.
         """
         return bool(self.sessions) or self.hubs.count > 0
 
     async def _watchdog(self) -> None:
-        """Exit once the daemon has been idle for long enough."""
+        """Exit once the service has been idle for long enough."""
         while True:
             await anyio.sleep(_TICK)
             # A hub that went away on its own should stop keeping us alive.
@@ -130,18 +130,18 @@ DRAIN_SECONDS = 2.0
 """How long a shutdown waits for replies already queued to reach their clients.
 
 Long enough for a reply on any working connection, short enough that a client
-which has stopped reading cannot keep the daemon alive.
+which has stopped reading cannot keep the service alive.
 """
 
 
 @asynccontextmanager
-async def run_daemon(
+async def run_service(
     endpoint: Endpoint,
     *,
     idle_timeout: float = DEFAULT_IDLE_TIMEOUT,
     transport: HubTransport | None = None,
-) -> AsyncGenerator[Daemon, None]:
-    """Run a daemon for the duration of the block.
+) -> AsyncGenerator[Service, None]:
+    """Run a service for the duration of the block.
 
     Args:
         endpoint: Where to listen.
@@ -149,10 +149,10 @@ async def run_daemon(
         transport: How to reach hubs. Defaults to the configured backend.
 
     Yields:
-        The running daemon.
+        The running service.
 
     Raises:
-        AddressInUseError: If another daemon already holds the endpoint.
+        AddressInUseError: If another service already holds the endpoint.
     """
     from pb_service.backend import get_hub_transport
     from pb_service.session import serve_session
@@ -164,8 +164,8 @@ async def run_daemon(
         # therefore live in a sibling scope of the client sessions, so a client
         # going away cancels only its own tasks and never a hub.
         async with run_hub_manager(transport or get_hub_transport()) as hubs:
-            daemon = Daemon(endpoint, token, idle_timeout, hubs)
-            root.start_soon(daemon._watchdog)  # pyright: ignore[reportPrivateUsage]
+            service = Service(endpoint, token, idle_timeout, hubs)
+            root.start_soon(service._watchdog)  # pyright: ignore[reportPrivateUsage]
 
             async with ipc.create_listener(endpoint) as listener:
                 logger.info("listening on %s", endpoint)
@@ -173,11 +173,11 @@ async def run_daemon(
                 async with anyio.create_task_group() as clients:
 
                     async def handle(stream: anyio.abc.ByteStream) -> None:
-                        await serve_session(daemon, stream)
+                        await serve_session(service, stream)
 
                     clients.start_soon(listener.serve, handle, clients)
                     try:
-                        yield daemon
+                        yield service
                     finally:
                         # A shutdown is still a request, and its answer is the
                         # last thing these connections owe: cancelling the
@@ -188,9 +188,9 @@ async def run_daemon(
                         # Shielded, because this runs while the enclosing scope
                         # may already be cancelled, and bounded, because a
                         # client that has stopped reading must not be able to
-                        # keep the daemon from exiting.
+                        # keep the service from exiting.
                         with anyio.move_on_after(DRAIN_SECONDS, shield=True):
-                            for session in list(daemon.sessions):
+                            for session in list(service.sessions):
                                 if session.peer is not None:
                                     await session.peer.drain()
                         # Stop accepting, then let existing clients unwind.
@@ -208,7 +208,7 @@ def log_banner(endpoint: Endpoint, version: str) -> None:
     """Log the facts needed to interpret everything that follows.
 
     Args:
-        endpoint: Where the daemon is listening.
-        version: The daemon version.
+        endpoint: Where the service is listening.
+        version: The service version.
     """
     log_startup_banner(logger, "pb-service", version, endpoint=endpoint)

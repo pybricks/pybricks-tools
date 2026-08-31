@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 The Pybricks Authors
 
-"""Session and daemon-level RPC methods."""
+"""Session and service-level RPC methods."""
 
 from __future__ import annotations
 
@@ -28,16 +28,16 @@ __all__ = ["daemon_hello", "daemon_info", "daemon_ping", "daemon_shutdown"]
 
 
 @method(
-    "daemon.hello",
+    "service.hello",
     "Authenticate and negotiate the protocol version. Must be the first call.",
     needs_hello=False,
     params={
         "client": "Name of the connecting program.",
         "client_version": "Version of the connecting program.",
         "protocol_version": "Protocol version the client speaks.",
-        "token": "The shared secret from the daemon's cookie file.",
+        "token": "The shared secret from the service's cookie file.",
     },
-    returns="Daemon identity, protocol version and capabilities.",
+    returns="Service identity, protocol version and capabilities.",
 )
 async def daemon_hello(session: Session, params: dict[str, Any]) -> dict[str, Any]:
     """Complete the handshake."""
@@ -46,14 +46,14 @@ async def daemon_hello(session: Session, params: dict[str, Any]) -> dict[str, An
 
     # Constant-time, so a wrong token cannot be recovered by timing repeated
     # connection attempts.
-    if not secrets.compare_digest(token, session.daemon.token):
+    if not secrets.compare_digest(token, session.service.token):
         logger.warning("rejecting client: bad authentication token")
         raise JsonRpcError(ErrorCode.NOT_AUTHENTICATED, "invalid authentication token")
 
     if client_version < MIN_PROTOCOL_VERSION or client_version > PROTOCOL_VERSION:
         raise JsonRpcError(
             ErrorCode.UNSUPPORTED_PROTOCOL_VERSION,
-            f"client speaks protocol {client_version}; this daemon serves "
+            f"client speaks protocol {client_version}; this service serves "
             f"{MIN_PROTOCOL_VERSION}..{PROTOCOL_VERSION}",
             # The numbers, so that the client can say which of the two is
             # the old one. Guessing costs the user a suggestion that
@@ -93,43 +93,43 @@ async def daemon_hello(session: Session, params: dict[str, Any]) -> dict[str, An
 
 
 @method(
-    "daemon.ping", "Check that the daemon is responsive.", returns="An empty object."
+    "service.ping", "Check that the service is responsive.", returns="An empty object."
 )
 async def daemon_ping(session: Session, params: dict[str, Any]) -> dict[str, Any]:
     """Answer immediately."""
-    session.daemon.mark_activity()
+    session.service.mark_activity()
     return {}
 
 
 @method(
-    "daemon.info",
-    "Report the daemon's status.",
+    "service.info",
+    "Report the service's status.",
     returns="Version, uptime, endpoint, log location and connected clients.",
 )
 async def daemon_info(session: Session, params: dict[str, Any]) -> dict[str, Any]:
-    """Describe the running daemon."""
-    daemon = session.daemon
-    daemon.mark_activity()
+    """Describe the running service."""
+    service = session.service
+    service.mark_activity()
     return {
         "version": __version__,
         "protocol_version": PROTOCOL_VERSION,
         "pid": __import__("os").getpid(),
-        "uptime_s": round(daemon.uptime, 3),
-        "endpoint": str(daemon.endpoint),
+        "uptime_s": round(service.uptime, 3),
+        "endpoint": str(service.endpoint),
         "log_file": str(paths.log_file()),
-        "idle_timeout_s": daemon.idle_timeout,
-        "clients": len(daemon.sessions),
+        "idle_timeout_s": service.idle_timeout,
+        "clients": len(service.sessions),
         "hubs": [],
     }
 
 
 @method(
-    "daemon.shutdown",
-    "Ask the daemon to exit.",
+    "service.shutdown",
+    "Ask the service to exit.",
     params={"force": "Shut down even if hubs are connected."},
-    returns="An empty object, sent before the daemon stops.",
+    returns="An empty object, sent before the service stops.",
 )
 async def daemon_shutdown(session: Session, params: dict[str, Any]) -> dict[str, Any]:
     """Request shutdown."""
-    session.daemon.request_shutdown(f"requested by {session.client_name}")
+    session.service.request_shutdown(f"requested by {session.client_name}")
     return {}

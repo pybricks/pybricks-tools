@@ -121,7 +121,7 @@ async def test_notification_reaches_the_handler() -> None:
 
 async def test_cancelling_a_call_tells_the_peer_to_stop() -> None:
     # A client-side deadline only abandons this side's wait, so without
-    # $/cancelRequest the daemon would keep working on an abandoned request.
+    # $/cancelRequest the service would keep working on an abandoned request.
     started = anyio.Event()
     cancelled = anyio.Event()
 
@@ -149,7 +149,7 @@ async def test_cancelling_a_call_tells_the_peer_to_stop() -> None:
 
 
 async def test_pending_calls_fail_when_the_connection_drops() -> None:
-    # Otherwise a caller waits forever on a daemon that has gone away.
+    # Otherwise a caller waits forever on a service that has gone away.
     client_stream, server_stream = _pair()
     async with (
         client_stream,

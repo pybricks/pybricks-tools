@@ -3,11 +3,11 @@
 
 """Compiling Python for a hub.
 
-Compilation happens on the client rather than in the daemon, for two reasons.
-The script is on the caller's filesystem, so the daemon would otherwise need to
+Compilation happens on the client rather than in the service, for two reasons.
+The script is on the caller's filesystem, so the service would otherwise need to
 read files belonging to whoever asked -- which stops being reasonable the moment
-the daemon is on another machine. And it keeps the compiler, which is a native
-binary, out of the daemon entirely.
+the service is on another machine. And it keeps the compiler, which is a native
+binary, out of the service entirely.
 
 The compiler is a subprocess, so it runs in a worker thread rather than on the
 event loop.

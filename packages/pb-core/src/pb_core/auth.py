@@ -1,16 +1,16 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 The Pybricks Authors
 
-"""Shared-secret authentication between the client and the daemon.
+"""Shared-secret authentication between the client and the service.
 
-The daemon writes a random token to a file only the current user can read, and
+The service writes a random token to a file only the current user can read, and
 every client presents it in the mandatory first call. This is the X11
 magic-cookie scheme.
 
 It is required on every transport rather than only on TCP. The default
 discretionary access control list on a Windows named pipe grants Everyone read
 access, so without a secret another local user could not issue commands but
-could still watch a hub's output. It is not sufficient on its own for a daemon
+could still watch a hub's output. It is not sufficient on its own for a service
 reachable beyond loopback, where the token crosses the network in clear and
 needs TLS or an SSH tunnel around it.
 """
@@ -32,9 +32,9 @@ TOKEN_BYTES = 32
 
 
 def read_or_create_token(path: Path | None = None) -> str:
-    """Return the daemon's token, creating one if there is none.
+    """Return the service's token, creating one if there is none.
 
-    Called by the daemon at startup.
+    Called by the service at startup.
 
     Args:
         path: Override the cookie file location.
@@ -67,7 +67,7 @@ def read_or_create_token(path: Path | None = None) -> str:
 
 
 def load_token(path: Path | None = None) -> str | None:
-    """Return the daemon's token if it can be read.
+    """Return the service's token if it can be read.
 
     Called by clients before connecting.
 
@@ -75,7 +75,7 @@ def load_token(path: Path | None = None) -> str | None:
         path: Override the cookie file location.
 
     Returns:
-        The token, or ``None`` if no daemon has ever run for this user.
+        The token, or ``None`` if no service has ever run for this user.
     """
     cookie = path or paths.cookie_file()
     try:

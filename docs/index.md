@@ -128,12 +128,12 @@ import pb_client
 
 
 async def main() -> None:
-    async with pb_client.connect() as service:
-        hub = await service.connect_hub(name="Rover")
+    async with pb_client.connect() as pb:
+        hub = await pb.connect_hub(name="Rover")
         print(f"connected to {hub.name}, firmware {hub.firmware}")
 
         program = await pb_client.compile_script(Path("demo.py"))
-        reason = await service.run_program(program)
+        reason = await pb.run_program(program)
         print(f"program {reason}")
 
 
@@ -145,7 +145,7 @@ scope instead, which bounds the whole operation rather than one step inside it:
 
 ```python
 with anyio.move_on_after(30):
-    await service.run_program(program)
+    await pb.run_program(program)
 ```
 
 Cancelling a run also stops the program on the hub, rather than leaving it

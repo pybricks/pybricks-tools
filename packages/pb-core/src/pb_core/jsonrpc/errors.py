@@ -29,7 +29,7 @@ class ErrorCode(IntEnum):
     INVALID_PARAMS = -32602
     INTERNAL_ERROR = -32603
 
-    # Session and daemon.
+    # Session and service.
     DAEMON_SHUTTING_DOWN = -32000
     HELLO_REQUIRED = -32001
     UNSUPPORTED_PROTOCOL_VERSION = -32002

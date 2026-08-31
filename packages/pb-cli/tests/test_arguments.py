@@ -90,7 +90,7 @@ def test_the_hub_is_always_an_option_and_never_positional() -> None:
 
 
 def test_every_command_that_talks_to_a_hub_can_be_told_which_one() -> None:
-    # The daemon can hold several hubs at once, so any command that acts on one
+    # The service can hold several hubs at once, so any command that acts on one
     # needs a way to say which. Missing it on a single command is the sort of
     # gap nobody notices until they have two hubs on the desk.
     acting_on_a_hub = {

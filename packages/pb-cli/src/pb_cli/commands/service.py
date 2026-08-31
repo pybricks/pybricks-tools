@@ -60,12 +60,12 @@ async def service_status(*, verbose: Verbose = (), start: bool = False) -> int:
 async def _service_status(start: bool) -> int:
     out, err = ui.console(), ui.console(err=True)
     try:
-        async with pb_client.connect(autostart=start) as daemon:
-            info = await daemon.info()
+        async with pb_client.connect(autostart=start) as service:
+            info = await service.info()
     except _HANDLED_HERE as exc:
         # "It is not running" is the answer to the question, not a failure to
         # answer it, so it is reported here rather than as an error.
-        if errors.find(exc, pb_client.DaemonUnavailable) is None:
+        if errors.find(exc, pb_client.ServiceUnavailable) is None:
             raise
         err.print("[yellow]Not running.[/]")
         err.print("It starts by itself when needed, or run [bold]pb service start[/].")
@@ -100,8 +100,8 @@ async def service_start(*, verbose: Verbose = ()) -> int:
 
 async def _service_start() -> int:
     err = ui.console(err=True)
-    async with pb_client.connect(autostart=True) as daemon:
-        info = await daemon.info()
+    async with pb_client.connect(autostart=True) as service:
+        info = await service.info()
     err.print(f"Running (pid {info.pid}).")
     return EXIT_OK
 
@@ -120,11 +120,11 @@ async def service_stop(*, verbose: Verbose = ()) -> int:
 async def _service_stop() -> int:
     err = ui.console(err=True)
     try:
-        async with pb_client.connect(autostart=False) as daemon:
-            await daemon.shutdown()
+        async with pb_client.connect(autostart=False) as service:
+            await service.shutdown()
     except _HANDLED_HERE as exc:
         # Stopping something that is already stopped succeeded.
-        if errors.find(exc, pb_client.DaemonUnavailable) is None:
+        if errors.find(exc, pb_client.ServiceUnavailable) is None:
             raise
         err.print("Not running.")
         return EXIT_OK

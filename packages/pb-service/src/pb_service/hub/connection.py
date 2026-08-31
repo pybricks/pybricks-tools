@@ -8,8 +8,8 @@ Two things here are worth understanding before changing anything.
 **Buffering is asymmetric, on purpose.** The transport's notification callback
 runs outside any task and must never block, so it can only ever hand data over
 without waiting. Its queue is therefore unbounded, which makes that handover
-incapable of failing: a status report is a *level* the daemon mirrors as state,
-so losing one would leave the daemon quietly disagreeing with the hub. What
+incapable of failing: a status report is a *level* the service mirrors as state,
+so losing one would leave the service quietly disagreeing with the hub. What
 keeps unboundedness safe is explicit byte accounting -- above a high-water mark
 the callback drops program output only, and counts what it dropped. Per-client
 queues, by contrast, are bounded and lossy. The result is that a client which
@@ -157,7 +157,7 @@ class HubConnection:
         self._rx_tx, self._rx_rx = anyio.create_memory_object_stream[object](math.inf)
         self._rx_bytes = 0
         self.ingress_dropped = 0
-        """Hub bytes discarded because the daemon fell behind. Should stay zero."""
+        """Hub bytes discarded because the service fell behind. Should stay zero."""
 
     # -------------------------------------------------------------- lifecycle
 
@@ -397,7 +397,7 @@ class HubConnection:
         stop exactly when the block exits and no work can outlive it.
 
         Detaching does **not** disconnect the hub: the connection belongs to the
-        daemon, not to whoever is listening.
+        service, not to whoever is listening.
 
         Args:
             channels: Which channels to receive. Defaults to all of them.

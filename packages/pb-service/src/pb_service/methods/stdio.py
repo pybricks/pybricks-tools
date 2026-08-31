@@ -207,7 +207,7 @@ async def _write_stdin(connection: HubConnection, data: bytes) -> int:
 )
 async def hub_attach(session: Session, params: dict[str, Any]) -> dict[str, Any]:
     """Attach to a hub's stdio."""
-    session.daemon.mark_activity()
+    session.service.mark_activity()
     connection = hub_of(session, params)
     peer = _peer(session)
     hub_id = connection.id
@@ -259,7 +259,7 @@ async def hub_attach(session: Session, params: dict[str, Any]) -> dict[str, Any]
 )
 async def hub_stdin(session: Session, params: dict[str, Any]) -> dict[str, Any]:
     """Write to a hub's standard input."""
-    session.daemon.mark_activity()
+    session.service.mark_activity()
     connection = hub_of(session, params)
     data = decode_binary(require(params, "data", str))
     return {"size": await _write_stdin(connection, data)}
@@ -273,7 +273,7 @@ async def hub_stdin(session: Session, params: dict[str, Any]) -> dict[str, Any]:
 )
 async def program_repl(session: Session, params: dict[str, Any]) -> dict[str, Any]:
     """Start the REPL."""
-    session.daemon.mark_activity()
+    session.service.mark_activity()
     connection = hub_of(session, params)
     info = connection.info
     if info is None:

@@ -85,7 +85,7 @@ LEGO_COMPANY_ID: Final = 0x0397
 # ------------------------------------------------------------------ versions
 
 MIN_SUPPORTED_PROFILE: Final[Version] = (1, 2, 0)
-"""Oldest profile this daemon speaks.
+"""Oldest profile this service speaks.
 
 v1.2.0 introduced the capabilities characteristic and RAM-based program
 download, so requiring it removes the entire legacy Nordic UART code path.

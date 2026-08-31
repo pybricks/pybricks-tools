@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 The Pybricks Authors
 
-"""Platform locations for the daemon's socket, lock, cookie, log and cache.
+"""Platform locations for the service's socket, lock, cookie, log and cache.
 
 Every path used by more than one process lives here, so that the client and the
-daemon cannot disagree about where to look. Callers never type these paths; the
-whole point is that connecting to the daemon is transparent.
+service cannot disagree about where to look. Callers never type these paths; the
+whole point is that connecting to the service is transparent.
 """
 
 from __future__ import annotations
@@ -40,7 +40,7 @@ RUNTIME_DIR_ENV_VAR = "PB_RUNTIME_DIR"
 """Overrides the runtime directory.
 
 Moves the socket, lock and cookie together, so a test or a sandboxed
-environment can relocate all of the daemon's per-user state at once without
+environment can relocate all of the service's per-user state at once without
 touching the real one.
 """
 
@@ -62,7 +62,7 @@ def _uid() -> int:
 
 
 def runtime_dir() -> Path:
-    """Return the directory holding the daemon's socket, lock and cookie.
+    """Return the directory holding the service's socket, lock and cookie.
 
     On Linux this honours ``XDG_RUNTIME_DIR``, which is the correct location for
     per-user runtime state and is cleaned up at logout.
@@ -72,7 +72,7 @@ def runtime_dir() -> Path:
     only 104 bytes on Darwin, so a deterministic short path under the temporary
     directory is used instead.
 
-    On Windows the daemon is reached through a named pipe rather than a socket,
+    On Windows the service is reached through a named pipe rather than a socket,
     so this is only used for the lock and cookie files.
     """
     override = os.environ.get(RUNTIME_DIR_ENV_VAR)
@@ -97,7 +97,7 @@ def socket_path() -> Path:
 
 
 def windows_pipe_name() -> str:
-    """Return the Windows named pipe address for the daemon.
+    """Return the Windows named pipe address for the service.
 
     The name includes the user name because pipe names are machine-global, so
     two users on one machine must not collide.
@@ -144,7 +144,7 @@ def cache_dir() -> Path:
 
 
 def log_file() -> Path:
-    """Return the daemon's log file path."""
+    """Return the service's log file path."""
     return (
         Path(platformdirs.user_log_dir(APP_NAME, appauthor=False)) / f"{_SERVICE}.log"
     )

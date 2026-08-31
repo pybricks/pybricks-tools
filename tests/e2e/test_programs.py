@@ -14,15 +14,15 @@ import anyio
 import pytest
 
 import pb_client
-
-# Imported to register the RPC methods.
-import pb_service.methods.daemon  # pyright: ignore[reportUnusedImport]
 import pb_service.methods.hub  # pyright: ignore[reportUnusedImport]
 import pb_service.methods.program  # pyright: ignore[reportUnusedImport]
+
+# Imported to register the RPC methods.
+import pb_service.methods.service  # pyright: ignore[reportUnusedImport]
 import pb_service.methods.stdio  # noqa: F401  # pyright: ignore[reportUnusedImport]
 from pb_core.ipc import Endpoint
 from pb_core.jsonrpc import ErrorCode, JsonRpcError
-from pb_service import daemon as daemon_module
+from pb_service import service as service_module
 from pb_service.hub import protocol as p
 from pb_service.hub.fake import FakeHub, FakeHubTransport
 
@@ -77,11 +77,11 @@ def _endpoint(tmp_path: Path) -> Endpoint:
 @pytest.fixture
 async def connected(tmp_path: Path, hub: FakeHub) -> AsyncGenerator[Endpoint, None]:
     endpoint = _endpoint(tmp_path)
-    async with daemon_module.run_daemon(
+    async with service_module.run_service(
         endpoint, idle_timeout=0, transport=FakeHubTransport(hub)
     ):
-        async with pb_client.connect(endpoint, autostart=False) as daemon:
-            await daemon.connect_hub(name=HUB_NAME)
+        async with pb_client.connect(endpoint, autostart=False) as service:
+            await service.connect_hub(name=HUB_NAME)
         yield endpoint
 
 
@@ -154,8 +154,8 @@ async def test_download_puts_the_program_on_the_hub(
     connected: Endpoint, hub: FakeHub, tmp_path: Path
 ) -> None:
     program = await pb_client.compile_script(_script(tmp_path, "print('hi')\n"))
-    async with pb_client.connect(connected, autostart=False) as daemon:
-        written = await daemon.download(program)
+    async with pb_client.connect(connected, autostart=False) as service:
+        written = await service.download(program)
 
     assert written.size == len(program)
     assert bytes(hub.program[: len(program)]) == program
@@ -172,17 +172,17 @@ async def test_a_download_goes_to_the_slot_the_hub_has_selected(
     hub.selected_slot = 2
     hub.send_status()
     program = await pb_client.compile_script(_script(tmp_path, "print('hi')\n"))
-    async with pb_client.connect(connected, autostart=False) as daemon:
+    async with pb_client.connect(connected, autostart=False) as service:
         # Naming the slot the hub has selected is agreement rather than an
         # instruction, and is carried out.
-        written = await daemon.download(program, slot=2)
+        written = await service.download(program, slot=2)
         assert written.slot == 2
 
         # Naming another one cannot be carried out at all: nothing in the
         # protocol selects a slot, so the program would land in slot 2 anyway
         # and a later start of slot 4 would run whatever was already there.
         with pytest.raises(JsonRpcError) as info:
-            await daemon.download(program, slot=4)
+            await service.download(program, slot=4)
     assert info.value.code == ErrorCode.PROGRAM_SLOT_NOT_SELECTED
     assert "slot 2 selected" in str(info.value)
 
@@ -197,14 +197,14 @@ async def test_a_single_slot_hub_says_so_rather_than_naming_a_slot(
     program = await pb_client.compile_script(_script(tmp_path, "print('hi')\n"))
     endpoint = _endpoint(tmp_path)
     async with (
-        daemon_module.run_daemon(
+        service_module.run_service(
             endpoint, idle_timeout=0, transport=FakeHubTransport(hub)
         ),
-        pb_client.connect(endpoint, autostart=False) as daemon,
+        pb_client.connect(endpoint, autostart=False) as service,
     ):
-        await daemon.connect_hub(name=HUB_NAME)
+        await service.connect_hub(name=HUB_NAME)
         with pytest.raises(JsonRpcError, match="one program at a time"):
-            await daemon.download(program, slot=3)
+            await service.download(program, slot=3)
 
 
 async def test_download_clears_the_metadata_first(
@@ -213,8 +213,8 @@ async def test_download_clears_the_metadata_first(
     # Zero first, real length last: an interrupted download must never leave
     # something that looks runnable.
     program = await pb_client.compile_script(_script(tmp_path, "print('hi')\n"))
-    async with pb_client.connect(connected, autostart=False) as daemon:
-        await daemon.download(program)
+    async with pb_client.connect(connected, autostart=False) as service:
+        await service.download(program)
 
     metas = [
         command
@@ -237,17 +237,17 @@ async def test_a_program_that_is_too_large_is_refused(
         else Endpoint("unix", str(tmp_path / f"{unique}.sock"))
     )
     async with (
-        daemon_module.run_daemon(
+        service_module.run_service(
             endpoint, idle_timeout=0, transport=FakeHubTransport(hub)
         ),
-        pb_client.connect(endpoint, autostart=False) as daemon,
+        pb_client.connect(endpoint, autostart=False) as service,
     ):
-        await daemon.connect_hub(name=HUB_NAME)
+        await service.connect_hub(name=HUB_NAME)
         program = await pb_client.compile_script(
             _script(tmp_path, "print('a longer program')\n" * 20)
         )
         with pytest.raises(JsonRpcError) as info:
-            await daemon.download(program)
+            await service.download(program)
 
     assert info.value.code == ErrorCode.PROGRAM_TOO_LARGE
     # The limit is reported, so the message can say what would fit.
@@ -265,14 +265,14 @@ async def test_download_is_chunked_to_the_hub_limit(
         else Endpoint("unix", str(tmp_path / f"{unique}.sock"))
     )
     async with (
-        daemon_module.run_daemon(
+        service_module.run_service(
             endpoint, idle_timeout=0, transport=FakeHubTransport(hub)
         ),
-        pb_client.connect(endpoint, autostart=False) as daemon,
+        pb_client.connect(endpoint, autostart=False) as service,
     ):
-        await daemon.connect_hub(name=HUB_NAME)
+        await service.connect_hub(name=HUB_NAME)
         program = await pb_client.compile_script(_script(tmp_path, "print('hello')\n"))
-        await daemon.download(program)
+        await service.download(program)
 
     writes = [c for c in hub.commands if c[0] == p.Command.WRITE_USER_RAM]
     assert len(writes) > 1, "a small write limit should force several chunks"
@@ -288,8 +288,8 @@ async def test_run_without_waiting_starts_the_program(
     connected: Endpoint, hub: FakeHub, tmp_path: Path
 ) -> None:
     program = await pb_client.compile_script(_script(tmp_path, "print('hi')\n"))
-    async with pb_client.connect(connected, autostart=False) as daemon:
-        reason = await daemon.run_program(program, wait=False)
+    async with pb_client.connect(connected, autostart=False) as service:
+        reason = await service.run_program(program, wait=False)
     assert reason == "started"
     assert hub.status & p.StatusFlag.USER_PROGRAM_RUNNING
 
@@ -331,9 +331,9 @@ async def test_start_uses_the_requested_slot(
     connected: Endpoint, hub: FakeHub, tmp_path: Path
 ) -> None:
     program = await pb_client.compile_script(_script(tmp_path, "print('hi')\n"))
-    async with pb_client.connect(connected, autostart=False) as daemon:
-        await daemon.download(program)
-        await daemon.start_program(slot=2)
+    async with pb_client.connect(connected, autostart=False) as service:
+        await service.download(program)
+        await service.start_program(slot=2)
 
     starts = [c for c in hub.commands if c[0] == p.Command.START_USER_PROGRAM]
     assert starts[-1] == bytes([p.Command.START_USER_PROGRAM, 2])
@@ -352,14 +352,14 @@ async def test_starting_a_slot_on_old_firmware_is_refused(
         else Endpoint("unix", str(tmp_path / f"{unique}.sock"))
     )
     async with (
-        daemon_module.run_daemon(
+        service_module.run_service(
             endpoint, idle_timeout=0, transport=FakeHubTransport(hub)
         ),
-        pb_client.connect(endpoint, autostart=False) as daemon,
+        pb_client.connect(endpoint, autostart=False) as service,
     ):
-        await daemon.connect_hub(name=HUB_NAME)
+        await service.connect_hub(name=HUB_NAME)
         with pytest.raises(JsonRpcError) as info:
-            await daemon.start_program(slot=2)
+            await service.start_program(slot=2)
 
     assert info.value.code == ErrorCode.HUB_UNSUPPORTED
 
@@ -367,11 +367,11 @@ async def test_starting_a_slot_on_old_firmware_is_refused(
 async def test_a_hub_that_refuses_says_so(connected: Endpoint, hub: FakeHub) -> None:
     # A refusal is an ordinary answer -- a busy hub, a slot with nothing in
     # it -- and must not arrive as an internal error with the reason left in
-    # the daemon's log.
+    # the service's log.
     hub.reject_next = p.HubError.BUSY
-    async with pb_client.connect(connected, autostart=False) as daemon:
+    async with pb_client.connect(connected, autostart=False) as service:
         with pytest.raises(JsonRpcError) as info:
-            await daemon.start_program()
+            await service.start_program()
 
     assert info.value.code == ErrorCode.HUB_BUSY
     assert "would not start" in info.value.message
@@ -386,10 +386,10 @@ async def test_starting_names_the_program_on_new_firmware(
     # The no-argument form of START_USER_PROGRAM was removed in profile
     # v1.4.0, and a hub that speaks it refuses the legacy command outright, so
     # "whichever is selected" has to be resolved to a real slot before asking.
-    async with pb_client.connect(connected, autostart=False) as daemon:
+    async with pb_client.connect(connected, autostart=False) as service:
         program = await pb_client.compile_script(_script(tmp_path, "x = 1\n"))
-        await daemon.download(program)
-        await daemon.start_program()
+        await service.download(program)
+        await service.start_program()
 
     starts = [c for c in hub.commands if c[0] == p.Command.START_USER_PROGRAM]
     assert starts[-1] == bytes([p.Command.START_USER_PROGRAM, 0])

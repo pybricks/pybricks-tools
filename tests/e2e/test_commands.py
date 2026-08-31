@@ -5,7 +5,7 @@
 
 These call the same functions the console script calls, over a real service on
 a real socket or named pipe, so what is exercised is the whole path a user
-takes: parse, ask the daemon, render. Only the radio is simulated.
+takes: parse, ask the service, render. Only the radio is simulated.
 
 Two things are asserted throughout, because they are the promises easiest to
 break by accident. Every command returns the documented exit code, and
@@ -24,17 +24,18 @@ from pathlib import Path
 import anyio
 import pytest
 
-# Imported to register the RPC methods.
-import pb_service.methods.daemon  # pyright: ignore[reportUnusedImport]
 import pb_service.methods.hub  # pyright: ignore[reportUnusedImport]
 import pb_service.methods.program  # pyright: ignore[reportUnusedImport]
+
+# Imported to register the RPC methods.
+import pb_service.methods.service  # pyright: ignore[reportUnusedImport]
 import pb_service.methods.stdio  # noqa: F401  # pyright: ignore[reportUnusedImport]
 from pb_cli import errors
 from pb_cli.commands import hub as hub_commands
 from pb_cli.commands import program as program_commands
 from pb_cli.commands import service as service_commands
 from pb_core.ipc import Endpoint
-from pb_service import daemon as daemon_module
+from pb_service import service as service_module
 from pb_service.hub import protocol as p
 from pb_service.hub.fake import FakeHub, FakeHubTransport
 
@@ -86,7 +87,7 @@ async def service(
     # rather than at whatever is running on the developer's machine.
     monkeypatch.setenv("PB_ENDPOINT", str(endpoint))
 
-    async with daemon_module.run_daemon(
+    async with service_module.run_service(
         endpoint, idle_timeout=0, transport=FakeHubTransport(hub)
     ):
         yield hub

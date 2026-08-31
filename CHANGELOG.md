@@ -11,12 +11,12 @@ All notable changes to this project are documented here. The format is based on
   ruff, pyright strict, pytest, MkDocs and CI across Linux, macOS, Windows and
   Windows ARM64.
 - IPC transport with four backends behind one interface -- AF_UNIX, Windows
-  named pipes, TCP for remote daemons, and an in-process one for tests -- all
+  named pipes, TCP for remote services, and an in-process one for tests -- all
   yielding anyio byte streams so nothing above the transport is platform
   specific.
 - JSON-RPC 2.0 with newline framing, a symmetric peer, and `$/cancelRequest`
-  so a client-side deadline also stops the daemon working.
-- Daemon lifecycle: single-instance lock, shared-secret authentication,
+  so a client-side deadline also stops the service working.
+- Service lifecycle: single-instance lock, shared-secret authentication,
   autostart on demand, hub-aware idle timeout.
 - `pb service start|stop|status`. The background service outlives the command
   that starts it, so a later `pb service status` reaches the same process.
@@ -24,13 +24,13 @@ All notable changes to this project are documented here. The format is based on
   profile-version gating that `START_USER_PROGRAM`, `START_REPL` and the status
   report all need.
 - Hub connections, event fan-out to several clients at once, and a simulated
-  hub so the whole daemon can be exercised without a radio.
+  hub so the whole service can be exercised without a radio.
 - Bluetooth transport built on bleak, behind a seam that USB and RFCOMM can
   reuse.
 - `pb scan`, `pb connect`, `pb disconnect`, `pb list`, `pb status` and
   `pb stop`. A hub connected by one command stays connected for the next.
 - `pb run`, `pb download`, `pb start` and `pb check`: compiling with mpy-cross
-  and chunked download. Compilation happens on the client, so the daemon never
+  and chunked download. Compilation happens on the client, so the service never
   reads the caller's files, and `pb check` needs no hub at all.
 - `pb repl`: a session with the hub's interpreter, with a status line pinned
   along the bottom saying which hub is being talked to, what is running on it
@@ -61,5 +61,5 @@ All notable changes to this project are documented here. The format is based on
   gen-files and literate-nav all load unchanged. MkDocs stays installed as a
   library, pinned below 2.0, because those plugins import it.
 - On Windows ARM64 the `mpy-cross-v6` wheel contains an x86-64 binary, so it
-  runs under emulation. The daemon logs the resolved compiler path so this is
+  runs under emulation. The service logs the resolved compiler path so this is
   diagnosable rather than mysterious.

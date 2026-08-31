@@ -3,7 +3,7 @@
 
 """A simulated hub, used by the tests and by ``PB_HUB_BACKEND=fake``.
 
-This models the hub's GATT surface rather than stubbing out the daemon's calls,
+This models the hub's GATT surface rather than stubbing out the service's calls,
 so the protocol code under test is the same code that talks to real hardware.
 It can be told to behave like any profile version between v1.2.0 and v1.5.0,
 to reject commands the way firmware does, and to disconnect at an awkward
@@ -39,7 +39,7 @@ __all__ = ["FakeHub", "FakeHubTransport"]
 class HubRejection(HubCommandError):
     """The hub refused a command, as an ATT error would.
 
-    A :class:`HubCommandError`, because a simulated refusal that the daemon
+    A :class:`HubCommandError`, because a simulated refusal that the service
     handled differently from a real one would be worth nothing.
     """
 
@@ -114,7 +114,7 @@ class FakeHub:
 
     @property
     def device_id(self) -> str:
-        """The hub's daemon-facing identifier."""
+        """The hub's service-facing identifier."""
         return f"fake:{self.address}"
 
     def notify(self, payload: bytes) -> None:
@@ -165,7 +165,7 @@ class FakeHub:
         self._handler = None
         if self.on_disconnect is not None:
             # A real transport reports this, so this one has to as well, or
-            # the daemon would go on believing the hub is there.
+            # the service would go on believing the hub is there.
             self.on_disconnect()
 
     # ---------------------------------------------------------- command entry

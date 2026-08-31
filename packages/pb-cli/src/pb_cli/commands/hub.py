@@ -100,8 +100,8 @@ async def _scan(seconds: float, name: str | None) -> int:
     caption = f"Scanning for {seconds:.0f}s..."
 
     async with (
-        pb_client.connect() as daemon,
-        daemon.scanning(seconds=seconds, name=name) as devices,
+        pb_client.connect() as service,
+        service.scanning(seconds=seconds, name=name) as devices,
     ):
         if out.is_terminal:
             # Redrawn in place as advertisements arrive, so a hub appears the
@@ -169,21 +169,21 @@ async def connect_cmd(
 
 async def _connect(hub: str | None, scan: bool) -> int:
     err = ui.console(err=True)
-    async with pb_client.connect() as daemon:
+    async with pb_client.connect() as service:
         if scan:
             # No time limit: the hub may still be in the next room. The scan
             # ends when the block does, whether the user chose or gave up.
-            async with daemon.scanning(seconds=None) as devices:
+            async with service.scanning(seconds=None) as devices:
                 device = await picker.choose_hub(err, devices, ui.chooser_table)
             if device is None:
                 # Deciding not to connect is what was asked for, not a failure.
                 err.print("No hub chosen.")
                 return EXIT_OK
             with ui.spinner(err, "Connecting..."):
-                info = await daemon.connect_hub(hub_id=device.id)
+                info = await service.connect_hub(hub_id=device.id)
         else:
             with ui.spinner(err, "Connecting..."):
-                info = await daemon.connect_hub(
+                info = await service.connect_hub(
                     hub_id=hub if hub and _looks_like_id(hub) else None,
                     name=hub if hub and not _looks_like_id(hub) else None,
                 )
@@ -213,12 +213,12 @@ async def disconnect_cmd(*, hub: str | None = None, verbose: Verbose = ()) -> in
 async def _disconnect(hub: str | None) -> int:
     err = ui.console(err=True)
     try:
-        async with pb_client.connect(autostart=False) as daemon:
-            await daemon.disconnect_hub(hub)
+        async with pb_client.connect(autostart=False) as service:
+            await service.disconnect_hub(hub)
     except _HANDLED_HERE as exc:
         # Nothing connected means there is nothing to disconnect, which is the
         # outcome the user asked for rather than a failure.
-        if errors.find(exc, pb_client.DaemonUnavailable) is None:
+        if errors.find(exc, pb_client.ServiceUnavailable) is None:
             raise
         err.print("No hub is connected.")
         return EXIT_OK
@@ -240,11 +240,11 @@ async def list_cmd(*, verbose: Verbose = ()) -> int:
 async def _list() -> int:
     out, err = ui.console(), ui.console(err=True)
     try:
-        async with pb_client.connect(autostart=False) as daemon:
-            hubs, acting = await daemon.list_hubs()
+        async with pb_client.connect(autostart=False) as service:
+            hubs, acting = await service.list_hubs()
     except _HANDLED_HERE as exc:
         # An empty list is a real answer to "what is connected?".
-        if errors.find(exc, pb_client.DaemonUnavailable) is None:
+        if errors.find(exc, pb_client.ServiceUnavailable) is None:
             raise
         err.print("No hubs are connected.")
         return EXIT_OK
@@ -301,9 +301,9 @@ async def use_cmd(
 
 async def _use(hub: str | None, clear: bool) -> int:
     err = ui.console(err=True)
-    async with pb_client.connect() as daemon:
+    async with pb_client.connect() as service:
         if clear:
-            await daemon.use_hub(None)
+            await service.use_hub(None)
             err.print(
                 "No hub is chosen. Commands will use the connected hub, "
                 "while there is only one."
@@ -315,13 +315,13 @@ async def _use(hub: str | None, clear: bool) -> int:
                 # Nothing can be chosen without a terminal to choose in, so
                 # answer the other question this command can answer: which hub
                 # is chosen already.
-                return await _say_which(daemon, err)
-            hub = await _choose(daemon, err)
+                return await _say_which(service, err)
+            hub = await _choose(service, err)
             if hub is None:
                 err.print("Nothing chosen.")
                 return EXIT_OK
 
-        choice = await daemon.use_hub(hub)
+        choice = await service.use_hub(hub)
         err.print(f"Now using [bold]{choice.name}[/].")
         if not choice.connected:
             # Worth saying, because nothing else will: commands go on using
@@ -330,11 +330,11 @@ async def _use(hub: str | None, clear: bool) -> int:
     return EXIT_OK
 
 
-async def _say_which(daemon: pb_client.Daemon, err: Console) -> int:
+async def _say_which(service: pb_client.Service, err: Console) -> int:
     """Report the chosen hub, for a caller with no terminal to choose in.
 
     Args:
-        daemon: The connected service.
+        service: The connected service.
         err: Where messages go.
 
     Returns:
@@ -342,7 +342,7 @@ async def _say_which(daemon: pb_client.Daemon, err: Console) -> int:
         it is still zero; the name goes to stdout, where a script reading it
         gets the name and nothing else.
     """
-    choice = await daemon.chosen_hub()
+    choice = await service.chosen_hub()
     if choice.name is None:
         err.print("No hub is chosen.")
         return EXIT_OK
@@ -350,17 +350,17 @@ async def _say_which(daemon: pb_client.Daemon, err: Console) -> int:
     return EXIT_OK
 
 
-async def _choose(daemon: pb_client.Daemon, err: Console) -> str | None:
+async def _choose(service: pb_client.Service, err: Console) -> str | None:
     """Let the user pick from the hubs that are connected or in range.
 
     Args:
-        daemon: The connected service.
+        service: The connected service.
         err: Where the list is drawn.
 
     Returns:
         The chosen hub's name, or None if the user left without choosing.
     """
-    hubs, _ = await daemon.list_hubs()
+    hubs, _ = await service.list_hubs()
     connected = [
         pb_client.DeviceInfo(
             id=info.id,
@@ -388,7 +388,7 @@ async def _choose(daemon: pb_client.Daemon, err: Console) -> str | None:
         return ui.chooser_table(devices, selected, connected=known)
 
     # No time limit: the hub may still be in the next room.
-    async with daemon.scanning(seconds=None) as found:
+    async with service.scanning(seconds=None) as found:
         device = await picker.choose_hub(err, offered(), render, verb="use it")
     return device.name if device is not None else None
 
@@ -411,8 +411,8 @@ async def status_cmd(
 
 async def _status(hub: str | None, full: bool) -> int:
     out = ui.console()
-    async with pb_client.connect(autostart=False) as daemon:
-        info = await daemon.hub_info(hub)
+    async with pb_client.connect(autostart=False) as service:
+        info = await service.hub_info(hub)
 
     rows = [("name", info.name)]
     if ui.SHOW_HUB_IDS:

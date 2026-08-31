@@ -11,7 +11,7 @@
       "args": ["--foreground", "-vv"]
     },
     {
-      "name": "pb-service: attach to running daemon",
+      "name": "pb-service: attach to running service",
       "type": "debugpy",
       "request": "attach",
       "justMyCode": false,

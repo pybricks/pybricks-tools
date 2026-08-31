@@ -86,7 +86,7 @@ known-first-party = ["pb_cli", "pb_client", "pb_core", "pb_service"]
 "asyncio.set_event_loop_policy".msg = "Never change the loop policy; Windows named pipes require the Proactor loop."
 
 [tool.ruff.lint.per-file-ignores]
-# Docstrings are required on the library surface, not on CLI/daemon internals.
+# Docstrings are required on the library surface, not on CLI/service internals.
 "packages/pb-cli/src/**" = ["D100", "D101", "D102", "D103", "D104", "D105", "D107"]
 "packages/pb-service/src/**" = ["D100", "D101", "D102", "D103", "D104", "D105", "D107"]
 "**/tests/**" = ["D"]

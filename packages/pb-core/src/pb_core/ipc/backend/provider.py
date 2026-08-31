@@ -4,7 +4,7 @@
 """The interface every IPC transport implements.
 
 Everything above this layer deals only in :class:`anyio.abc.ByteStream`, so the
-daemon and the client contain no platform-specific code at all.
+service and the client contain no platform-specific code at all.
 """
 
 from __future__ import annotations
@@ -74,16 +74,16 @@ class IpcBackend(ABC):
 
     @abstractmethod
     def connect(self, endpoint: Endpoint) -> AbstractAsyncContextManager[ByteStream]:
-        """Connect to a daemon.
+        """Connect to a service.
 
         Args:
-            endpoint: Where the daemon is listening.
+            endpoint: Where the service is listening.
 
         Returns:
             An async context manager yielding the connected stream.
 
         Raises:
-            ConnectionRefusedError: If no daemon is listening there. Callers
+            ConnectionRefusedError: If no service is listening there. Callers
                 treat this as "not running" and may start one.
         """
 
@@ -100,5 +100,5 @@ class IpcBackend(ABC):
             An async context manager yielding the listener.
 
         Raises:
-            OSError: If the address is already in use by another daemon.
+            OSError: If the address is already in use by another service.
         """

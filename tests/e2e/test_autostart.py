@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 The Pybricks Authors
 
-"""Starting a real daemon process.
+"""Starting a real service process.
 
 The in-process tests cover the protocol; these cover the things only a real
 subprocess can show: detached spawning, the single-instance lock across
-processes, and that a hub-holding daemon genuinely outlives the command that
+processes, and that a hub-holding service genuinely outlives the command that
 started it.
 """
 
@@ -55,26 +55,26 @@ def _private_runtime(  # pyright: ignore[reportUnusedFunction]
     # does not rewrite the choice the person running the tests made.
     monkeypatch.setenv("PB_STATE_DIR", str(tmp_path / "state"))
     monkeypatch.delenv("PB_ENDPOINT", raising=False)
-    # The spawned daemon must land in the same private runtime directory.
+    # The spawned service must land in the same private runtime directory.
     monkeypatch.setenv(
-        "PB_DAEMON_CMD",
+        "PB_SERVICE_CMD",
         f"{sys.executable} -m pb_service --idle-timeout 20",
     )
     yield
 
 
 async def _stop(endpoint: Endpoint) -> None:
-    """Stop the daemon if it is still running, so no test leaks a process."""
+    """Stop the service if it is still running, so no test leaks a process."""
     try:
-        async with pb_client.connect(endpoint, autostart=False) as daemon:
-            await daemon.shutdown()
-    except pb_client.DaemonUnavailable:
+        async with pb_client.connect(endpoint, autostart=False) as service:
+            await service.shutdown()
+    except pb_client.ServiceUnavailable:
         pass
 
 
 async def test_client_starts_a_daemon_that_outlives_it(endpoint: Endpoint) -> None:
     try:
-        # First connection: nothing is listening, so a daemon is spawned.
+        # First connection: nothing is listening, so a service is spawned.
         async with pb_client.connect(endpoint, autostart=True) as first:
             info = await first.info()
             pid = info.pid
@@ -98,25 +98,25 @@ async def test_two_clients_racing_to_start_end_up_on_one_daemon(
     pids: list[int] = []
 
     async def connect_once() -> None:
-        async with pb_client.connect(endpoint, autostart=True) as daemon:
-            pids.append((await daemon.info()).pid)
+        async with pb_client.connect(endpoint, autostart=True) as service:
+            pids.append((await service.info()).pid)
 
     try:
         async with anyio.create_task_group() as tg:
             tg.start_soon(connect_once)
             tg.start_soon(connect_once)
         assert len(pids) == 2
-        assert pids[0] == pids[1], "clients reached different daemons"
+        assert pids[0] == pids[1], "clients reached different services"
     finally:
         await _stop(endpoint)
 
 
 async def test_second_daemon_exits_rather_than_fighting(endpoint: Endpoint) -> None:
     try:
-        async with pb_client.connect(endpoint, autostart=True) as daemon:
-            await daemon.ping()
+        async with pb_client.connect(endpoint, autostart=True) as service:
+            await service.ping()
 
-        # A second daemon on the same endpoint must decline, not crash and not
+        # A second service on the same endpoint must decline, not crash and not
         # take over.
         # In a worker thread: subprocess.run would block the event loop.
         result = await anyio.to_thread.run_sync(

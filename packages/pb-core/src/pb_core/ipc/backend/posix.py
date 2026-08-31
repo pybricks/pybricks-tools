@@ -5,7 +5,7 @@
 
 anyio supports UNIX sockets natively, so this backend is mostly about getting
 the filesystem details right: a private parent directory, mode ``0600`` on the
-socket itself, and safe removal of a socket left behind by a crashed daemon.
+socket itself, and safe removal of a socket left behind by a crashed service.
 """
 
 from __future__ import annotations
@@ -45,8 +45,8 @@ class PosixBackend(IpcBackend):
         try:
             stream = await anyio.connect_unix(endpoint.target)
         except FileNotFoundError:
-            # No socket file: the daemon is not running. Callers may start one.
-            raise ConnectionRefusedError(f"no daemon at {endpoint}") from None
+            # No socket file: the service is not running. Callers may start one.
+            raise ConnectionRefusedError(f"no service at {endpoint}") from None
         logger.debug("unix: connected to %s", endpoint)
         async with stream:
             yield stream
@@ -64,10 +64,10 @@ class PosixBackend(IpcBackend):
         await anyio.to_thread.run_sync(paths.ensure_private_dir, Path(socket.parent))
 
         # A socket file on its own says nothing about whether anyone is behind
-        # it, and binding would replace a live daemon's socket with ours --
+        # it, and binding would replace a live service's socket with ours --
         # leaving it running and unreachable. So ask: a connection that is
         # accepted is proof, and anything else means the file is debris from a
-        # crash and can go. The daemon also holds the single-instance lock by
+        # crash and can go. The service also holds the single-instance lock by
         # this point, which is the real guard; this is what makes the backend
         # honest on its own, and what makes "address already in use" mean the
         # same thing on every transport.
@@ -99,7 +99,7 @@ async def _is_live(endpoint: Endpoint) -> bool:
         endpoint: The socket to try.
 
     Returns:
-        True if a connection was accepted, which only a running daemon can do.
+        True if a connection was accepted, which only a running service can do.
     """
     try:
         stream = await anyio.connect_unix(endpoint.target)

@@ -157,7 +157,7 @@ async def _download(
 )
 async def program_download(session: Session, params: dict[str, Any]) -> dict[str, Any]:
     """Download a program."""
-    session.daemon.mark_activity()
+    session.service.mark_activity()
     connection = hub_of(session, params)
     program = decode_binary(require(params, "mpy", str))
     slot = _download_slot(connection, params.get("slot"))
@@ -221,7 +221,7 @@ async def _start_and_watch(
 )
 async def program_start(session: Session, params: dict[str, Any]) -> dict[str, Any]:
     """Start a program."""
-    session.daemon.mark_activity()
+    session.service.mark_activity()
     connection = hub_of(session, params)
     info = connection.info
     if info is None:
@@ -246,7 +246,7 @@ async def program_start(session: Session, params: dict[str, Any]) -> dict[str, A
 )
 async def program_stop(session: Session, params: dict[str, Any]) -> dict[str, Any]:
     """Stop the running program."""
-    session.daemon.mark_activity()
+    session.service.mark_activity()
     connection = hub_of(session, params)
     with hub_errors("stop the program"):
         await connection.send_command(p.encode_stop_user_program())
@@ -266,7 +266,7 @@ async def program_stop(session: Session, params: dict[str, Any]) -> dict[str, An
 )
 async def program_run(session: Session, params: dict[str, Any]) -> dict[str, Any]:
     """Download and run a program."""
-    session.daemon.mark_activity()
+    session.service.mark_activity()
     connection = hub_of(session, params)
     info = connection.info
     if info is None:

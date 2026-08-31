@@ -140,7 +140,7 @@ def target_of(member: griffe.Object | griffe.Alias) -> str:
 
     Returns:
         Where the object is really documented. A name re-exported by a package
-        -- ``pb_client.Daemon`` for ``pb_client.daemon.Daemon`` -- is
+        -- ``pb_client.Service`` for ``pb_client.service.Service`` -- is
         documented once, at the place it is defined, and listed as a link to
         there. Documenting it twice would give two pages claiming the same
         identifier, which is exactly what a cross-reference cannot resolve.

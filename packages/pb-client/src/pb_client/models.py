@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 The Pybricks Authors
 
-"""What the daemon says, as types rather than as dictionaries.
+"""What the service says, as types rather than as dictionaries.
 
 Every one of these is built from a wire payload with ``from_wire`` and is
-missing-field tolerant, because the daemon on the other end can be older or
+missing-field tolerant, because the service on the other end can be older or
 newer than this client: it outlives the install that started it. A field this
 build has never heard of is ignored, and one it expects but does not get takes
 a sensible default, so a version difference narrows what a command can say
@@ -16,12 +16,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-__all__ = ["Choice", "DaemonInfo", "DeviceInfo", "Downloaded", "HubInfo"]
+__all__ = ["Choice", "DeviceInfo", "Downloaded", "HubInfo", "ServiceInfo"]
 
 
 @dataclass(frozen=True, slots=True)
-class DaemonInfo:
-    """What the daemon reports about itself."""
+class ServiceInfo:
+    """What the service reports about itself."""
 
     version: str
     protocol_version: int
@@ -33,8 +33,8 @@ class DaemonInfo:
     clients: int
 
     @classmethod
-    def from_wire(cls, payload: dict[str, Any]) -> DaemonInfo:
-        """Build from a ``daemon.info`` result.
+    def from_wire(cls, payload: dict[str, Any]) -> ServiceInfo:
+        """Build from a ``service.info`` result.
 
         Args:
             payload: The result object.

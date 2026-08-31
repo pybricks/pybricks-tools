@@ -16,7 +16,7 @@ of megabytes, and a single huge message would be bad for four reasons: peak
 memory of several times the payload, blocking the connection's writer for the
 whole transfer so no notifications can interleave (which is exactly when a
 progress bar is wanted), all-or-nothing cancellation, and a memory-exhaustion
-vector on a daemon that may be reachable over TCP. Bulk data is therefore sent
+vector on a service that may be reachable over TCP. Bulk data is therefore sent
 in chunks through a separate blob API rather than inline.
 """
 

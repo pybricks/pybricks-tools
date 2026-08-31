@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 The Pybricks Authors
 
-"""Owns every hub connection for the lifetime of the daemon.
+"""Owns every hub connection for the lifetime of the service.
 
 The manager's task group is entered before the listener and left after it, so
 hub connections sit in a scope that is a sibling of the client sessions rather
@@ -38,7 +38,7 @@ class HubAlreadyConnectedError(RuntimeError):
 
 
 class HubManager:
-    """The set of hubs the daemon currently holds open."""
+    """The set of hubs the service currently holds open."""
 
     def __init__(
         self,
@@ -275,9 +275,9 @@ class HubManager:
                     self._last_connected = next(iter(self._hubs), None)
 
     async def close_all(self) -> None:
-        """Disconnect every hub, for daemon shutdown."""
+        """Disconnect every hub, for service shutdown."""
         for connection in list(self._hubs.values()):
-            connection.close("daemon shutting down")
+            connection.close("service shutting down")
         self._hubs.clear()
         self._last_connected = None
 

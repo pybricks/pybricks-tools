@@ -1,3 +1,3 @@
 # pb-service
 
-The Pybricks daemon: owns hub connections and outlives any single command.
+The Pybricks service: owns hub connections and outlives any single command.

@@ -163,10 +163,10 @@ class WindowsPipeBackend(IpcBackend):
         try:
             transport, _ = await loop.create_pipe_connection(lambda: protocol, path)
         except FileNotFoundError:
-            # The pipe does not exist, so no daemon is running. Note that
+            # The pipe does not exist, so no service is running. Note that
             # connect_pipe retries ERROR_PIPE_BUSY internally but raises this
             # immediately, so a readiness loop must retry on FileNotFoundError.
-            raise ConnectionRefusedError(f"no daemon at {endpoint}") from None
+            raise ConnectionRefusedError(f"no service at {endpoint}") from None
         writer = asyncio.StreamWriter(transport, protocol, reader, loop)
         stream = _PipeStream(reader, writer)
         logger.debug("pipe: connected to %s", endpoint)
@@ -213,7 +213,7 @@ class WindowsPipeBackend(IpcBackend):
             tx.close()
             rx.close()
             # PipeServer creates the first instance with
-            # FILE_FLAG_FIRST_PIPE_INSTANCE, so a second daemon fails here.
+            # FILE_FLAG_FIRST_PIPE_INSTANCE, so a second service fails here.
             # That gives single-instance locking on Windows for free.
             raise AddressInUseError(f"address already in use: {endpoint}") from exc
 

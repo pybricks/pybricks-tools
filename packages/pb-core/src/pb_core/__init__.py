@@ -3,7 +3,7 @@
 
 """Shared building blocks for the Pybricks tool suite.
 
-This package holds everything both the daemon and the client need to agree on:
+This package holds everything both the service and the client need to agree on:
 the JSON-RPC wire protocol, the per-platform IPC transport, logging setup and
 platform paths. It deliberately depends on neither ``pb_service`` nor ``pb_client``.
 """

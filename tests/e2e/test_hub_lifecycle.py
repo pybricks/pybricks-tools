@@ -3,7 +3,7 @@
 
 """Hub commands through the whole stack, against a simulated hub.
 
-The client library, JSON-RPC, transport, daemon and hub logic are all real
+The client library, JSON-RPC, transport, service and hub logic are all real
 here; only the radio is simulated. That means these run unchanged on a CI
 machine with no Bluetooth adapter.
 """
@@ -19,15 +19,15 @@ import anyio
 import pytest
 
 import pb_client
-
-# Imported to register the RPC methods.
-import pb_service.methods.daemon  # pyright: ignore[reportUnusedImport]
 import pb_service.methods.hub  # pyright: ignore[reportUnusedImport]
 import pb_service.methods.program  # pyright: ignore[reportUnusedImport]
+
+# Imported to register the RPC methods.
+import pb_service.methods.service  # pyright: ignore[reportUnusedImport]
 import pb_service.methods.stdio  # noqa: F401  # pyright: ignore[reportUnusedImport]
 from pb_core.ipc import Endpoint
 from pb_core.jsonrpc import ErrorCode, JsonRpcError
-from pb_service import daemon as daemon_module
+from pb_service import service as service_module
 from pb_service.hub import protocol as p
 from pb_service.hub.fake import FakeHub, FakeHubTransport
 
@@ -81,19 +81,21 @@ async def daemon_at(
     endpoint: Endpoint, hubs: list[FakeHub]
 ) -> AsyncGenerator[Endpoint, None]:
     transport = FakeHubTransport(*hubs)
-    async with daemon_module.run_daemon(endpoint, idle_timeout=0, transport=transport):
+    async with service_module.run_service(
+        endpoint, idle_timeout=0, transport=transport
+    ):
         yield endpoint
 
 
 async def test_scan_finds_the_simulated_hubs(daemon_at: Endpoint) -> None:
-    async with pb_client.connect(daemon_at, autostart=False) as daemon:
-        devices = await daemon.scan(seconds=0.3)
+    async with pb_client.connect(daemon_at, autostart=False) as service:
+        devices = await service.scan(seconds=0.3)
     assert {device.name for device in devices} == {FIRST, SECOND}
 
 
 async def test_scan_can_filter_by_name(daemon_at: Endpoint) -> None:
-    async with pb_client.connect(daemon_at, autostart=False) as daemon:
-        devices = await daemon.scan(seconds=0.3, name=SECOND)
+    async with pb_client.connect(daemon_at, autostart=False) as service:
+        devices = await service.scan(seconds=0.3, name=SECOND)
     assert [device.name for device in devices] == [SECOND]
 
 
@@ -103,9 +105,9 @@ async def test_scanning_reports_a_hub_long_before_the_scan_ends(
     # The whole point of the streaming form: a hub is in hand as soon as it is
     # heard. The deadline here is a hundredth of the scan it asks for, so this
     # cannot pass by accident of waiting it out.
-    async with pb_client.connect(daemon_at, autostart=False) as daemon:
+    async with pb_client.connect(daemon_at, autostart=False) as service:
         with anyio.fail_after(5):
-            async with daemon.scanning(seconds=500) as devices:
+            async with service.scanning(seconds=500) as devices:
                 first = await anext(aiter(devices))
     assert first.name in {FIRST, SECOND}
     assert first.rssi is not None
@@ -121,9 +123,9 @@ async def test_scanning_ends_by_itself_when_the_scan_is_over(
     # Nothing tells the caller's loop to stop except the scan finishing, so if
     # that signal is missing this hangs rather than fails -- hence the deadline.
     names: set[str] = set()
-    async with pb_client.connect(daemon_at, autostart=False) as daemon:
+    async with pb_client.connect(daemon_at, autostart=False) as service:
         with anyio.fail_after(10):
-            async with daemon.scanning(seconds=0.5) as devices:
+            async with service.scanning(seconds=0.5) as devices:
                 async for device in devices:
                     names.add(device.name)
     assert names == {FIRST, SECOND}
@@ -135,23 +137,23 @@ async def test_a_scan_with_no_time_limit_ends_when_the_caller_leaves(
     # What an interactive chooser asks for: the person may still be fetching
     # the hub from another room, so there is no deadline. What stops it is the
     # caller leaving, and this hangs rather than fails if that does not work.
-    async with pb_client.connect(daemon_at, autostart=False) as daemon:
+    async with pb_client.connect(daemon_at, autostart=False) as service:
         with anyio.fail_after(5):
-            async with daemon.scanning(seconds=None) as devices:
+            async with service.scanning(seconds=None) as devices:
                 first = await anext(aiter(devices))
     assert first.name in {FIRST, SECOND}
 
 
 async def test_a_scan_that_reports_nothing_still_ends(daemon_at: Endpoint) -> None:
-    async with pb_client.connect(daemon_at, autostart=False) as daemon:
+    async with pb_client.connect(daemon_at, autostart=False) as service:
         with anyio.fail_after(10):
-            async with daemon.scanning(seconds=0.3, name="No Such Hub") as devices:
+            async with service.scanning(seconds=0.3, name="No Such Hub") as devices:
                 assert [device async for device in devices] == []
 
 
 async def test_connect_and_describe(daemon_at: Endpoint) -> None:
-    async with pb_client.connect(daemon_at, autostart=False) as daemon:
-        info = await daemon.connect_hub(name=FIRST)
+    async with pb_client.connect(daemon_at, autostart=False) as service:
+        info = await service.connect_hub(name=FIRST)
         assert info.name == FIRST
         assert info.state == "connected"
         assert info.protocol == "1.5.0"
@@ -168,12 +170,12 @@ async def test_an_unfamiliar_hub_is_left_unnamed(
     # called anything, which is better than calling it the wrong thing.
     hub = FakeHub(name=FIRST, address="00:11:22:33:44:55", hub_type=0x99)
     async with (
-        daemon_module.run_daemon(
+        service_module.run_service(
             endpoint, idle_timeout=0, transport=FakeHubTransport(hub)
         ),
-        pb_client.connect(endpoint, autostart=False) as daemon,
+        pb_client.connect(endpoint, autostart=False) as service,
     ):
-        info = await daemon.connect_hub(name=FIRST)
+        info = await service.connect_hub(name=FIRST)
     assert info.hub_type is None
     assert info.state == "connected"
 
@@ -196,19 +198,19 @@ async def test_a_hub_outlives_the_client_that_connected_it(
 async def test_connecting_twice_reuses_the_connection(daemon_at: Endpoint) -> None:
     # Reconnecting over Bluetooth is slow, so a second request for a hub we
     # already hold must not start a new connection.
-    async with pb_client.connect(daemon_at, autostart=False) as daemon:
-        first = await daemon.connect_hub(name=FIRST)
-        second = await daemon.connect_hub(name=FIRST)
+    async with pb_client.connect(daemon_at, autostart=False) as service:
+        first = await service.connect_hub(name=FIRST)
+        second = await service.connect_hub(name=FIRST)
         assert first.id == second.id
-        hubs, _ = await daemon.list_hubs()
+        hubs, _ = await service.list_hubs()
         assert len(hubs) == 1
 
 
 async def test_several_hubs_at_once(daemon_at: Endpoint) -> None:
-    async with pb_client.connect(daemon_at, autostart=False) as daemon:
-        await daemon.connect_hub(name=FIRST)
-        await daemon.connect_hub(name=SECOND)
-        hubs, default = await daemon.list_hubs()
+    async with pb_client.connect(daemon_at, autostart=False) as service:
+        await service.connect_hub(name=FIRST)
+        await service.connect_hub(name=SECOND)
+        hubs, default = await service.list_hubs()
     assert {hub.name for hub in hubs} == {FIRST, SECOND}
     # The most recently connected hub becomes the default.
     assert default == next(hub.id for hub in hubs if hub.name == SECOND)
@@ -217,43 +219,43 @@ async def test_several_hubs_at_once(daemon_at: Endpoint) -> None:
 async def test_scan_hides_hubs_that_are_already_connected(
     daemon_at: Endpoint,
 ) -> None:
-    async with pb_client.connect(daemon_at, autostart=False) as daemon:
-        await daemon.connect_hub(name=FIRST)
-        devices = await daemon.scan(seconds=0.3)
+    async with pb_client.connect(daemon_at, autostart=False) as service:
+        await service.connect_hub(name=FIRST)
+        devices = await service.scan(seconds=0.3)
     assert [device.name for device in devices] == [SECOND]
 
 
 async def test_choosing_the_hub_commands_act_on(daemon_at: Endpoint) -> None:
-    async with pb_client.connect(daemon_at, autostart=False) as daemon:
-        first = await daemon.connect_hub(name=FIRST)
-        await daemon.connect_hub(name=SECOND)
+    async with pb_client.connect(daemon_at, autostart=False) as service:
+        first = await service.connect_hub(name=FIRST)
+        await service.connect_hub(name=SECOND)
 
         # An id is accepted, since it is what the wire calls the parameter,
         # but what comes back -- and what is stored -- is the hub's name.
-        chosen = await daemon.use_hub(first.id)
+        chosen = await service.use_hub(first.id)
         assert chosen.name == FIRST
         assert chosen.connected
 
         # A command with no hub named now acts on that one.
-        info = await daemon.hub_info()
+        info = await service.hub_info()
         assert info.name == FIRST
 
 
 async def test_the_choice_is_reported_without_being_changed(
     daemon_at: Endpoint,
 ) -> None:
-    async with pb_client.connect(daemon_at, autostart=False) as daemon:
-        assert (await daemon.chosen_hub()).name is None
+    async with pb_client.connect(daemon_at, autostart=False) as service:
+        assert (await service.chosen_hub()).name is None
 
-        await daemon.connect_hub(name=SECOND)
-        await daemon.use_hub(FIRST)
+        await service.connect_hub(name=SECOND)
+        await service.use_hub(FIRST)
 
-        reported = await daemon.chosen_hub()
+        reported = await service.chosen_hub()
         assert reported.name == FIRST
         # Chosen, but switched off as far as anyone here can tell, which is
         # worth saying rather than implying by silence.
         assert not reported.connected
-        assert (await daemon.chosen_hub()).name == FIRST
+        assert (await service.chosen_hub()).name == FIRST
 
 
 async def test_a_hub_can_be_chosen_before_it_is_connected(
@@ -262,14 +264,14 @@ async def test_a_hub_can_be_chosen_before_it_is_connected(
     # Pinning the hub a project belongs to is a reasonable thing to do before
     # any of the hardware is switched on, so a name that matches nothing yet
     # is accepted rather than refused.
-    async with pb_client.connect(daemon_at, autostart=False) as daemon:
-        chosen = await daemon.use_hub("Some Other Hub")
+    async with pb_client.connect(daemon_at, autostart=False) as service:
+        chosen = await service.use_hub("Some Other Hub")
         assert chosen.name == "Some Other Hub"
         assert not chosen.connected
 
         # It does not stand in the way of the only hub there is.
-        await daemon.connect_hub(name=FIRST)
-        assert (await daemon.hub_info()).name == FIRST
+        await service.connect_hub(name=FIRST)
+        assert (await service.hub_info()).name == FIRST
 
 
 async def test_an_id_for_a_hub_that_is_not_connected_is_refused(
@@ -277,75 +279,75 @@ async def test_an_id_for_a_hub_that_is_not_connected_is_refused(
 ) -> None:
     # A name for an absent hub is a choice; an id for one is nothing that can
     # be stored, since the name it would have to be turned into is unknown.
-    async with pb_client.connect(daemon_at, autostart=False) as daemon:
+    async with pb_client.connect(daemon_at, autostart=False) as service:
         with pytest.raises(JsonRpcError) as caught:
-            await daemon.use_hub("ble:00:00:00:00:00:00")
+            await service.use_hub("ble:00:00:00:00:00:00")
     assert caught.value.code == ErrorCode.HUB_NOT_FOUND
 
 
 async def test_disconnecting_does_not_move_the_choice(daemon_at: Endpoint) -> None:
-    async with pb_client.connect(daemon_at, autostart=False) as daemon:
-        await daemon.connect_hub(name=FIRST)
-        await daemon.connect_hub(name=SECOND)
-        await daemon.use_hub(FIRST)
+    async with pb_client.connect(daemon_at, autostart=False) as service:
+        await service.connect_hub(name=FIRST)
+        await service.connect_hub(name=SECOND)
+        await service.use_hub(FIRST)
 
-        await daemon.disconnect_hub(FIRST)
+        await service.disconnect_hub(FIRST)
 
         # The hub was switched off, not un-chosen. Moving the choice to
         # whatever else happened to be connected is how a remembered
         # preference stops being worth remembering.
-        assert (await daemon.chosen_hub()).name == FIRST
+        assert (await service.chosen_hub()).name == FIRST
         # Meanwhile commands still have somewhere to go: the chosen hub is
         # not connected, so the only hub that is answers instead.
-        assert (await daemon.hub_info()).name == SECOND
+        assert (await service.hub_info()).name == SECOND
 
 
 async def test_the_choice_can_be_forgotten(daemon_at: Endpoint) -> None:
-    async with pb_client.connect(daemon_at, autostart=False) as daemon:
-        await daemon.connect_hub(name=FIRST)
-        await daemon.use_hub(FIRST)
+    async with pb_client.connect(daemon_at, autostart=False) as service:
+        await service.connect_hub(name=FIRST)
+        await service.use_hub(FIRST)
 
-        cleared = await daemon.use_hub(None)
+        cleared = await service.use_hub(None)
         assert cleared.name is None
-        assert (await daemon.chosen_hub()).name is None
+        assert (await service.chosen_hub()).name is None
 
 
 async def test_a_hub_can_be_named_by_name(daemon_at: Endpoint) -> None:
     # A name is all "pb --hub" ever passes, because a hub id is built from the
     # Bluetooth address, which is not stable and is not shown to anyone. Every
     # method that takes a hub has to accept one.
-    async with pb_client.connect(daemon_at, autostart=False) as daemon:
-        await daemon.connect_hub(name=FIRST)
-        await daemon.connect_hub(name=SECOND)
+    async with pb_client.connect(daemon_at, autostart=False) as service:
+        await service.connect_hub(name=FIRST)
+        await service.connect_hub(name=SECOND)
 
-        info = await daemon.hub_info(FIRST)
+        info = await service.hub_info(FIRST)
         assert info.name == FIRST
 
         # Not merely the default: SECOND was connected last and holds it.
-        await daemon.disconnect_hub(FIRST)
-        hubs, _ = await daemon.list_hubs()
+        await service.disconnect_hub(FIRST)
+        hubs, _ = await service.list_hubs()
         assert [hub.name for hub in hubs] == [SECOND]
 
 
 async def test_disconnect_removes_the_hub(daemon_at: Endpoint) -> None:
-    async with pb_client.connect(daemon_at, autostart=False) as daemon:
-        info = await daemon.connect_hub(name=FIRST)
-        await daemon.disconnect_hub(info.id)
-        hubs, _ = await daemon.list_hubs()
+    async with pb_client.connect(daemon_at, autostart=False) as service:
+        info = await service.connect_hub(name=FIRST)
+        await service.disconnect_hub(info.id)
+        hubs, _ = await service.list_hubs()
     assert hubs == []
 
 
 async def test_commands_for_an_unknown_hub_are_reported(daemon_at: Endpoint) -> None:
-    async with pb_client.connect(daemon_at, autostart=False) as daemon:
+    async with pb_client.connect(daemon_at, autostart=False) as service:
         with pytest.raises(JsonRpcError) as info:
-            await daemon.hub_info("fake:NO:SUCH:HUB")
+            await service.hub_info("fake:NO:SUCH:HUB")
         assert info.value.code == ErrorCode.HUB_NOT_FOUND
 
 
 async def test_connecting_to_a_hub_that_is_not_there(daemon_at: Endpoint) -> None:
-    async with pb_client.connect(daemon_at, autostart=False) as daemon:
+    async with pb_client.connect(daemon_at, autostart=False) as service:
         with pytest.raises(JsonRpcError) as info:
-            await daemon.connect_hub(name="No Such Hub")
+            await service.connect_hub(name="No Such Hub")
         assert info.value.code == ErrorCode.HUB_NOT_FOUND
         assert info.value.message == "no hub found"
 
@@ -353,22 +355,22 @@ async def test_connecting_to_a_hub_that_is_not_there(daemon_at: Endpoint) -> Non
 async def test_stop_program_reaches_the_hub(
     daemon_at: Endpoint, hubs: list[FakeHub]
 ) -> None:
-    async with pb_client.connect(daemon_at, autostart=False) as daemon:
-        await daemon.connect_hub(name=FIRST)
-        await daemon.stop_program()
+    async with pb_client.connect(daemon_at, autostart=False) as service:
+        await service.connect_hub(name=FIRST)
+        await service.stop_program()
     assert hubs[0].commands[-1] == bytes([p.Command.STOP_USER_PROGRAM])
 
 
 async def test_status_reflects_a_running_program(
     daemon_at: Endpoint, hubs: list[FakeHub]
 ) -> None:
-    async with pb_client.connect(daemon_at, autostart=False) as daemon:
-        await daemon.connect_hub(name=FIRST)
+    async with pb_client.connect(daemon_at, autostart=False) as service:
+        await service.connect_hub(name=FIRST)
         hubs[0].set_program_running(True)
 
         with anyio.fail_after(5):
             while True:
-                info = await daemon.hub_info()
+                info = await service.hub_info()
                 if info.program_running:
                     break
                 await anyio.sleep(0.02)
@@ -381,16 +383,16 @@ async def test_a_connected_hub_keeps_the_daemon_alive(
     # Holding the connection open with nobody attached is the entire point, so
     # the idle timeout must not fire while a hub is connected.
     transport = FakeHubTransport(*hubs)
-    async with daemon_module.run_daemon(
+    async with service_module.run_service(
         endpoint, idle_timeout=0.4, transport=transport
-    ) as daemon:
+    ) as service:
         async with pb_client.connect(endpoint, autostart=False) as client:
             await client.connect_hub(name=FIRST)
 
         # No clients attached now, and well past the idle timeout.
         await anyio.sleep(1.2)
-        assert daemon.hubs.count == 1, "the hub should still be connected"
-        assert daemon.shutdown_reason == "not requested"
+        assert service.hubs.count == 1, "the hub should still be connected"
+        assert service.shutdown_reason == "not requested"
 
 
 async def test_connecting_again_reports_the_hub_already_connected(
@@ -408,7 +410,7 @@ async def test_connecting_again_reports_the_hub_already_connected(
 async def _settle() -> None:
     """Give the hub's status report time to reach the service.
 
-    The daemon learns what is running from a status report, so a test that
+    The service learns what is running from a status report, so a test that
     acted on the instant would be asking about a hub it had not heard from.
     """
     await anyio.sleep(0.1)

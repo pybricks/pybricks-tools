@@ -34,10 +34,11 @@ from typing import Any
 import anyio
 import pytest
 
-# Imported to register the RPC methods.
-import pb_service.methods.daemon  # pyright: ignore[reportUnusedImport]
 import pb_service.methods.hub  # pyright: ignore[reportUnusedImport]
 import pb_service.methods.program  # pyright: ignore[reportUnusedImport]
+
+# Imported to register the RPC methods.
+import pb_service.methods.service  # pyright: ignore[reportUnusedImport]
 import pb_service.methods.stdio  # noqa: F401  # pyright: ignore[reportUnusedImport]
 from pb_cli import console as console_module
 from pb_cli import errors, escape, session
@@ -45,7 +46,7 @@ from pb_cli.commands import hub as hub_commands
 from pb_cli.commands import program as program_commands
 from pb_cli.commands import repl as repl_command
 from pb_core.ipc import Endpoint
-from pb_service import daemon as daemon_module
+from pb_service import service as service_module
 from pb_service.hub import protocol as p
 from pb_service.hub.fake import FakeHub, FakeHubTransport
 
@@ -89,7 +90,7 @@ async def service(
     # does not rewrite the choice the person running the tests made.
     monkeypatch.setenv("PB_STATE_DIR", str(tmp_path / "state"))
     monkeypatch.setenv("PB_ENDPOINT", str(endpoint))
-    async with daemon_module.run_daemon(
+    async with service_module.run_service(
         endpoint, idle_timeout=0, transport=FakeHubTransport(hub)
     ):
         yield hub

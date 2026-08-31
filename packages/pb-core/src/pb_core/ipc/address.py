@@ -1,13 +1,13 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 The Pybricks Authors
 
-"""Endpoint addressing for the daemon.
+"""Endpoint addressing for the service.
 
 An endpoint is written as a URI so that one string can name any transport:
 
 * ``unix:///run/user/1000/pybricks/pb-service.sock`` -- AF_UNIX socket (Linux, macOS)
 * ``pipe://pybricks-pb-service-david`` -- Windows named pipe
-* ``tcp://127.0.0.1:47823`` -- TCP, for remote daemons and for tests
+* ``tcp://127.0.0.1:47823`` -- TCP, for remote services and for tests
 * ``memory://name`` -- in-process, used by the test suite
 
 Users are not expected to type these. :func:`resolve` picks the right default
@@ -33,7 +33,7 @@ Scheme = Literal["unix", "pipe", "tcp", "memory"]
 
 @dataclass(frozen=True, slots=True)
 class Endpoint:
-    """A transport-independent address for the daemon."""
+    """A transport-independent address for the service."""
 
     scheme: Scheme
     target: str
@@ -107,7 +107,7 @@ def default() -> Endpoint:
     """Return the platform's default endpoint.
 
     Windows uses a named pipe because asyncio cannot serve AF_UNIX sockets on
-    the proactor event loop, which the daemon requires for other reasons.
+    the proactor event loop, which the service requires for other reasons.
     """
     if sys.platform == "win32":
         return Endpoint(

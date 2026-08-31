@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 The Pybricks Authors
 
-"""Logging setup shared by the daemon, the library and the CLI.
+"""Logging setup shared by the service, the library and the CLI.
 
 This code talks to physical hubs over BLE, where failures are intermittent and
 hard to reproduce, so a trace after the fact is often the only diagnostic
@@ -176,7 +176,7 @@ def setup_logging(
     Args:
         level: Level for this project's loggers.
         style: ``"rich"`` for a TTY, ``"plain"`` when piped, ``"file"`` for the
-            daemon, ``"null"`` to discard.
+            service, ``"null"`` to discard.
         stream: Override the stream for ``"plain"``. Defaults to stderr.
         log_file: Destination for ``"file"``.
         quiet_loggers: Third-party loggers to hold at a higher level, so that
