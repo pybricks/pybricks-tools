@@ -4,8 +4,9 @@
 """Talking to the service.
 
 The shape of this API is deliberate. Nothing takes a ``timeout`` argument;
-callers scope cancellation with :func:`anyio.fail_after` or
-:func:`anyio.move_on_after` instead, so a deadline covers a whole operation
+callers scope cancellation with [fail_after][anyio.fail_after] or
+[move_on_after][anyio.move_on_after] instead, so a deadline covers a
+whole operation
 rather than one call inside it. Anything producing a continuing stream of events
 will be an async context manager yielding an async iterator, never a callback
 registration, so that no work can outlive the block that started it.
@@ -78,7 +79,8 @@ class _Notifications:
     """Hands each of the service's notifications to whoever is listening.
 
     One of these is created before the connection, because the peer needs a
-    handler at the moment it starts reading and the :class:`Service` that will
+    handler at the moment it starts reading and the
+    [Service][pb_client.service.Service] that will
     use it does not exist yet.
 
     Delivery is lossy on purpose. A subscriber that stops reading must not
@@ -131,7 +133,8 @@ class _Notifications:
 class Service:
     """A connected service.
 
-    Obtained from :func:`connect`; not constructed directly, because the
+    Obtained from [connect][pb_client.service.connect]; not constructed
+    directly, because the
     connection's tasks must be owned by that context manager.
     """
 
@@ -224,7 +227,8 @@ class Service:
         many times over a scan with its signal strength as it is now. That is
         the point: a hub's signal is how someone works out which of two
         identically named hubs is the one on the desk in front of them. Callers
-        that only want a list should use :meth:`scan`.
+        that only want a list should use
+            [scan][pb_client.service.Service.scan].
 
         Leaving the block early stops the scan, so a caller can take the first
         hub it likes and get on with it.
@@ -289,7 +293,7 @@ class Service:
         The connection outlives this client: that is the point of the service.
 
         Args:
-            hub_id: The hub's id, from :meth:`scan`.
+            hub_id: The hub's id, from [scan][pb_client.service.Service.scan].
             name: Connect to the first hub with this name instead.
 
         Returns:
@@ -317,7 +321,9 @@ class Service:
             The connected hubs, and the id of the one a command with no
             hub named would act on. That is the chosen hub when it is
             connected, and otherwise whichever hub would answer
-            instead; :meth:`chosen_hub` reports the choice itself.
+            instead;
+                [chosen_hub][pb_client.service.Service.chosen_hub]
+                reports the choice itself.
         """
         result = await self._peer.call("hub.list")
         hubs = [HubInfo.from_wire(item) for item in result.get("hubs", [])]
