@@ -29,6 +29,14 @@ from contextlib import AbstractContextManager
 
 from rich.console import Console, RenderableType
 from rich.live import Live
+from rich.progress import (
+    BarColumn,
+    DownloadColumn,
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    TimeRemainingColumn,
+)
 from rich.table import Table
 from rich.text import Text
 
@@ -44,9 +52,11 @@ __all__ = [
     "chooser_table",
     "connected_table",
     "console",
+    "firmware_table",
     "hub_warnings",
     "live",
     "plain",
+    "progress",
     "rows",
     "scan_table",
     "signal_bars",
@@ -224,6 +234,82 @@ def signal_bars(rssi: int | None) -> str:
     filled = SIGNAL_BLOCKS[:level]
     empty = SIGNAL_EMPTY * (len(SIGNAL_BLOCKS) - level)
     return f"[{style}]{filled}[/][dim]{empty}[/]"
+
+
+def progress(err: Console, message: str) -> Progress:
+    """Build a bar for something that takes long enough to watch.
+
+    Drawn on stderr, because progress is never data: a firmware install piped
+    into a file should leave the file holding what was installed and nothing
+    about how it went.
+
+    A bar rather than the spinner used elsewhere because these operations know
+    how much there is to do and roughly how long is left, and because a minute
+    of spinner tells the user only that the tool has not crashed. Off a
+    terminal it draws nothing at all, so a log does not fill with redrawn
+    bars.
+
+    Args:
+        err: The stderr console.
+        message: What is happening, shown beside the bar.
+
+    Returns:
+        A progress display, to be used as a context manager.
+    """
+    return Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        DownloadColumn(),
+        TimeRemainingColumn(),
+        console=err,
+        transient=True,
+        disable=not err.is_terminal,
+    )
+
+
+def firmware_table(
+    releases: Iterable[pb_client.FirmwareRelease],
+    cached: Iterable[pb_client.CachedFirmware],
+    hub_names: Mapping[int, str],
+) -> Table:
+    """Build the table of firmware that can be installed.
+
+    Args:
+        releases: What has been published, newest first.
+        cached: What is on this computer, including versions that are no
+            longer published -- somebody who pinned an old build should still
+            see that they have it.
+        hub_names: What to call each hub type.
+
+    Returns:
+        The table.
+    """
+    here = {(image.hub_type, image.version) for image in cached}
+    table = Table()
+    table.add_column("Version")
+    table.add_column("Hubs")
+    table.add_column("")
+
+    seen: set[str] = set()
+    for release in releases:
+        seen.add(release.version)
+        hubs = ", ".join(hub_names.get(hub, str(hub)) for hub in release.hubs)
+        marks: list[str] = []
+        if release.prerelease:
+            marks.append("[yellow]beta[/]")
+        if release.cached:
+            marks.append("[green]downloaded[/]")
+        table.add_row(release.version, hubs or "[dim]none[/]", "  ".join(marks))
+
+    # Anything downloaded that is no longer in the published list still
+    # belongs in the table: it is installable, which is what the table is for.
+    for hub_type, version in sorted(here):
+        if version not in seen:
+            table.add_row(
+                version, hub_names.get(hub_type, str(hub_type)), "[green]downloaded[/]"
+            )
+    return table
 
 
 def plain(out: Console, line: str) -> None:

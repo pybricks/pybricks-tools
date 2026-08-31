@@ -20,6 +20,7 @@ anyway -- :mod:`pb_cli.errors` does that in one place, for all of them.
 from __future__ import annotations
 
 # Imported to register the commands.
+import pb_cli.commands.firmware
 import pb_cli.commands.hub
 import pb_cli.commands.program
 import pb_cli.commands.repl

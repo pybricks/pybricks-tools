@@ -22,12 +22,14 @@ from pb_cli.config import config_sources
 from pb_core.logging import TRACE, setup_logging
 
 __all__ = [
+    "FIRMWARE_COMMANDS",
     "HUB_COMMANDS",
     "PROGRAM_COMMANDS",
     "SERVICE_COMMANDS",
     "Verbose",
     "app",
     "configure_logging",
+    "firmware_app",
     "service_app",
 ]
 
@@ -43,7 +45,7 @@ app = cyclopts.App(
     # panel is --help and --version. Calling that panel "Commands" would be a
     # lie, and putting it last keeps the commands at the top where someone
     # reading the help is looking.
-    group_commands=cyclopts.Group("Options", sort_key=3),
+    group_commands=cyclopts.Group("Options", sort_key=4),
     config=config_sources(),
 )
 
@@ -65,7 +67,15 @@ matters.
 PROGRAM_COMMANDS = cyclopts.Group("Programs", sort_key=1)
 """Getting a program onto a hub and controlling it once it is there."""
 
-SERVICE_COMMANDS = cyclopts.Group("Background service", sort_key=2)
+FIRMWARE_COMMANDS = cyclopts.Group("Firmware", sort_key=2)
+"""Installing Pybricks on a hub, and the images that get installed.
+
+After programs because it is the rarer job: most days nobody installs
+firmware. Before the service because it is something a user does deliberately,
+where the service is something they should be able to forget about.
+"""
+
+SERVICE_COMMANDS = cyclopts.Group("Background service", sort_key=3)
 """The thing holding the connections open. Rarely needed, so it comes last."""
 
 service_app = cyclopts.App(
@@ -77,6 +87,14 @@ service_app = cyclopts.App(
     group_commands=cyclopts.Group("Commands"),
 )
 app.command(service_app)
+
+firmware_app = cyclopts.App(
+    name="firmware",
+    help="Install Pybricks on a hub, and manage the images it installs.",
+    group=FIRMWARE_COMMANDS,
+    group_commands=cyclopts.Group("Commands"),
+)
+app.command(firmware_app)
 
 
 Verbose = Annotated[

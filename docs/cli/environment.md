@@ -40,10 +40,20 @@ not need any of them.
 | `PB_ENDPOINT` | Where the background service listens: `unix:///path`, `pipe://name` or `tcp://host:port`. Both halves have to agree, so set it for the service as well as for `pb`. |
 | `PB_RUNTIME_DIR` | Moves the service's socket, lock and shared secret together, so a sandbox can have its own without touching yours. |
 | `PB_STATE_DIR` | Moves what the service remembers between runs, which today is the hub chosen with `pb use`. |
+| `PB_CACHE_DIR` | Moves the downloaded firmware, which `pb firmware dir` prints. Worth setting for real if you work offline -- see below. |
+| `PB_FIRMWARE_FETCH` | `never` stops the service downloading firmware. What is already cached still installs; anything else becomes an error rather than a download. |
 | `PB_SERVICE_CMD` | What to run when a command has to start the service. |
 | `PB_HUB_BACKEND` | `fake` replaces Bluetooth with a simulated hub, so the whole tool can be exercised on a machine with no radio. The service says so in its log when this is on. |
 
-On Linux the usual `XDG_RUNTIME_DIR` and `XDG_STATE_HOME` are honoured, and
-everything written goes where the XDG Base Directory specification says it
-should, so `PB_RUNTIME_DIR` and `PB_STATE_DIR` are only for putting things
-somewhere unusual.
+On Linux the usual `XDG_RUNTIME_DIR`, `XDG_STATE_HOME` and `XDG_CACHE_HOME` are
+honoured, and everything written goes where the XDG Base Directory
+specification says it should, so `PB_RUNTIME_DIR` and `PB_STATE_DIR` are only
+for putting things somewhere unusual.
+
+`PB_CACHE_DIR` is the exception, and is the one here you might genuinely want.
+A cache is by definition something the system may delete whenever it likes,
+which is right for firmware that can be downloaded again and wrong for a
+folder you filled by hand because there is no network to refill it from. If
+that is you, point `PB_CACHE_DIR` somewhere that will not be cleaned up, and
+`PB_FIRMWARE_FETCH=never` will make sure nothing tries to reach the network
+behind your back.

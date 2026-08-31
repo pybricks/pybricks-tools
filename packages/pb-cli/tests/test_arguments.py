@@ -62,6 +62,7 @@ def test_every_top_level_command_is_in_a_named_group() -> None:
     known = {
         pb_app.HUB_COMMANDS.name,
         pb_app.PROGRAM_COMMANDS.name,
+        pb_app.FIRMWARE_COMMANDS.name,
         pb_app.SERVICE_COMMANDS.name,
     }
     for name in _subcommands(cli.app):

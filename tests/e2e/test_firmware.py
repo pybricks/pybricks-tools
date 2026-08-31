@@ -24,6 +24,8 @@ import pb_client
 import pb_service.methods.firmware  # pyright: ignore[reportUnusedImport]
 import pb_service.methods.hub  # pyright: ignore[reportUnusedImport]
 import pb_service.methods.service  # noqa: F401  # pyright: ignore[reportUnusedImport]
+from pb_cli import errors
+from pb_cli.commands import firmware as firmware_commands
 from pb_core.ipc import Endpoint
 from pb_core.jsonrpc import ErrorCode, JsonRpcError
 from pb_service import service as service_module
@@ -260,3 +262,125 @@ async def test_losing_the_web_still_answers_from_the_cache(
 
     # Still an answer, and honest about what it could not check.
     assert [c.version for c in catalogue.cached] == ["4.0.1"]
+
+
+# ------------------------------------------------------- through the commands
+
+
+async def test_listing_prints_versions_for_a_script(
+    service: None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Piped, so tab separated and parseable: the version, whether it is a
+    # beta, whether it is here, and which hubs it covers.
+    assert await firmware_commands.firmware_list() == errors.EXIT_OK
+    captured = capsys.readouterr()
+    rows = [line.split("\t") for line in captured.out.splitlines()]
+    assert [row[0] for row in rows] == ["4.0.1", "4.0.0"]
+    assert all(row[1] == "released" for row in rows)
+    assert "cityhub" in rows[0][3]
+
+
+async def test_listing_hides_betas_unless_asked(
+    service: None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert (
+        await firmware_commands.firmware_list(allow_prerelease=True) == errors.EXIT_OK
+    )
+    versions = [line.split("\t")[0] for line in capsys.readouterr().out.splitlines()]
+    assert versions[0] == "4.1.0b3"
+
+
+async def test_an_unknown_hub_type_lists_the_ones_there_are(
+    service: None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # A typo should not be answered with an empty table.
+    assert (
+        await firmware_commands.firmware_list(hub_type="citihub") == errors.EXIT_ERROR
+    )
+    captured = capsys.readouterr()
+    assert "citihub" in captured.err
+    assert "cityhub" in captured.err
+    assert captured.out == ""
+
+
+async def test_fetching_says_what_it_got(
+    service: None, cache_dir: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert await firmware_commands.firmware_fetch(hub_type="cityhub") == errors.EXIT_OK
+    captured = capsys.readouterr()
+    assert "4.0.1" in captured.err
+    # Nothing but data on stdout, and this command has none.
+    assert captured.out == ""
+    assert (cache_dir / "pybricks-cityhub-v4.0.1.zip").is_file()
+
+
+async def test_fetching_the_same_thing_twice_says_it_was_already_here(
+    service: None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    await firmware_commands.firmware_fetch(hub_type="cityhub")
+    capsys.readouterr()
+    assert await firmware_commands.firmware_fetch(hub_type="cityhub") == errors.EXIT_OK
+    assert "already here" in capsys.readouterr().err
+
+
+async def test_a_version_nobody_published_is_a_friendly_line(
+    service: None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    exit_code = await firmware_commands.firmware_fetch("9.9", hub_type="cityhub")
+    captured = capsys.readouterr()
+    assert exit_code == errors.EXIT_ERROR
+    assert "9.9" in captured.err
+    assert "pb firmware list" in captured.err
+    assert captured.out == ""
+
+
+async def test_the_cache_directory_is_printed_on_its_own(
+    service: None, cache_dir: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # So that `cd "$(pb firmware dir)"` works: the path is the answer, so it
+    # is data, so it goes to stdout with nothing else on it.
+    assert await firmware_commands.firmware_dir() == errors.EXIT_OK
+    captured = capsys.readouterr()
+    assert captured.out.strip() == str(cache_dir)
+
+
+async def test_cleaning_needs_to_be_told_what_to_remove(
+    service: None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert await firmware_commands.firmware_clean() == errors.EXIT_ERROR
+    assert "--all" in capsys.readouterr().err
+
+
+async def test_cleaning_one_version_leaves_the_others(
+    service: None, cache_dir: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    await firmware_commands.firmware_fetch("4.0.0", hub_type="cityhub")
+    await firmware_commands.firmware_fetch("4.0.1", hub_type="cityhub")
+    capsys.readouterr()
+
+    assert await firmware_commands.firmware_clean("4.0.0") == errors.EXIT_OK
+    assert "Removed 1" in capsys.readouterr().err
+    assert not (cache_dir / "pybricks-cityhub-v4.0.0.zip").exists()
+    assert (cache_dir / "pybricks-cityhub-v4.0.1.zip").is_file()
+
+
+async def test_cleaning_everything_empties_it(
+    service: None, cache_dir: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    await firmware_commands.firmware_fetch("4.0.0", hub_type="cityhub")
+    await firmware_commands.firmware_fetch("4.0.0", hub_type="primehub")
+    capsys.readouterr()
+
+    assert await firmware_commands.firmware_clean(all=True) == errors.EXIT_OK
+    assert not (cache_dir / "pybricks-cityhub-v4.0.0.zip").exists()
+    assert not (cache_dir / "pybricks-primehub-v4.0.0.zip").exists()
+
+
+async def test_cleaning_refuses_a_version_and_all_together(
+    service: None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # The two say different things, so obeying either would be a guess.
+    assert (
+        await firmware_commands.firmware_clean("4.0.0", all=True) == errors.EXIT_ERROR
+    )
+    assert capsys.readouterr().err
