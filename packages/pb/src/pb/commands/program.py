@@ -49,7 +49,7 @@ async def run_cmd(
     hub: str | None = None,
     slot: int | None = None,
     wait: bool | None = None,
-    verbose: Verbose = 0,
+    verbose: Verbose = (),
 ) -> int:
     """Compile a script, send it to a hub, and run it.
 
@@ -124,7 +124,7 @@ async def download_cmd(
     *,
     hub: str | None = None,
     slot: int | None = None,
-    verbose: Verbose = 0,
+    verbose: Verbose = (),
 ) -> int:
     """Compile a script and send it to a hub without running it.
 
@@ -165,7 +165,7 @@ async def start_cmd(
     hub: str | None = None,
     slot: int | None = None,
     wait: bool | None = None,
-    verbose: Verbose = 0,
+    verbose: Verbose = (),
 ) -> int:
     """Start a program that is already on the hub.
 
@@ -256,7 +256,7 @@ async def _stay_with_it(
 
 
 @app.command(name="stop", group=PROGRAM_COMMANDS, sort_key=4)
-async def stop_cmd(*, hub: str | None = None, verbose: Verbose = 0) -> int:
+async def stop_cmd(*, hub: str | None = None, verbose: Verbose = ()) -> int:
     """Stop the program running on a hub.
 
     Args:
@@ -283,7 +283,7 @@ async def check_cmd(
     command: Annotated[
         str | None, cyclopts.Parameter(name=["-c", "--command"], show_default=False)
     ] = None,
-    verbose: Verbose = 0,
+    verbose: Verbose = (),
 ) -> int:
     """Check that a program compiles, without sending it anywhere.
 

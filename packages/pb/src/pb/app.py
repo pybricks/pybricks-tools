@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import sys
+from collections.abc import Sequence
 from typing import Annotated
 
 import cyclopts
@@ -79,26 +80,40 @@ app.command(service_app)
 
 
 Verbose = Annotated[
-    int,
+    Sequence[bool],
     cyclopts.Parameter(
         name=["-v", "--verbose"],
         help="Increase log detail. Repeat for more (-v, -vv, -vvv).",
         show_default=False,
+        # No --no-verbose: there is nothing to turn off, and offering it
+        # would be one more thing in every command's help for no reason.
+        negative=(),
     ),
 ]
+"""How loud to be, counted rather than measured.
+
+A sequence of flags rather than a number, because that is what makes the help
+true. As an ``int`` this took a value -- ``-v 1`` worked and ``-v`` was an
+error saying it "requires an argument", while every command's help said to
+repeat it. Collecting the flags gives ``-v``, ``-v -v`` and the stacked
+``-vv``, which is what anybody typing it expects.
+"""
 
 
-def configure_logging(verbose: int) -> None:
+def configure_logging(verbose: Verbose | int = ()) -> None:
     """Map repeated ``-v`` flags onto log levels.
 
     Args:
-        verbose: How many times ``-v`` was given.
+        verbose: The flags as they were given, or how many there
+            were. Both, because the commands hand over what they
+            were passed and a count reads better everywhere else.
     """
-    if verbose <= 0:
+    count = verbose if isinstance(verbose, int) else len(verbose)
+    if count <= 0:
         level = logging.WARNING
-    elif verbose == 1:
+    elif count == 1:
         level = logging.INFO
-    elif verbose == 2:
+    elif count == 2:
         level = logging.DEBUG
     else:
         level = TRACE
@@ -107,5 +122,5 @@ def configure_logging(verbose: int) -> None:
         style="rich" if sys.stderr.isatty() else "plain",
         # bleak is noisy enough to bury our own lines, and is only interesting
         # once someone is debugging the radio itself.
-        quiet_loggers=("bleak", "asyncio") if verbose < 3 else (),
+        quiet_loggers=("bleak", "asyncio") if count < 3 else (),
     )

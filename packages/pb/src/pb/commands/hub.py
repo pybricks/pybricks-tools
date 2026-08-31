@@ -71,7 +71,7 @@ async def scan_cmd(
     *,
     timeout: float = 10.0,  # noqa: ASYNC109 - see below
     name: str | None = None,
-    verbose: Verbose = 0,
+    verbose: Verbose = (),
 ) -> int:
     """Look for Pybricks hubs that are switched on and in range.
 
@@ -135,7 +135,7 @@ async def connect_cmd(
     *,
     hub: str | None = None,
     scan: Annotated[bool, cyclopts.Parameter(name=["-s", "--scan"])] = False,
-    verbose: Verbose = 0,
+    verbose: Verbose = (),
 ) -> int:
     """Connect to a hub and keep it connected.
 
@@ -200,7 +200,7 @@ async def _connect(hub: str | None, scan: bool) -> int:
 
 
 @app.command(name="disconnect", group=HUB_COMMANDS, sort_key=1)
-async def disconnect_cmd(*, hub: str | None = None, verbose: Verbose = 0) -> int:
+async def disconnect_cmd(*, hub: str | None = None, verbose: Verbose = ()) -> int:
     """Disconnect a hub.
 
     Args:
@@ -228,7 +228,7 @@ async def _disconnect(hub: str | None) -> int:
 
 
 @app.command(name="list", group=HUB_COMMANDS, sort_key=3)
-async def list_cmd(*, verbose: Verbose = 0) -> int:
+async def list_cmd(*, verbose: Verbose = ()) -> int:
     """List the hubs that are currently connected.
 
     Args:
@@ -271,7 +271,7 @@ async def use_cmd(
     *,
     hub: str | None = None,
     clear: bool = False,
-    verbose: Verbose = 0,
+    verbose: Verbose = (),
 ) -> int:
     """Choose the hub that commands act on when none is named.
 
@@ -396,7 +396,7 @@ async def _choose(daemon: pb_client.Daemon, err: Console) -> str | None:
 
 @app.command(name="status", group=HUB_COMMANDS, sort_key=2)
 async def status_cmd(
-    *, hub: str | None = None, full: bool = False, verbose: Verbose = 0
+    *, hub: str | None = None, full: bool = False, verbose: Verbose = ()
 ) -> int:
     """Show what a hub is doing.
 

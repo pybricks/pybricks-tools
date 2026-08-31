@@ -24,7 +24,7 @@ __all__ = ["repl_cmd"]
 
 @app.command(name="repl", group=PROGRAM_COMMANDS, sort_key=1)
 async def repl_cmd(
-    *, hub: str | None = None, replay: int = 0, verbose: Verbose = 0
+    *, hub: str | None = None, replay: int = 0, verbose: Verbose = ()
 ) -> int:
     """Talk to a hub's interpreter, a line at a time.
 
