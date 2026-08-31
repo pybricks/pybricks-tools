@@ -32,6 +32,10 @@ plugins:
         python:
           options:
             docstring_style: google
+            # A constructor's parameters are how the class is built, so
+            # they belong on the class's page rather than on one of their
+            # own called __init__.
+            merge_init_into_class: true
             show_source: false
             show_root_heading: true
             separate_signature: true
