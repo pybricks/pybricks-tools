@@ -155,6 +155,21 @@ class Downloaded:
         )
 
 
+def _profile_version(text: str) -> tuple[int, ...] | None:
+    """Parse a Pybricks profile version.
+
+    Args:
+        text: What the hub reported, such as ``"1.5.0"``.
+
+    Returns:
+        Its parts, or ``None`` if it is not a version at all.
+    """
+    try:
+        return tuple(int(part) for part in text.split("."))
+    except ValueError:
+        return None
+
+
 @dataclass(frozen=True, slots=True)
 class HubInfo:
     """A connected hub."""
@@ -180,6 +195,24 @@ class HubInfo:
     128 is the hub's own interpreter, which is how a session tells a REPL it
     can join from a program somebody else started.
     """
+
+    @property
+    def legacy_main_module(self) -> bool:
+        """Whether this hub needs the program's entry module called ``__main__``.
+
+        Firmware from Pybricks profile v1.5.0 runs whichever module comes
+        first in the program, whatever it is called, and shows that module's
+        name as the program's name. Before v1.5.0 it looked the entry module
+        up by the name ``__main__``, so it has to be called that.
+
+        Returns:
+            True for a hub older than v1.5.0. Also true when the reported
+            profile cannot be parsed, because ``__main__`` runs on every
+            firmware while a file-named entry module runs only on the newer
+            ones -- so it is the answer that cannot break a program.
+        """
+        parts = _profile_version(self.protocol)
+        return parts is None or parts < (1, 5, 0)
 
     @classmethod
     def from_wire(cls, payload: dict[str, Any]) -> HubInfo:

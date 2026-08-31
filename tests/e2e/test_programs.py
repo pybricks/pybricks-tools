@@ -104,9 +104,42 @@ async def test_compiles_a_script_to_the_container_the_hub_reads(
     program = await pb_client.compile_script(_script(tmp_path, "print('hi')\n"))
     size = int.from_bytes(program[:4], "little")
     name, _, mpy = program[4:].partition(b"\x00")
-    assert name == b"__main__"
+    # Named after its file rather than "__main__". Firmware from Pybricks
+    # profile v1.5.0 runs whichever module comes first whatever it is called,
+    # and shows that name as the program's -- so "__main__" would put
+    # "__main__" on the hub.
+    assert name == b"demo"
     assert len(mpy) == size
     assert mpy[:1] == b"M"
+
+
+async def test_an_older_hub_gets_the_legacy_main_module(tmp_path: Path) -> None:
+    # Before profile v1.5.0 the firmware looked the entry module up by the
+    # name __main__, so a hub that old needs it called that or nothing runs.
+    compiled = await pb_client.compile_program(_script(tmp_path, "print('hi')\n"))
+    name, _, _ = compiled.pack(legacy_main=True)[4:].partition(b"\x00")
+    assert name == b"__main__"
+
+
+async def test_a_program_of_several_files(tmp_path: Path) -> None:
+    (tmp_path / "helpers.py").write_text("SPEED = 100\n", encoding="utf-8")
+    (tmp_path / "robot").mkdir()
+    (tmp_path / "robot" / "motors.py").write_text("import helpers\n", encoding="utf-8")
+    script = _script(tmp_path, "from robot.motors import helpers\nimport helpers\n")
+
+    compiled = await pb_client.compile_program(script, root=tmp_path)
+
+    # Entry first, because position is what the firmware uses to choose the
+    # program to run. A dotted name is one flat module name to the hub, and
+    # robot/ needs no __init__.py, because the hub has no notion of a package.
+    assert [module.name for module in compiled.modules] == [
+        "demo",
+        "robot.motors",
+        "helpers",
+    ]
+    packed = compiled.pack()
+    for module in compiled.modules:
+        assert module.name.encode() + b"\x00" in packed
 
 
 async def test_compiles_source_with_no_file_behind_it() -> None:

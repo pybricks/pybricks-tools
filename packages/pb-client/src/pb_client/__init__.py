@@ -15,7 +15,9 @@ __version__ = "0.1.0"
 
 from pb_client.compile import (
     SOURCE_NAME,
+    CompiledProgram,
     CompileError,
+    compile_program,
     compile_script,
     compile_source,
     describe_compiler,
@@ -42,6 +44,7 @@ __all__ = [
     "SOURCE_NAME",
     "Choice",
     "CompileError",
+    "CompiledProgram",
     "DeviceInfo",
     "Downloaded",
     "HubEvent",
@@ -57,6 +60,7 @@ __all__ = [
     "State",
     "Status",
     "__version__",
+    "compile_program",
     "compile_script",
     "compile_source",
     "connect",
