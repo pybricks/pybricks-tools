@@ -46,6 +46,14 @@ class Method:
 
 
 METHODS: Final[dict[str, Method]] = {}
+"""Every method the service answers, by name.
+
+A ``dict`` rather than a ``Mapping``, which is the opposite of the rule for
+constants, and deliberately: this one is filled at import time by the
+``@method`` decorators, so it is a registry rather than a table. ``Final`` still
+says the useful thing -- the name is bound once, and nothing may replace the
+registry with a different one.
+"""
 
 
 def method(

@@ -95,10 +95,21 @@ lifetime: something owning a socket, a task or a terminal. A session's four
 tasks all read the same `Running`, and none of them can change what another is
 looking at, which is the property to aim for.
 
-**`Final` means "do not mutate this, or anything in it."** It stops rebinding
-and not mutation, and that is accepted rather than worked around: a constant
-mapping needs no `MappingProxyType` and no defensive copy. Use `Final` wherever
-it applies.
+**Constants are `Final`, and their type is an immutable one.** `Final` on its
+own is a promise about the *name*: the [typing specification][final] says it
+"only guarantees that the name will not be re-bound to another value", and it
+recommends what to do about the rest — "immutable ABCs and containers may be
+used in combination with `Final` to prevent mutating such values". So a
+constant table is `Final[Mapping[...]]` rather than `Final[dict[...]]`, and
+then editing it is a type error wherever it is imported. Nothing needs wrapping
+in `MappingProxyType`, and nothing needs copying defensively.
+
+One gap worth knowing rather than working around: in the module that *declares*
+the constant, pyright narrows the annotation back to the type of the value
+assigned, so `WARNINGS["x"] = "y"` is accepted there and refused everywhere
+else. Measured, not assumed.
+
+[final]: https://typing.python.org/en/latest/spec/qualifiers.html
 
 **Avoid multiple inheritance.** Inheritance itself is fine, and so is an `ABC`
 where an `ABC` fits — `pb_core.ipc` has two, deliberately, next to the
