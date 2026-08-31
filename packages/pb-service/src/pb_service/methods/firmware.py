@@ -23,6 +23,7 @@ from pb_core.protocol import FIRMWARE_PROGRESS
 from pb_service.firmware import errors as firmware_errors
 from pb_service.firmware.cache import CachedImage
 from pb_service.firmware.catalogue import ASSET_NAMES, Release, choose
+from pb_service.firmware.library import Library
 from pb_service.methods.registry import method
 
 if TYPE_CHECKING:
@@ -109,6 +110,47 @@ def _release_json(
         "hubs": hubs,
         "cached": sorted(hub for hub in hubs if (hub, release.version) in cached),
     }
+
+
+def _from_cache(library: Library, hub_type: int, request: str | None) -> str:
+    """Answer a version request from what is on disk.
+
+    The fallback for a machine with no network, where the published list
+    cannot be consulted but the answer may well already be here.
+
+    Args:
+        library: What this service knows about firmware.
+        hub_type: Which hub.
+        request: What was asked for, or ``None`` for the newest here.
+
+    Returns:
+        The version to use.
+
+    Raises:
+        FirmwareUnavailableError: If nothing here answers the request, which
+            is a different thing from the version not existing -- the remedy
+            is a network or a copied file rather than a different version.
+    """
+    here = tuple(
+        Release(
+            version=image.version,
+            tag=f"v{image.version}",
+            prerelease=False,
+            published="",
+        )
+        for image in library.cache.stored()
+        if image.hub_type == hub_type
+    )
+    try:
+        # Nothing here counts as a prerelease, and there is no flag: whether a
+        # version is one was a property of the listing, which is precisely
+        # what is missing. Somebody who deliberately fetched a beta should be
+        # able to install it afterwards without a network to confirm it.
+        return choose(here, request, allow_prerelease=True).version
+    except firmware_errors.FirmwareNotFoundError as exc:
+        raise firmware_errors.FirmwareUnavailableError(
+            f"{exc}, and the published list could not be reached"
+        ) from exc
 
 
 def _cached_json(image: CachedImage) -> dict[str, Any]:
@@ -198,11 +240,36 @@ async def firmware_fetch(session: Session, params: dict[str, Any]) -> dict[str, 
     if request is not None and not isinstance(request, str):
         raise JsonRpcError(ErrorCode.INVALID_PARAMS, "version must be text")
 
+    allow_prerelease = bool(params.get("allow_prerelease"))
+
+    # An exact version that is already here needs no catalogue and no network.
+    # That is not only a saving: it is what makes the cache work at all on a
+    # machine with no network, where resolving the version would otherwise
+    # fail before anybody discovered the file was sitting right there.
+    if request is not None and library.cache.has(hub_type, request):
+        return {
+            "version": request,
+            "size": library.cache.path_for(hub_type, request).stat().st_size,
+            "cached": True,
+            "path": str(library.cache.path_for(hub_type, request)),
+        }
+
     try:
-        releases = await library.catalogue.releases()
-        release = choose(
-            releases, request, allow_prerelease=bool(params.get("allow_prerelease"))
-        )
+        try:
+            releases = await library.catalogue.releases()
+        except firmware_errors.FirmwareUnavailableError:
+            # No catalogue. What is on disk is still a set of versions, so a
+            # request may well be answerable from it -- "4.0" offline should
+            # find the 4.0.1 that was fetched last week rather than give up.
+            release = _from_cache(library, hub_type, request)
+            return {
+                "version": release,
+                "size": library.cache.path_for(hub_type, release).stat().st_size,
+                "cached": True,
+                "path": str(library.cache.path_for(hub_type, release)),
+            }
+
+        release = choose(releases, request, allow_prerelease=allow_prerelease)
         url = release.url_for(hub_type)
         already = library.cache.has(hub_type, release.version)
 

@@ -45,8 +45,10 @@ class _RefusingFetcher:
         """Refuse, naming the setting responsible.
 
         Args:
-            url: What was asked for, so the message says which thing is
-                missing rather than only that something is.
+            url: What was asked for. It goes to the log rather than into the
+                message: a wrapped API URL tells a user nothing they can act
+                on, and what they need to know is that a setting is doing
+                this and which one.
             on_progress: Ignored; nothing arrives to report.
 
         Returns:
@@ -55,9 +57,10 @@ class _RefusingFetcher:
         Raises:
             OSError: Always.
         """
+        logger.info("refusing to fetch %s", url)
         raise OSError(
-            f"not fetching {url}: downloads are turned off "
-            f"({FETCH_ENV_VAR}={os.environ.get(FETCH_ENV_VAR)})"
+            f"firmware downloads are turned off by "
+            f"{FETCH_ENV_VAR}={os.environ.get(FETCH_ENV_VAR)}"
         )
 
 

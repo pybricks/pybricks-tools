@@ -157,6 +157,16 @@ async def _list(
             hubs = ",".join(names.get(hub, str(hub)) for hub in release.hubs)
             ui.plain(out, f"{release.version}\t{kind}\t{here}\t{hubs}")
 
+        # Anything downloaded but not in the list above still belongs here: it
+        # is installable, which is what this list is for. Without it
+        # --only-cached prints nothing at all, since asking not to go to the
+        # network means there are no releases to walk.
+        listed = {release.version for release in releases}
+        for image in catalogue.cached:
+            if image.version not in listed:
+                hub = names.get(image.hub_type, str(image.hub_type))
+                ui.plain(out, f"{image.version}\tcached\tcached\t{hub}")
+
     if not catalogue.reached_index:
         # Said rather than implied: the list is real, it is just not current.
         err.print("[yellow]Could not check for new firmware.[/]")

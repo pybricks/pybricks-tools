@@ -384,3 +384,93 @@ async def test_cleaning_refuses_a_version_and_all_together(
         await firmware_commands.firmware_clean("4.0.0", all=True) == errors.EXIT_ERROR
     )
     assert capsys.readouterr().err
+
+
+async def test_only_cached_lists_what_is_cached(
+    service: None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Found by running the command rather than by a test: --only-cached asks
+    # not to go to the network, so there are no releases to walk, and a
+    # listing built only from releases printed nothing at all. It is the
+    # offline path, so it is the one that most has to work.
+    await firmware_commands.firmware_fetch("4.0.0", hub_type="cityhub")
+    capsys.readouterr()
+
+    assert await firmware_commands.firmware_list(only_cached=True) == errors.EXIT_OK
+    rows = [line.split("\t") for line in capsys.readouterr().out.splitlines()]
+    assert [row[0] for row in rows] == ["4.0.0"]
+    assert rows[0][2] == "cached"
+    assert rows[0][3] == "cityhub"
+
+
+async def test_a_version_no_longer_published_is_still_listed(
+    service: None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Somebody who downloaded an old build should see that they have it: it
+    # is installable, which is what the list is for.
+    await firmware_commands.firmware_fetch("4.0.0", hub_type="cityhub")
+    capsys.readouterr()
+
+    assert await firmware_commands.firmware_list(hub_type="primehub") == errors.EXIT_OK
+    versions = [line.split("\t")[0] for line in capsys.readouterr().out.splitlines()]
+    # The cityhub archive is not in a primehub listing's releases, and still
+    # appears, because it is on this computer.
+    assert "4.0.0" in versions
+
+
+async def test_a_cached_version_installs_with_no_network(
+    service: None, web: FakeFetcher
+) -> None:
+    # The offline promise: what is already here still works. Found by running
+    # the command with downloads turned off, where resolving the version went
+    # to the network and failed before anybody noticed the file was sitting
+    # right there.
+    async with pb_client.connect(autostart=False) as pb:
+        async with pb.fetching_firmware(hub_type=CITY_HUB, version="4.0.1") as events:
+            async for _ in events:
+                pass
+
+        web.failures[RELEASES_URL] = "there is no network here"
+
+        async with pb.fetching_firmware(hub_type=CITY_HUB, version="4.0.1") as events:
+            outcome = [event async for event in events][-1]
+
+    assert isinstance(outcome, pb_client.Fetched)
+    assert outcome.version == "4.0.1"
+    assert outcome.cached
+
+
+async def test_a_partial_version_can_be_answered_from_the_cache(
+    service: None, web: FakeFetcher
+) -> None:
+    # "4.0" with no network should find the 4.0.1 fetched last week rather
+    # than give up because the published list is unreachable.
+    async with pb_client.connect(autostart=False) as pb:
+        async with pb.fetching_firmware(hub_type=CITY_HUB, version="4.0.1") as events:
+            async for _ in events:
+                pass
+
+        web.failures[RELEASES_URL] = "there is no network here"
+
+        async with pb.fetching_firmware(hub_type=CITY_HUB, version="4.0") as events:
+            outcome = [event async for event in events][-1]
+
+    assert isinstance(outcome, pb_client.Fetched)
+    assert outcome.version == "4.0.1"
+
+
+async def test_no_network_and_nothing_cached_says_which_problem_it_is(
+    service: None, web: FakeFetcher
+) -> None:
+    # Not "no such version": the version may well exist. The remedy is a
+    # network or a copied file, which is a different thing to be told.
+    web.failures[RELEASES_URL] = "there is no network here"
+    async with pb_client.connect(autostart=False) as pb:
+        with pytest.raises(BaseExceptionGroup) as caught:
+            async with pb.fetching_firmware(hub_type=CITY_HUB) as events:
+                async for _ in events:
+                    pass
+
+    failures = [e for e in caught.value.exceptions if isinstance(e, JsonRpcError)]
+    assert failures and failures[0].code == ErrorCode.FIRMWARE_UNAVAILABLE
+    assert "could not be reached" in failures[0].message
