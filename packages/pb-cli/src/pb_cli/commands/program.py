@@ -19,6 +19,7 @@ import pb_client
 from pb_cli import errors, session, ui
 from pb_cli.app import PROGRAM_COMMANDS, Verbose, app, configure_logging
 from pb_cli.errors import EXIT_OK
+from pb_core import project
 from pb_core.jsonrpc import ErrorCode
 
 logger = logging.getLogger(__name__)
@@ -89,9 +90,12 @@ async def _run(
     wait: bool | None,
 ) -> int:
     err = ui.console(err=True)
+    compiled: pb_client.CompiledProgram | None = None
+    program = b""
     with ui.spinner(err, "Compiling..."):
         if script is not None:
-            program = await pb_client.compile_script(script)
+            root = await project.module_root(script)
+            compiled = await pb_client.compile_program(script, root=root)
         else:
             # Exactly one of the two is given; the command line was checked
             # before any of this ran.
@@ -101,6 +105,8 @@ async def _run(
     # Sending and running are two steps to the user, and were one spinner
     # that said "Downloading" for as long as the program ran.
     async with pb_client.connect(autostart=False) as service:
+        if compiled is not None:
+            program = compiled.pack(legacy_main=await _legacy_main(service, hub))
         with ui.spinner(err, f"Downloading {len(program)} bytes..."):
             await service.download(program, hub_id=hub, slot=slot)
         if wait is not False:
@@ -115,6 +121,24 @@ async def _run(
 
     err.print("Program started.")
     return EXIT_OK
+
+
+async def _legacy_main(service: pb_client.Service, hub: str | None) -> bool:
+    """Ask the hub whether the program's entry module must be called __main__.
+
+    Args:
+        service: The connected service.
+        hub: Which hub, by name, or None for the one in use.
+
+    Returns:
+        True for a hub on a Pybricks profile before v1.5.0.
+
+    This is why compiling and packing are separate: the name depends on the
+    hub, and compiling happens before anything is connected to, so that a
+    syntax error is reported without a hub having to be found first.
+    """
+    info = await service.hub_info(hub_id=hub)
+    return info.legacy_main_module
 
 
 @app.command(name="download", group=PROGRAM_COMMANDS, sort_key=2)
@@ -146,9 +170,11 @@ async def download_cmd(
 
 async def _download(script: Path, hub: str | None, slot: int | None) -> int:
     err = ui.console(err=True)
-    program = await pb_client.compile_script(script)
+    root = await project.module_root(script)
+    compiled = await pb_client.compile_program(script, root=root)
 
     async with pb_client.connect(autostart=False) as service:
+        program = compiled.pack(legacy_main=await _legacy_main(service, hub))
         written = await service.download(program, hub_id=hub, slot=slot)
 
     # Which slot is only worth saying on a hub that has more than one, where
@@ -316,7 +342,10 @@ async def check_cmd(
 async def _check(script: Path | None, command: str | None) -> int:
     err = ui.console(err=True)
     if script is not None:
-        program = await pb_client.compile_script(script)
+        root = await project.module_root(script)
+        # Packed with the modern naming, which nothing here depends on: no
+        # program is being sent, so the entry module's name is never read.
+        program = await pb_client.compile_script(script, root=root)
         named = script.name
     else:
         assert command is not None
