@@ -59,6 +59,7 @@ nav:
   - Command line:
       - cli/index.md
       - Commands: cli/commands.md
+      - Several files: cli/multi-file.md
       - Environment variables: cli/environment.md
       - Project file: cli/pyproject.md
   - API reference: reference/

@@ -30,6 +30,32 @@ A project beats a standing preference because it is the more specific
 statement: whoever clones a robot project should get that robot's hub without
 having to know that you once ran `pb use`.
 
+## Running from somewhere else
+
+`-C` runs a command as if you were in another directory, the way `git -C` does:
+
+```bash
+pb -C robot-a run src/robot/demo.py
+```
+
+Point it at the directory holding a project's `pyproject.toml`, or at the top of
+your source when there is no project file. It settles three things at once:
+which project's settings apply, what a relative path means, and
+[where a program's imports are looked for](multi-file.md#where-modules-are-looked-for).
+
+It earns its place when one repository holds more than one robot:
+
+```text
+robots/
+  robot-a/pyproject.toml     [tool.pb] hub = "Bumblebee"
+  robot-b/pyproject.toml     [tool.pb] hub = "Rover"
+```
+
+From the top of that tree, neither project's settings apply to anything, and
+from inside `robot-b` they are *robot-b's* — which is the wrong hub, not merely
+a missing one. `pb -C robot-a` says which you mean, and it means the same thing
+from any shell.
+
 ## What a command exits with
 
 | Code | Meaning |
