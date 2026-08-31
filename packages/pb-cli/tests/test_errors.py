@@ -207,7 +207,7 @@ def test_the_size_limit_is_quoted_back() -> None:
     assert "4096 bytes" in problems[0].message
 
 
-def test_a_missing_size_limit_falls_back_to_the_daemon_wording() -> None:
+def test_a_missing_size_limit_falls_back_to_the_service_wording() -> None:
     exc = JsonRpcError(ErrorCode.PROGRAM_TOO_LARGE, "program is too big", None)
     problems = errors.explain(exc)
     assert problems is not None

@@ -171,7 +171,7 @@ _RULES: Mapping[int, _Rule] = {
         "Switch the hub on and press its button so that its light flashes."
     ),
     ErrorCode.REQUEST_CANCELLED: _Rule(exit_code=EXIT_ERROR, message="Cancelled."),
-    ErrorCode.DAEMON_SHUTTING_DOWN: _Rule(
+    ErrorCode.SERVICE_SHUTTING_DOWN: _Rule(
         "Try again in a moment.",
         exit_code=EXIT_ERROR,
         message="The background service is shutting down.",

@@ -72,7 +72,7 @@ async def _stop(endpoint: Endpoint) -> None:
         pass
 
 
-async def test_client_starts_a_daemon_that_outlives_it(endpoint: Endpoint) -> None:
+async def test_client_starts_a_service_that_outlives_it(endpoint: Endpoint) -> None:
     try:
         # First connection: nothing is listening, so a service is spawned.
         async with pb_client.connect(endpoint, autostart=True) as first:
@@ -90,7 +90,7 @@ async def test_client_starts_a_daemon_that_outlives_it(endpoint: Endpoint) -> No
         await _stop(endpoint)
 
 
-async def test_two_clients_racing_to_start_end_up_on_one_daemon(
+async def test_two_clients_racing_to_start_end_up_on_one_service(
     endpoint: Endpoint,
 ) -> None:
     # Deliberately uncoordinated: both may spawn, one wins the lock, and both
@@ -111,7 +111,7 @@ async def test_two_clients_racing_to_start_end_up_on_one_daemon(
         await _stop(endpoint)
 
 
-async def test_second_daemon_exits_rather_than_fighting(endpoint: Endpoint) -> None:
+async def test_second_service_exits_rather_than_fighting(endpoint: Endpoint) -> None:
     try:
         async with pb_client.connect(endpoint, autostart=True) as service:
             await service.ping()

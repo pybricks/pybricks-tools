@@ -80,7 +80,7 @@ async def running_service(endpoint: Endpoint) -> AsyncGenerator[Endpoint, None]:
         yield endpoint
 
 
-async def test_client_can_query_a_running_daemon(running_service: Endpoint) -> None:
+async def test_client_can_query_a_running_service(running_service: Endpoint) -> None:
     async with pb_client.connect(running_service, autostart=False) as service:
         info = await service.info()
     assert info.protocol_version == PROTOCOL_VERSION
@@ -93,7 +93,7 @@ async def test_ping_round_trips(running_service: Endpoint) -> None:
         await service.ping()
 
 
-async def test_several_clients_share_one_daemon(running_service: Endpoint) -> None:
+async def test_several_clients_share_one_service(running_service: Endpoint) -> None:
     # Multiple clients at once is the point of the service, so it must not be
     # accidentally single-client.
     async with (
@@ -105,7 +105,7 @@ async def test_several_clients_share_one_daemon(running_service: Endpoint) -> No
         assert info.clients == 2
 
 
-async def test_connecting_without_a_daemon_reports_unavailable(
+async def test_connecting_without_a_service_reports_unavailable(
     endpoint: Endpoint,
 ) -> None:
     with pytest.raises(pb_client.ServiceUnavailable):
@@ -174,7 +174,7 @@ async def test_unknown_methods_are_reported(running_service: Endpoint) -> None:
         assert info.value.code == ErrorCode.METHOD_NOT_FOUND
 
 
-async def test_shutdown_stops_the_daemon(endpoint: Endpoint) -> None:
+async def test_shutdown_stops_the_service(endpoint: Endpoint) -> None:
     async with service_module.run_service(endpoint, idle_timeout=0) as service:
         async with pb_client.connect(endpoint, autostart=False) as client:
             await client.shutdown()
@@ -182,7 +182,7 @@ async def test_shutdown_stops_the_daemon(endpoint: Endpoint) -> None:
             await service.wait_for_shutdown()
 
 
-async def test_idle_daemon_exits_on_its_own(endpoint: Endpoint) -> None:
+async def test_idle_service_exits_on_its_own(endpoint: Endpoint) -> None:
     # A connected hub will keep it alive; with nothing to hold open it should
     # not linger.
     async with service_module.run_service(endpoint, idle_timeout=0.5) as service:
