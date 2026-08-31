@@ -323,7 +323,7 @@ async def compile_program(entry: Path, *, root: Path | None = None) -> CompiledP
         entry: The script the program starts at.
         root: What module names are relative to. Defaults to the script's own
             directory, which is right for a program whose modules sit beside
-            it; [pb_core.project.module_root][] is what works it out for a
+            it; ``pb_core.project.module_root`` is what works it out for a
             project that keeps its source somewhere else.
 
     Returns:
