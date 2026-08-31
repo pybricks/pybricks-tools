@@ -57,6 +57,6 @@ nav:
       - Commands: cli/commands.md
       - Environment variables: cli/environment.md
       - Project file: cli/pyproject.md
+  - API reference: reference/
   - How it works: design.md
   - Contributing: contributing.md
-  - API reference: reference/
