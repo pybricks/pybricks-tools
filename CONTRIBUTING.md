@@ -64,6 +64,37 @@ are enforced by ruff and by tests.
    after a device has refused a write, or waiting for a process that has not
    started listening yet. Each of those owes a comment naming what cannot be
    waited on, so a forced poll can be told from a lazy one.
+8. **Close an async generator in the task that used it.** Wrap it in
+   `contextlib.aclosing` whenever the loop over it might not run to the end.
+   Stopping early — a `break`, a `return`, an exception, an enclosing cancel
+   scope firing — leaves the generator suspended at its `yield` rather than
+   closing it there and then. It is finalised later, by the event loop's
+   async-generator hooks or by the garbage collector, and *in whatever task
+   happens to be running then*. So everything it was holding is released from
+   the wrong task:
+
+   ```python
+   # Wrong: returning from inside the loop abandons the generator, and the
+   # lock inside it is released by whichever task finalises it.
+   async for device in manager.discover(ScanFilter()):
+       if device.id == wanted:
+           return device
+
+   # Right: closed here, in this task, on every path out.
+   async with aclosing(manager.discover(ScanFilter())) as stream:
+       async for device in stream:
+           if device.id == wanted:
+               return device
+   ```
+
+   The symptom is a failure a long way from the cause. anyio says
+   `RuntimeError: The current task is not holding this lock`, or a cancel scope
+   complains that it is being exited in a different task from the one that
+   entered it, and neither names the generator. Assume any generator with an
+   `async with` or a `try`/`finally` in it needs this, which in practice means
+   all of ours: it is also the reason rule 2 hands out subscriptions through an
+   `@asynccontextmanager`, since that gives the caller a close point they cannot
+   forget.
 
 ### The two sanctioned exceptions
 
