@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/assets/pybricks-icon.svg" alt="" width="96" height="96">
+</p>
+
 <h1 align="center">Pybricks Tools</h1>
 
 <p align="center">
