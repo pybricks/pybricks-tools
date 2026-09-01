@@ -28,8 +28,7 @@ what you type goes to the hub, so `input()` works and ++ctrl+c++ interrupts.
 
 Press ++esc++ ++esc++ to stop the program — one key, twice, so it is there
 when a robot is heading for the edge of the table. Press ++ctrl+"]"++ ++q++ to
-leave, or ++ctrl+"]"++ ++h++ for the rest. Down a pipe or in a build there is
-no terminal to do that with, so the output simply comes through on stdout.
+leave, or ++ctrl+"]"++ ++h++ for the rest.
 
 `pb connect` only needs doing once. Later commands reuse the connection, so
 `pb run` is quick to repeat while you are working on a program.
@@ -47,9 +46,9 @@ pb run demo.py      # again, without reconnecting
 | `pb run -c CODE` | Run a line or two of Python without a file |
 | `pb repl` | Talk to the hub's interpreter, a line at a time |
 
-That is most of what a day looks like. The rest — stopping a program, sending
-one without running it, seeing which hubs are connected — is on the
-[Commands](cli/commands.md) page, along with every option each one takes.
+The rest — stopping a program, sending one without running it, seeing which
+hubs are connected — is on the [Commands](cli/commands.md) page, along with
+every option each one takes.
 
 You never have to run `pb scan`: `pb connect` does its own looking. It is there
 for when you want to know what is out there without connecting to any of it. It
@@ -68,8 +67,8 @@ being chosen answers to `Pybricks Hub` like every other one. So the two columns
 are what tell those apart: which kind of hub it is, and whether it is on the
 desk or through a wall. Both are known without connecting to anything.
 
-`pb check` needs no hub and no service at all -- it is the compiler on its own,
-which makes it the right thing to put in a commit hook or a build:
+`pb check` needs no hub at all — it is the compiler on its own, so it will tell
+you whether a program has a mistake in it before you go and switch anything on:
 
 ```bash
 pb check demo.py
@@ -100,20 +99,6 @@ The hub does not have to be connected, or even switched on, so the hub a
 project belongs to can be chosen before any of it is plugged in.
 `pb use --clear` forgets it again.
 
-When the project is a shared one, it should name its own hub instead, in its
-`pyproject.toml`:
-
-```toml
-[tool.pb]
-hub = "Bumblebee"
-```
-
-Then every command run inside that project uses that hub, and a robot project
-works for whoever clones it without anybody having to remember a flag. See
-[the project file](cli/pyproject.md) for what else goes in there, and
-[environment variables](cli/environment.md) for `PB_HUB`, which sits between
-the two and is how you point one shell or one CI job somewhere else.
-
 Every command takes `-v` for more detail, and `-vv` or `-vvv` when something
 is going wrong and you want to see why.
 
@@ -142,16 +127,9 @@ async def main() -> None:
 anyio.run(main)
 ```
 
-Nothing in the library takes a `timeout` argument. Wrap a call in a cancel
-scope instead, which bounds the whole operation rather than one step inside it:
-
-```python
-with anyio.move_on_after(30):
-    await pb.run_program(program)
-```
-
-Cancelling a run also stops the program on the hub, rather than leaving it
-running.
+It is async throughout, and everything it opens is closed for you when the
+`async with` block ends — including the hub, if you were the one who connected
+it. The [API reference](reference/index.md) has the rest.
 
 ## When something goes wrong
 
@@ -165,10 +143,7 @@ Switch the hub on and press its button so that its light flashes.
 ```
 
 If you ever see a traceback instead, that is a bug in `pb` rather than something
-you did -- please report it, including the traceback and what you were doing.
-
-Commands exit `0` when they succeed, and non-zero when they do not: `3` if the
-hub or your program was the problem, `4` if no hub is connected, `1` otherwise.
+you did — please report it, including the traceback and what you were doing.
 
 ## Where to next
 
