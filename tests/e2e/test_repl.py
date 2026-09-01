@@ -363,7 +363,7 @@ async def test_an_arrow_key_reaches_the_hub_through_a_whole_session(
     # still arrive, in order, once something else does follow it. Split across
     # reads, since that is how a real console delivers it.
     hub = service
-    arrow = b"[A"
+    arrow = b"\x1b[A"
 
     async def talk(screen: _Screen) -> None:
         screen.go.set()

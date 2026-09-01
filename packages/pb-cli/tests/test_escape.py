@@ -198,15 +198,15 @@ def test_one_escape_reaches_the_hub_when_the_next_key_arrives() -> None:
 @pytest.mark.parametrize(
     "sequence",
     [
-        b"[A",  # up
-        b"[B",  # down
-        b"[C",  # right
-        b"[D",  # left
-        b"OA",  # up, from a terminal in application cursor mode
-        b"[3~",  # delete
-        b"[1;5C",  # Ctrl-right, which carries a modifier
+        b"\x1b[A",  # up
+        b"\x1b[B",  # down
+        b"\x1b[C",  # right
+        b"\x1b[D",  # left
+        b"\x1bOA",  # up, from a terminal in application cursor mode
+        b"\x1b[3~",  # delete
+        b"\x1b[1;5C",  # Ctrl-right, which carries a modifier
     ],
-    ids=lambda seq: seq.decode("latin-1").replace("", "ESC "),
+    ids=lambda seq: seq.decode("latin-1").replace("\x1b", "ESC "),
 )
 def test_no_escape_sequence_is_mistaken_for_a_stop(sequence: bytes) -> None:
     # This is why it is two presses and not one. Every sequence a terminal
@@ -218,8 +218,8 @@ def test_no_escape_sequence_is_mistaken_for_a_stop(sequence: bytes) -> None:
 
 @pytest.mark.parametrize(
     "sequence",
-    [b"[A", b"OB", b"[1;5C"],
-    ids=lambda seq: seq.decode("latin-1").replace("", "ESC "),
+    [b"\x1b[A", b"\x1bOB", b"\x1b[1;5C"],
+    ids=lambda seq: seq.decode("latin-1").replace("\x1b", "ESC "),
 )
 def test_a_sequence_arriving_a_byte_at_a_time_still_reaches_the_hub(
     sequence: bytes,
