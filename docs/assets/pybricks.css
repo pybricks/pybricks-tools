@@ -1,0 +1,60 @@
+/* SPDX-License-Identifier: MIT
+ * Copyright (c) 2026 The Pybricks Authors */
+
+/*
+ * Pybricks colours for the documentation theme.
+ *
+ * The blue is the official branding colour, taken from pybricks-code's own
+ * `src/variables.scss`, where it is named and commented as such, rather than
+ * sampled from a screenshot. The shades either side of it are derived from it
+ * and exist only because Material needs a lighter and a darker one for
+ * hovering and for the header's own gradient.
+ *
+ * `custom` rather than a name of our own: that is the value Material's
+ * documentation uses for a palette it does not ship, and a reader who looks
+ * this up will find it under that name.
+ */
+
+:root {
+  --pybricks-blue: #0088ce;
+  --pybricks-blue-light: #33a3d8;
+  --pybricks-blue-dark: #006da5;
+
+  /* For dark backgrounds, where the blue above does not have the contrast to
+   * be read as body text or as a link. */
+  --pybricks-blue-bright: #4db8ea;
+}
+
+[data-md-color-primary="custom"] {
+  --md-primary-fg-color: var(--pybricks-blue);
+  --md-primary-fg-color--light: var(--pybricks-blue-light);
+  --md-primary-fg-color--dark: var(--pybricks-blue-dark);
+
+  /* What sits on top of the header: the logo is white, so this is too. */
+  --md-primary-bg-color: #ffffff;
+  --md-primary-bg-color--light: rgba(255, 255, 255, 0.7);
+}
+
+[data-md-color-accent="custom"] {
+  --md-accent-fg-color: var(--pybricks-blue-dark);
+  --md-accent-fg-color--transparent: rgba(0, 136, 206, 0.1);
+}
+
+/* Links carry the brand colour, which Material leaves as its own blue
+ * otherwise. Set per scheme because the same value cannot be read on both a
+ * white and a near-black background. */
+[data-md-color-scheme="default"] {
+  --md-typeset-a-color: var(--pybricks-blue-dark);
+}
+
+[data-md-color-scheme="slate"] {
+  --md-typeset-a-color: var(--pybricks-blue-bright);
+  --md-accent-fg-color: var(--pybricks-blue-bright);
+}
+
+/* The logo is a LEGO brick seen end-on and reads better with a little air
+ * around it than filling the header's full height. */
+.md-header__button.md-logo :is(img, svg) {
+  height: 1.5rem;
+  width: auto;
+}

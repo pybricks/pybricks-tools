@@ -3,8 +3,16 @@ site_description: A service, library and CLI for talking to Pybricks hubs
 repo_url: https://github.com/pybricks/pybricks-tools
 edit_uri: edit/main/docs/
 
+copyright: Copyright &copy; The Pybricks Authors
+
 theme:
   name: material
+  # The Pybricks mark, and the app icon as the favicon. Both are copied from
+  # pybricks-code, which is MIT under the same copyright as this repository.
+  logo: assets/pybricks-logo.svg
+  favicon: assets/pybricks-icon.svg
+  icon:
+    repo: fontawesome/brands/github
   features:
     - navigation.sections
     - navigation.indexes
@@ -12,12 +20,33 @@ theme:
     - content.code.copy
     - search.suggest
   palette:
+    # "custom" is Material's own name for a palette it does not ship; the
+    # colours are in docs/assets/pybricks.css.
     - media: "(prefers-color-scheme: light)"
       scheme: default
+      primary: custom
+      accent: custom
       toggle: { icon: material/brightness-7, name: Switch to dark mode }
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
+      primary: custom
+      accent: custom
       toggle: { icon: material/brightness-4, name: Switch to light mode }
+
+extra_css:
+  - assets/pybricks.css
+
+extra:
+  social:
+    - icon: fontawesome/solid/house
+      link: https://pybricks.com
+      name: Pybricks
+    - icon: fontawesome/brands/github
+      link: https://github.com/pybricks/pybricks-tools
+      name: This project on GitHub
+    - icon: fontawesome/solid/comments
+      link: https://github.com/pybricks/support/discussions
+      name: Ask a question
 
 plugins:
   - search
