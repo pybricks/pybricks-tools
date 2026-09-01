@@ -61,13 +61,35 @@ smaller is ever worth trying: below this a refusal means the program is not
 reading, not that the write was too big.
 """
 
-STDIN_RETRY_SECONDS = 0.02
+STDIN_RETRY_SECONDS = 0.03
 """How long to wait before offering a busy hub the same bytes again.
 
-Short, because what clears the condition is the program on the hub reading its
-input, which takes a few milliseconds once it gets the chance. A retry rather
-than a poll of something idle: nothing on the hub reports free space, so there
-is no event to wait for, and this runs only while a write is outstanding.
+**One Bluetooth connection interval**, because that is the soonest the answer
+can possibly be different. How quickly the program on the hub reads its input
+is the wrong quantity to size this by, and is what the value here was first
+argued from: the write is a GATT write with response, so an attempt is a round
+trip, and a different answer cannot reach us inside one connection event
+however promptly the hub acts.
+
+Asking more often is not free either. A write occupies a connection event that
+would otherwise carry a notification, and notifications are how the hub's
+output reaches us -- so retrying harder competes with the reading that is the
+only thing which can make room.
+
+**Which interval, exactly, is not something the host can see.** The firmware
+asks for 30 ms to 60 ms on connection -- ``intervalMin = 24`` and
+``intervalMax = 48``, in units of 1.25 ms, in ``bluetooth_stm32_cc2640.c`` --
+and the btstack hubs ask for nothing at all, so in both cases the negotiated
+value belongs to the host's Bluetooth stack and is not reported through bleak.
+Measurement says it can be quicker than the request: 479 bytes went to a City
+hub as 20-byte writes in 0.45 s, which is about 19 ms for each write and its
+answer. So the bottom of the requested range is the value to take. Pacing to
+the top of it would be slower than the link rather than matched to it, and this
+runs while somebody is pasting.
+
+A retry rather than a poll of something idle: nothing on the hub reports free
+space, so there is no event to wait for, and this runs only while a write is
+outstanding.
 """
 
 STDIN_SETTLE_SECONDS = 0.25
