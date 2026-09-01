@@ -33,6 +33,10 @@ async def repl_cmd(
     which introduces a command for pb itself: Ctrl-] q leaves, and Ctrl-] h
     lists the rest.
 
+    Escape pressed twice stops whatever the hub is running. Here that is the
+    interpreter, so it ends the session as well; Ctrl-C is the lighter one for
+    interrupting a line that is taking too long.
+
     Ctrl-D ends the interpreter, and so ends the session. A hub already busy
     with a program of its own is left alone rather than interrupted.
 

@@ -55,6 +55,7 @@ pytestmark = pytest.mark.anyio
 HUB_NAME = "Pybricks Hub"
 ESC = bytes([escape.ESCAPE_KEY])
 QUIT = ESC + b"q"
+STOP = bytes([escape.STOP_KEY])
 
 
 @pytest.fixture(scope="session")
@@ -334,6 +335,43 @@ async def test_stopping_from_the_session_stops_the_program(
 
     assert await _run(_Screen(ESC + b"s", QUIT), terminal, talk) == errors.EXIT_OK
     assert not hub.status & p.StatusFlag.USER_PROGRAM_RUNNING
+
+
+async def test_escape_twice_stops_the_hub(
+    service: FakeHub, terminal: list[_Screen]
+) -> None:
+    # The panic key, driven the way a hand drives it: two separate reads,
+    # because a console hands over one key at a time. Nothing else is typed,
+    # so the session ends because what it was watching stopped.
+    hub = service
+
+    async def talk(screen: _Screen) -> None:
+        await _when(lambda: bool(hub.status & p.StatusFlag.USER_PROGRAM_RUNNING))
+        screen.go.set()
+
+    assert await _run(_Screen(STOP, STOP), terminal, talk) == errors.EXIT_OK
+    assert not hub.status & p.StatusFlag.USER_PROGRAM_RUNNING
+    # And no half of it leaked to the hub on the way.
+    assert bytes(hub.stdin) == b""
+
+
+async def test_an_arrow_key_reaches_the_hub_through_a_whole_session(
+    service: FakeHub, terminal: list[_Screen]
+) -> None:
+    # The other half of the same decision, and the one the hub's line editor
+    # needs: an Escape held back to see whether a second one follows must
+    # still arrive, in order, once something else does follow it. Split across
+    # reads, since that is how a real console delivers it.
+    hub = service
+    arrow = b"[A"
+
+    async def talk(screen: _Screen) -> None:
+        screen.go.set()
+        await _when(lambda: bytes(hub.stdin) == arrow)
+
+    screen = _Screen(*(bytes([byte]) for byte in arrow), QUIT)
+    assert await _run(screen, terminal, talk) == errors.EXIT_OK
+    assert bytes(hub.stdin) == arrow
 
 
 async def test_a_hub_that_disconnects_ends_the_session(

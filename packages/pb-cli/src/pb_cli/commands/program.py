@@ -57,9 +57,9 @@ async def run_cmd(
 
     The command stays with the program: its output appears as it is printed,
     and on a terminal the keyboard goes to the hub, so Ctrl-C interrupts and
-    input() reads what you type. Ctrl-] q leaves; Ctrl-] h lists the rest.
-    Without a terminal -- in a pipeline or a build -- the output still comes
-    through, on stdout.
+    input() reads what you type. Press Escape twice to stop the program;
+    Ctrl-] q leaves, and Ctrl-] h lists the rest. Without a terminal -- in a
+    pipeline or a build -- the output still comes through, on stdout.
 
     Args:
         script: The Python file to run. Leave it out when using --command.

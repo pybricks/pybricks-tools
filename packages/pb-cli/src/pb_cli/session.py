@@ -349,6 +349,11 @@ async def _session(
     sender, receiver = anyio.create_memory_object_stream[bytes](INPUT_QUEUE)
 
     with banner_module.Banner(console, info) as bar:
+        stop = escape.describe(escape.STOP_KEY)
+        # The stop key first, and said in full rather than abbreviated to a
+        # keystroke: it is the one line here that has to be remembered by
+        # somebody who is not reading the screen at the time.
+        bar.line(f"{stop} {stop} stops the {running.noun}.")
         bar.line(f"{escape.describe()} q to leave, {escape.describe()} h for help.")
 
         # Before the tasks, not inside them, so that leaving in the same breath
