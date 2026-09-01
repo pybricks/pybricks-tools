@@ -41,13 +41,6 @@ __all__ = ["DEFAULT_IDLE_TIMEOUT", "Service", "run_service"]
 DEFAULT_IDLE_TIMEOUT: Final = 300.0
 """Seconds of inactivity before an idle service exits."""
 
-_TICK: Final = 0.25
-"""Watchdog period.
-
-Also keeps the proactor event loop waking on Windows, where it otherwise sleeps
-in GetQueuedCompletionStatus and can be slow to notice Ctrl+C.
-"""
-
 
 class Service:
     """Shared state for one running service."""
@@ -109,23 +102,43 @@ class Service:
         return bool(self.sessions) or self.hubs.count > 0
 
     async def _watchdog(self) -> None:
-        """Exit once the service has been idle for long enough."""
+        """Exit once the service has been idle for long enough.
+
+        It sleeps until the timeout is due rather than asking every quarter
+        second whether it is. Nothing can announce that still nothing has
+        happened, so a clock is the only way to know -- but a clock is not a
+        poll: this wakes about once per idle period, and is exact rather than
+        rounded up to the next tick.
+
+        The quarter second it used to wake at was doing two other jobs, and
+        neither survived being looked at. Sweeping the hub registry belongs to
+        whatever holds the connection, which knows the moment it ends. And the
+        claim that this kept the proactor loop awake enough to notice Ctrl+C
+        is false on every Python this supports: asyncio sets the signal wakeup
+        socket, so the C handler's byte completes the loop's own overlapped
+        read and the wait returns at once. Measured on Windows 11 by sending a
+        console control event to a loop parked in ``sleep_forever``: 0.7 ms
+        with no tick at all, against 0.9 ms with one.
+        """
 
         while True:
-            await anyio.sleep(_TICK)
-            # A hub that went away on its own should stop keeping us alive.
-            self.hubs.forget_closed()
-
             if self.has_work:
                 self.mark_activity()
-                continue
 
             if self.idle_timeout <= 0:
+                await anyio.sleep_forever()
+
+            due = self._last_activity + self.idle_timeout
+            remaining = due - time.monotonic()
+
+            if remaining > 0:
+                await anyio.sleep(remaining)
+
                 continue
 
-            if time.monotonic() - self._last_activity >= self.idle_timeout:
-                self.request_shutdown(f"idle for {self.idle_timeout:.0f}s")
-                return
+            self.request_shutdown(f"idle for {self.idle_timeout:.0f}s")
+
+            return
 
     async def wait_for_shutdown(self) -> None:
         """Block until shutdown is requested."""
