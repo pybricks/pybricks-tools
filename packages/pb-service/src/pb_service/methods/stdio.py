@@ -14,15 +14,32 @@ client that dies takes its subscription with it. Nothing has to be
 unsubscribed by name, and there is no way to leak one.
 
 **Writing to stdin is where the sharp edge is.** The firmware rejects a write
-that does not fit its input buffer *whole*, with ``BUSY``, rather than keeping
-the part that fits -- and how big that buffer is depends on the firmware. Newer
-builds take as much as the Bluetooth link allows, which is what makes pasting a
-block of code into the interpreter quick; older ones hold 21 bytes on a City,
-Technic, Move or EV3 hub and 64 on a Prime, Essential or NXT, and nothing on
-the wire says which this is. So a write starts at the size the hub's
-capabilities allow, halves on refusal down to a floor, and waits and retries
-from there. Treating a refusal as a failure instead would lose input exactly
-when a program is slow to read, which is the case that matters most.
+that does not fit the free space in its input buffer *whole*, with ``BUSY``,
+rather than keeping the part that fits. So a write is offered at the size the
+hub's capabilities allow and retried at that size until it is taken. Treating a
+refusal as a failure instead would lose input exactly when a program is slow to
+read, which is the case that matters most.
+
+**What a refusal means is that nothing on the hub is reading**, and that is the
+whole of it. The buffer is emptied only by whatever is on the other end: the
+interpreter drains it while it sits at a prompt, and not while it is running a
+line; a user program drains it only as often as it reads ``sys.stdin``. So a
+hub that keeps saying ``BUSY`` is a hub with nothing reading, and the remedy is
+on the hub rather than here -- which is what :data:`STDIN_PATIENCE_SECONDS`
+eventually says.
+
+**Nothing here adapts the write size, and that is deliberate.** It used to
+halve on a refusal that lasted, on the theory that a long refusal meant the
+buffer was smaller than advertised, remembering where it settled. The theory
+does not hold: the firmware's test is
+``pbsys_host_stdin_get_free() < size - 1``, which is free space, and free space
+is reduced by whatever the reader has not read. A smaller write being accepted
+therefore says only that a little room happened to be left, not that the buffer
+is small -- so no sequence of writes can measure the buffer without knowing it
+is empty, which nothing reports. Measured on a City hub, the adaptive version
+walked the write size from 479 bytes to a 20-byte floor after one program that
+ignored its input, and nothing put it back for the life of the connection: a
+four-hundred-byte paste went from 73 ms to 2589 ms.
 """
 
 from __future__ import annotations
@@ -51,15 +68,6 @@ from pb_service.session import Session
 logger = logging.getLogger(__name__)
 
 __all__ = ["hub_attach", "hub_stdin", "program_repl"]
-
-STDIN_FLOOR = 20
-"""The smallest write to fall back to when a hub keeps refusing.
-
-Firmware that still holds 21 bytes of input takes 20 as long as it has read
-anything at all, and typing arrives a keystroke at a time in any case. Nothing
-smaller is ever worth trying: below this a refusal means the program is not
-reading, not that the write was too big.
-"""
 
 STDIN_RETRY_SECONDS = 0.03
 """How long to wait before offering a busy hub the same bytes again.
@@ -90,22 +98,6 @@ runs while somebody is pasting.
 A retry rather than a poll of something idle: nothing on the hub reports free
 space, so there is no event to wait for, and this runs only while a write is
 outstanding.
-"""
-
-STDIN_SETTLE_SECONDS = 0.25
-"""How long one size is retried before it is believed to be too big.
-
-The hub answers ``BUSY`` from a single test -- ``pbsys_host_stdin_get_free() <
-size - 1`` -- so a refusal means "not enough room *now*", which is the same
-answer whether the buffer is too small for this write or merely has something
-in it the program has not read yet. Time is what tells them apart: room appears
-within a millisecond or two of the program reading, so a size still refused a
-quarter of a second later is one this firmware cannot take at all.
-
-Long enough to be sure, and only ever paid by firmware whose input buffer is
-smaller than the messages it accepts: five halvings at this rate is a little
-over a second, once per connection. Current firmware never reaches it, because
-there the two are the same number.
 """
 
 STDIN_PATIENCE_SECONDS = 10.0
@@ -181,24 +173,20 @@ async def _offer(connection: HubConnection, chunk: bytes, profile: p.Version) ->
 
 
 async def _write_stdin(connection: HubConnection, data: bytes) -> int:
-    """Hand bytes to the hub, in pieces it will accept.
+    """Hand bytes to the hub, at the size it says it takes.
 
-    The hub answers ``BUSY`` both when a write does not fit its input buffer at
-    all and when the buffer is merely full at that moment, and nothing on the
-    wire distinguishes the two. **Waiting does.** Room appears within a
-    millisecond or two of the program reading its input, so a refusal is waited
-    out first, and only a size *still* refused after
-    :data:`STDIN_SETTLE_SECONDS` is taken to be one this firmware cannot
-    accept. That size is then halved, and where it settles is remembered on the
-    connection, so a hub is measured once rather than once per keystroke.
+    Cut into :attr:`HubConnection.stdin_limit` pieces, and each piece offered
+    over and over at that size until the hub takes it. **The size never
+    changes**, because a refusal carries no information about it: the firmware
+    tests the buffer's *free space*, which is whatever the reader on the hub has
+    not read yet, so a refusal says only that nothing has read lately. See the
+    module docstring for the version of this that tried to be clever and what it
+    cost.
 
-    Getting that order wrong is expensive and silent, which is why it is spelt
-    out here. Halving on the first refusal mistakes a hub that was busy for an
-    instant for a hub with a small buffer, and since the size is only ever
-    lowered, one such instant costs the connection its throughput for as long
-    as it lasts. Pasting into the interpreter is what triggers it, because the
-    write after the first meets whatever the first left behind -- and pasting
-    is exactly what the large writes are for.
+    Retries are paced to :data:`STDIN_RETRY_SECONDS` and bounded by
+    :data:`STDIN_PATIENCE_SECONDS`, after which the caller is told the truth --
+    that nothing on the hub is reading -- rather than being left holding a
+    keystroke.
 
     Args:
         connection: The hub to write to.
@@ -216,36 +204,18 @@ async def _write_stdin(connection: HubConnection, data: bytes) -> int:
         raise JsonRpcError(ErrorCode.HUB_NOT_CONNECTED, "hub is not ready")
 
     offset = 0
-    refused_since: float | None = None
+    limit = connection.stdin_limit
 
     with anyio.move_on_after(STDIN_PATIENCE_SECONDS) as patience:
         while offset < len(data):
-            limit = max(1, connection.stdin_limit)
-            chunk = data[offset : offset + limit]
-            if await _offer(connection, chunk, info.profile):
-                offset += len(chunk)
-                refused_since = None
+            if await _offer(connection, data[offset : offset + limit], info.profile):
+                offset += min(limit, len(data) - offset)
+
                 continue
 
-            now = anyio.current_time()
-            if refused_since is None:
-                refused_since = now
-
-            settled = now - refused_since >= STDIN_SETTLE_SECONDS
-
-            if settled and connection.stdin_limit > STDIN_FLOOR:
-                # Refused for long enough that the program has had every
-                # chance to read, so this is the buffer's size talking.
-                connection.stdin_limit = max(STDIN_FLOOR, connection.stdin_limit // 2)
-                refused_since = None
-                logger.info(
-                    "hub takes less input than it offered; using %d bytes a write",
-                    connection.stdin_limit,
-                )
-                continue
-
-            # Busy, which usually means the program has not read yet. Give it a
-            # moment rather than concluding anything about the hub.
+            # Nothing on the hub has read its input yet. There is nothing to
+            # conclude and nothing to adjust, so wait for the soonest moment
+            # the answer could be different and ask again.
             await anyio.sleep(STDIN_RETRY_SECONDS)
 
     if patience.cancelled_caught:

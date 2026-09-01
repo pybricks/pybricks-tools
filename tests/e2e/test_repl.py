@@ -506,31 +506,31 @@ async def test_the_interpreter_stopping_ends_the_session(
     assert "The interpreter stopped" in screen.text
 
 
-async def test_input_is_cut_to_fit_a_hub_with_a_small_buffer(
+async def test_input_waits_for_a_hub_that_is_slow_to_read(
     service: FakeHub, terminal: list[_Screen]
 ) -> None:
     hub = service
-    # Firmware from before the input buffer grew: 21 bytes, and a write that
-    # does not fit whole is refused rather than partly kept.
-    hub.stdin_capacity = 21
+    # A buffer with room for the line, but nearly full at this moment because
+    # nothing on the hub has read yet -- which is what typing into a busy
+    # interpreter looks like. A write that does not fit the free space is
+    # refused whole rather than partly kept, so it has to be offered again.
+    hub.stdin_capacity = 128
+    hub.stdin += b"y" * 120
     typed = b"print('a line longer than twenty-one bytes')\r"
 
     async def talk(screen: _Screen) -> None:
         screen.go.set()
-
-        # Stands for the program reading its input as it arrives, which is
-        # what makes room for the next piece.
-        while True:
-            await anyio.sleep(0.005)
-            hub.stdin_capacity = 21 + len(hub.stdin)
+        await anyio.sleep(0.05)
+        # Stands for the interpreter reaching its prompt and reading.
+        hub.stdin.clear()
 
     screen = _Screen(typed, QUIT)
     assert await _run(screen, terminal, talk) == errors.EXIT_OK
 
-    # Every byte arrived, in order, though no single write would have fitted.
+    # Every byte arrived, in order, and in one write: nothing is cut down to
+    # fit, because a refusal says nothing about what would have fitted.
     assert bytes(hub.stdin) == typed
-    assert len(hub.stdin_writes) > 1
-    assert max(len(write) for write in hub.stdin_writes) <= 21
+    assert hub.stdin_writes == [bytearray(typed)]
 
 
 async def test_typing_that_outruns_the_hub_goes_in_one_write(
