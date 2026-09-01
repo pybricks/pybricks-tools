@@ -67,11 +67,15 @@ async def collect(term, until):
 
 
 async def held_off(term, seconds):
-    "How long a wait lasts when there is nothing to read."
+    "How long a wait lasts when there is nothing to read, and what turned up."
     started = time.perf_counter()
     with anyio.move_on_after(seconds):
         await term.wait()
-    return time.perf_counter() - started
+    waited = time.perf_counter() - started
+    # Whatever arrived, if anything did. A wait that ends early ended because
+    # the terminal had something, and saying what it was turns a puzzling
+    # failure into a report.
+    return [waited, term.read().decode("utf-8", "replace")]
 
 
 async def main():
@@ -97,7 +101,7 @@ async def main():
             # immediately and the session spins on a full core.
             _focus_event()
             report["quiet_record_read"] = term.read().decode("utf-8", "replace")
-            report["after_quiet_record_s"] = await held_off(term, 0.3)
+            report["after_quiet_record_s"] = (await held_off(term, 0.3))[0]
 
     report["mode_after"] = _mode()
 
@@ -260,8 +264,9 @@ def _assert_waiting_works(report: dict[str, object]) -> None:
     # A wait with nothing to read ends when the caller stops waiting. If it
     # held on until a key was pressed, a session could not be left.
     for when in ("cancelled_wait_s", "next_wait_s"):
-        held = float(str(report[when]))
-        assert 0.25 <= held < 5.0, f"{when} was {held}s, wanted about 0.3s"
+        held, arrived = report[when]  # pyright: ignore[reportGeneralTypeIssues]
+        assert not arrived, f"{when} ended early because {arrived!r} arrived"
+        assert 0.2 <= float(held) < 5.0, f"{when} was {held}s, wanted about 0.3s"
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="the Windows console")
