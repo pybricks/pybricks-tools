@@ -11,6 +11,7 @@ from collections.abc import AsyncIterator, Iterator
 
 import anyio
 import pytest
+from anyio.lowlevel import checkpoint
 from rich.console import Console, RenderableType
 
 import pb_client
@@ -44,8 +45,10 @@ def _no_terminal_fiddling(  # pyright: ignore[reportUnusedFunction]
     # Nothing here has a terminal, and on POSIX asking for cbreak mode without
     # one raises. The tests drive the keys directly instead.
     monkeypatch.setattr(keys, "reading_keys", contextlib.nullcontext)
-    # No waiting between polls: the scripted keys are ready immediately.
-    monkeypatch.setattr(picker, "POLL_SECONDS", 0)
+    # And nothing to wait on, since the keys are scripted rather than typed.
+    # A checkpoint rather than nothing at all, so the task feeding hubs in
+    # still gets its turn between keystrokes.
+    monkeypatch.setattr(keys, "wait_for_key", checkpoint)
     yield
 
 

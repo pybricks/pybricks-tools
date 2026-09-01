@@ -9,12 +9,24 @@ byte a key produces, in raw mode, and getting it right is most of a project.
 This one only has to tell up from down from Enter, which is enough for a
 chooser.
 
-Two properties make it much safer than it looks:
+Three properties make it much safer than it looks:
 
 **Nothing blocks.** :func:`read_ready` returns immediately whether or not a key
-is waiting, so the caller stays in its own event loop and can redraw a display
-between polls. There is no reader thread to abandon and no uninterruptible read
-to cancel, which is where the difficulty in this area really lives.
+is waiting, so the caller stays in its own event loop. There is no reader thread
+to abandon and no uninterruptible read to cancel, which is where the difficulty
+in this area really lives.
+
+**Waiting is a separate call, and is real waiting where the platform allows
+it.** :func:`wait_for_key` returns once there may be something to read. On
+POSIX that is a wait on the terminal's own file descriptor, so a keypress is
+acted on in microseconds and nothing is woken while nobody is typing. Windows
+cannot do the same: a console handle is signalled by records that carry no
+character, and :mod:`msvcrt` neither reports those nor removes them, so a wait
+on the handle would return at once and go on returning. Seeing them means
+reading them with the console API, which is :mod:`pb_cli.console`'s job and
+costs a change of console mode -- and that would take Ctrl-C away from the
+operating system, which is the one thing here that must keep working. So
+Windows waits on a short timer instead.
 
 **Windows needs no mode change at all.** :mod:`msvcrt` reads the console input
 buffer directly, so there is no console state to save and none to restore, and
@@ -22,7 +34,8 @@ therefore no way to leave the terminal wedged. Only POSIX needs cbreak mode,
 and it is entered and left by a *synchronous* context manager, whose
 ``__exit__`` cannot be cancelled -- which is stronger than shielding.
 
-Only the reading is per platform. Deciding what a keystroke means is shared,
+Only the reading and the waiting are per platform. Deciding what a keystroke
+means is shared,
 and understands both grammars at once: Windows reports an arrow as a prefix
 character followed by a scan code, while a terminal reports it as an escape
 sequence. Neither can be mistaken for the other, so one function handles both
@@ -39,6 +52,9 @@ import contextlib
 import sys
 from collections.abc import Generator
 from enum import Enum
+from typing import Final
+
+import anyio
 
 __all__ = [
     "Key",
@@ -47,6 +63,7 @@ __all__ = [
     "read_ready",
     "read_second",
     "reading_keys",
+    "wait_for_key",
 ]
 
 
@@ -104,6 +121,13 @@ def poll_key() -> Key | None:
     if char is None:
         return None
 
+    if not char:
+        # The terminal has gone away, so there is nothing left to choose
+        # with, and leaving is the same answer as Escape. Saying so matters
+        # more than it looks: a descriptor at end of file stays readable for
+        # ever, so anything else here would spin rather than wait.
+        return Key.CANCEL
+
     if char in _WINDOWS_PREFIXES:
         # A Windows special key, which arrives as a prefix and then its
         # scan code. read_second rather than read_ready: the two halves
@@ -131,6 +155,23 @@ def poll_key() -> Key | None:
 
 
 if sys.platform == "win32":
+    POLL_SECONDS: Final = 0.05
+    """How long to wait before looking for a keystroke again.
+
+    Windows only, and standing in for a wait that cannot be had here -- see
+    the module docstring. Fast enough that a keypress feels immediate and slow
+    enough to be free.
+    """
+
+    async def wait_for_key() -> None:
+        """Wait a short while, since the console cannot be waited on.
+
+        A poll, and the one the repository keeps deliberately. It is bounded
+        by how long somebody spends choosing a hub, and the alternative costs
+        a change of console mode that would take Ctrl-C away from the
+        operating system.
+        """
+        await anyio.sleep(POLL_SECONDS)
 
     @contextlib.contextmanager
     def reading_keys() -> Generator[None]:
@@ -199,6 +240,14 @@ if sys.platform == "win32":
 
 else:
 
+    async def wait_for_key() -> None:
+        """Wait until the terminal has something to read.
+
+        Nothing is woken while nobody is typing, and a keypress is acted on
+        as it arrives rather than at the next turn of a timer.
+        """
+        await anyio.wait_readable(sys.stdin.fileno())
+
     @contextlib.contextmanager
     def reading_keys() -> Generator[None]:
         """Put the terminal in cbreak mode for the duration of the block.
@@ -240,13 +289,36 @@ else:
     def read_ready() -> str | None:
         """Read one character if the terminal has one waiting.
 
+        The read is from the file descriptor rather than through
+        :data:`sys.stdin`, and that is the whole correctness of this module
+        on POSIX. ``sys.stdin`` is a text wrapper with a buffer of its own,
+        and a terminal sends an arrow key's three bytes in one go -- so
+        reading the escape through it drew all three into that buffer,
+        ``select`` on the descriptor then truthfully reported nothing waiting,
+        and :func:`poll_key` concluded the Escape had stood alone. Every arrow
+        key was read as leave, and its remaining two bytes as two more
+        keystrokes. Measured against a real pseudo-terminal, which is the only
+        way it could have been found: down, up and Enter came back as
+        ``CANCEL``, ``OTHER``, ``OTHER``. What is asked about and what is read
+        from have to be the same thing.
+
         Returns:
-            The character, or ``None`` if nothing has been typed.
+            The character, or ``None`` if nothing has been typed, or the empty
+            string if the terminal has gone away.
         """
+        import os
         import select
 
-        readable, _, _ = select.select([sys.stdin], [], [], 0)
-        return sys.stdin.read(1) if readable else None
+        fd = sys.stdin.fileno()
+        readable, _, _ = select.select([fd], [], [], 0)
+
+        if not readable:
+            return None
+
+        # One byte at a time, as Latin-1 so that nothing here can raise
+        # part-way through a character. A key that produces several bytes is
+        # not one this module knows, and comes out as OTHER either way.
+        return os.read(fd, 1).decode("latin-1")
 
     def _is_console() -> bool:
         """Whether standard input really is a terminal.
