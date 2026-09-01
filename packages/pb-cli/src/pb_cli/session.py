@@ -612,12 +612,28 @@ async def _send_input(
     bar: banner_module.Banner,
     ended: _Ending,
 ) -> None:
-    """Pass what was typed to the hub, one queued read at a time.
+    """Pass what was typed to the hub, as much of it at a time as has arrived.
 
     Its own task because a write can take a while: a hub whose input buffer is
     full makes the service wait for the program to read. Reading the keyboard
     must not wait behind that, or the key that ends the session would be the
     one key that could not get through.
+
+    **Everything already waiting goes in one write**, which is what keeps the
+    echo up with the typing. A write is a Bluetooth write with response, so it
+    costs a round trip -- measured at about 70 ms to a City hub -- and sending
+    one queued read at a time meant one round trip per keystroke. Type quicker
+    than that and each key waits behind every key before it, so the delay grows
+    for as long as the typing goes on rather than settling: measured over a
+    21-character line typed at 25 characters a second, the first character came
+    back in 79 ms and the last in 1479 ms, rising by about 70 ms each. Taking
+    the whole backlog instead held it between 108 ms and 228 ms, flat.
+
+    Nothing is waited for to make this happen, so it cannot add latency: this
+    takes what has already been typed and no more. The service breaks the
+    result into whatever the hub will accept, so a long line is its problem
+    rather than ours -- and a paste, which arrives as one read, has always
+    taken this path.
 
     Args:
         service: The connected service.
@@ -630,7 +646,7 @@ async def _send_input(
     async with keystrokes:
         async for data in keystrokes:
             try:
-                await service.write_stdin(data, hub_id=hub)
+                await service.write_stdin(_backlog(keystrokes, data), hub_id=hub)
             except pb_client.JsonRpcError as exc:
                 logger.info("the hub would not take input: %s", exc)
                 bar.notice(str(exc))
@@ -638,6 +654,29 @@ async def _send_input(
     # Nothing more is coming and everything that came has gone, so leaving no
     # longer risks throwing away something that was typed.
     ended.flushed.set()
+
+
+def _backlog(keystrokes: MemoryObjectReceiveStream[bytes], first: bytes) -> bytes:
+    """Join one read to everything already queued behind it.
+
+    Args:
+        keystrokes: The queue, which is not waited on.
+        first: The read that has already been taken from it.
+
+    Returns:
+        All of it, in the order it was typed. Only what is there now: taking
+        nothing on an empty queue is what makes this free of any delay of its
+        own.
+    """
+    typed = bytearray(first)
+
+    while True:
+        try:
+            typed += keystrokes.receive_nowait()
+        except (anyio.WouldBlock, anyio.EndOfStream):
+            # Nothing more waiting, or the keyboard has finished. Either way
+            # this is everything there is to send.
+            return bytes(typed)
 
 
 async def _read_keys(

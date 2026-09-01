@@ -533,6 +533,25 @@ async def test_input_is_cut_to_fit_a_hub_with_a_small_buffer(
     assert max(len(write) for write in hub.stdin_writes) <= 21
 
 
+async def test_typing_that_outruns_the_hub_goes_in_one_write(
+    service: FakeHub, terminal: list[_Screen]
+) -> None:
+    # Each keystroke is its own read, as it is from a real console, and a
+    # write to the hub is a Bluetooth round trip -- so sending one read at a
+    # time meant one round trip per key, and typing faster than the link put
+    # every key behind every key before it. Measured on a City hub, a
+    # 21-character line typed at 25 characters a second came back 79 ms behind
+    # at the first character and 1479 ms at the last, rising throughout.
+    hub = service
+    typed = b"print(1)"
+
+    screen = _Screen(*(bytes([byte]) for byte in typed), QUIT)
+    assert await _run(screen, terminal) == errors.EXIT_OK
+
+    assert bytes(hub.stdin) == typed
+    assert len(hub.stdin_writes) == 1
+
+
 # ------------------------------------------------- the same session, a program
 
 
