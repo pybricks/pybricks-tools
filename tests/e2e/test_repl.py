@@ -114,6 +114,15 @@ class _Screen:
         self.go = anyio.Event()
         self._size = (80, 24)
 
+    async def wait(self) -> None:
+        await self.go.wait()
+        if not self.typed:
+            # The script is finished. A real terminal would simply sit there
+            # until a key was pressed, and this sits there until the session is
+            # ended by something else -- which is what the test is watching
+            # for.
+            await anyio.sleep_forever()
+
     def read(self) -> bytes:
         if not self.go.is_set() or not self.typed:
             return b""
@@ -146,8 +155,6 @@ def terminal(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[_Screen]]:
 
     monkeypatch.setattr(console_module, "raw_console", raw_console)
     monkeypatch.setattr(console_module, "why_unavailable", lambda: None)
-    # Nothing should wait a hundredth of a second for a scripted keystroke.
-    monkeypatch.setattr(session, "KEY_POLL_SECONDS", 0)
     monkeypatch.setattr(session, "TICK_SECONDS", 0.01)
     yield holder
 

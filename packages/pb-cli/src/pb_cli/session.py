@@ -46,16 +46,6 @@ logger = logging.getLogger(__name__)
 
 __all__ = ["Running", "attached", "have_terminal", "needs_terminal", "streamed"]
 
-KEY_POLL_SECONDS = 0.01
-"""How often to look for a keystroke.
-
-Far below the speed anyone types, so a key never feels late, and a poll that
-finds nothing costs one system call. This is a poll rather than a blocking read
-because a blocking read of a console cannot be cancelled on either platform,
-and a reader thread that outlives its session goes on eating the keys meant for
-the next command.
-"""
-
 TICK_SECONDS = 0.25
 """How often to check for things nothing announces, such as a resized window."""
 
@@ -669,7 +659,11 @@ async def _keys_until_done(
     while True:
         typed = console.read()
         if not typed:
-            await anyio.sleep(KEY_POLL_SECONDS)
+            # Nothing waiting, so wait for something. A terminal reports more
+            # than typing, so a wait that yields no bytes is ordinary rather
+            # than a sign of trouble.
+            await console.wait()
+
             continue
 
         keys, for_hub, actions = keys.feed(typed)
