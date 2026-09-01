@@ -41,6 +41,8 @@ import json
 import sys
 import time
 
+import anyio
+
 from pb_cli import console
 
 REPORT = sys.argv[1]
@@ -49,22 +51,60 @@ report = {{}}
 
 {arrange}
 
+
+async def collect(term, until):
+    "Read until the wanted bytes have arrived, waiting rather than polling."
+    got = b""
+    with anyio.fail_after(20):
+        while len(got) < until:
+            chunk = term.read()
+            if chunk:
+                got += chunk
+                continue
+            report["waits"] = report.get("waits", 0) + 1
+            await term.wait()
+    return got
+
+
+async def held_off(term, seconds):
+    "How long a wait lasts when there is nothing to read."
+    started = time.perf_counter()
+    with anyio.move_on_after(seconds):
+        await term.wait()
+    return time.perf_counter() - started
+
+
+async def main():
+    with console.raw_console() as term:
+        report["mode_raw"] = _mode()
+        term.write(b"written by the probe")
+        report["size"] = list(term.size())
+        {type_keys}
+        report["read"] = (await collect(term, len(WANT.encode()))).decode(
+            "utf-8", "replace"
+        )
+
+        # A wait with nothing to read has to be released by cancellation
+        # rather than holding on until somebody presses a key.
+        report["cancelled_wait_s"] = await held_off(term, 0.3)
+        # And the wait after it has to be a fresh one. If releasing the last
+        # one left anything set, this returns at once instead of waiting.
+        report["next_wait_s"] = await held_off(term, 0.3)
+
+        if sys.platform == "win32":
+            # A record that carries no character still signals the console.
+            # Reading has to consume it, or every wait from here on returns
+            # immediately and the session spins on a full core.
+            _focus_event()
+            report["quiet_record_read"] = term.read().decode("utf-8", "replace")
+            report["after_quiet_record_s"] = await held_off(term, 0.3)
+
+    report["mode_after"] = _mode()
+
+
 report["unavailable"] = console.why_unavailable()
 report["mode_before"] = _mode()
-
-with console.raw_console() as term:
-    report["mode_raw"] = _mode()
-    term.write(b"written by the probe")
-    report["size"] = list(term.size())
-    {type_keys}
-    got = b""
-    deadline = time.monotonic() + 10
-    while len(got) < len(WANT.encode()) and time.monotonic() < deadline:
-        got += term.read()
-        time.sleep(0.01)
-    report["read"] = got.decode("utf-8", "replace")
-
-report["mode_after"] = _mode()
+anyio.run(main)
 Path = __import__("pathlib").Path
 Path(REPORT).write_text(json.dumps(report), encoding="utf-8")
 """
@@ -154,7 +194,32 @@ def _type(text):
     k32.CloseHandle(handle)
 
 
+def _type_later(delay, text):
+    import threading
+
+    threading.Timer(delay, _type, (text,)).start()
+
+
+def _focus_event():
+    # The console window gaining or losing focus. It is a record like any
+    # other, so it signals the handle, and it carries no character -- which
+    # makes it exactly what a reader that does not drain its records spins on.
+    # A key going *up* would not do: with virtual terminal input the console
+    # discards those before they are ever queued.
+    handle = _conin()
+    records = (_Record * 1)()
+    records[0].EventType = 0x0010
+    written = w.DWORD()
+    k32.WriteConsoleInputW(handle, records, 1, ctypes.byref(written))
+    k32.CloseHandle(handle)
+
+
 _adopt()
+
+# A console does not necessarily start empty -- measured as three backspaces
+# one time and two letters the next -- and anything left in it would be read
+# as though the test had typed it.
+k32.FlushConsoleInputBuffer(_conin())
 """
 
 _POSIX_ARRANGE = """
@@ -182,10 +247,28 @@ def _report(path: Path) -> dict[str, object]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _assert_waiting_works(report: dict[str, object]) -> None:
+    """Check the properties waiting has to have on either platform.
+
+    Args:
+        report: What the probe observed.
+    """
+    # Nothing was there to read, so the keystrokes were waited for rather than
+    # found by looking again and again.
+    assert int(str(report["waits"])) >= 1, "the probe never had to wait"
+    # A wait with nothing to read ends when the caller stops waiting. If it
+    # held on until a key was pressed, a session could not be left.
+    for when in ("cancelled_wait_s", "next_wait_s"):
+        held = float(str(report[when]))
+        assert 0.25 <= held < 5.0, f"{when} was {held}s, wanted about 0.3s"
+
+
 @pytest.mark.skipif(sys.platform != "win32", reason="the Windows console")
 def test_a_real_windows_console_gives_back_what_was_typed(tmp_path: Path) -> None:
     report_path = tmp_path / "report.json"
-    probe = _probe(tmp_path, _WINDOWS_ARRANGE, "_type(WANT)")
+    # Typed from a timer rather than up front, so the probe finds nothing to
+    # read and has to wait for it -- which is the path under test.
+    probe = _probe(tmp_path, _WINDOWS_ARRANGE, "_type_later(0.3, WANT)")
 
     result = subprocess.run(
         [sys.executable, str(probe), str(report_path)],
@@ -210,6 +293,15 @@ def test_a_real_windows_console_gives_back_what_was_typed(tmp_path: Path) -> Non
     assert not raw & 0x0004, "echo would have doubled everything typed"
     # And the console is left exactly as it was found.
     assert report["mode_after"] == report["mode_before"]
+    _assert_waiting_works(report)
+
+    # The regression this design exists to avoid. A focus event wakes the wait
+    # and carries no character, so unless the read consumes it, every wait
+    # after it returns at once and the session spins on a full core.
+    assert report["quiet_record_read"] == ""
+    assert float(str(report["after_quiet_record_s"])) >= 0.25, (
+        "a record with no character was left in the buffer, so waiting no longer waits"
+    )
 
 
 def _wait_for(fd: int, marker: bytes, seconds: float = 30.0) -> None:
@@ -272,3 +364,4 @@ def test_a_real_pty_gives_back_what_was_typed(tmp_path: Path) -> None:
     assert report["mode_raw"] == {"echo": False, "isig": False}
     # And it is left exactly as it was found.
     assert report["mode_after"] == report["mode_before"]
+    _assert_waiting_works(report)

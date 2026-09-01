@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+import anyio
+
 import pb_client
 from pb_cli import banner
 from pb_cli.banner import Banner
@@ -44,6 +46,9 @@ class _Screen:
     def __init__(self, columns: int = 80, rows: int = 24) -> None:
         self.written = bytearray()
         self._size = (columns, rows)
+
+    async def wait(self) -> None:
+        await anyio.sleep_forever()
 
     def read(self) -> bytes:
         return b""
