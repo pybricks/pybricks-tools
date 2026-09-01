@@ -156,6 +156,26 @@ jobs, so the fix is to split along a seam that means something rather than to
 cut it at a convenient point, and a group of related modules is a subpackage
 rather than several modules sharing a name prefix.
 
+**A control byte is written as an escape sequence, never as itself.** `b"\x1b[A"`
+and not an arrow key's actual Escape byte, `"\r\n"` and not a real carriage
+return inside a string. This repository is full of terminal sequences and
+keystrokes, so the temptation is constant and the mistake is invisible: an
+editor draws a literal Escape as a neat little badge, while `git diff`, a review
+in a browser, `grep` output and any terminal that acts on the byte rather than
+printing it all show something else, and the file survives copying and
+line-ending normalisation only by luck.
+
+`tests/test_source_text.py` checks every tracked `.py` file for this, because
+nothing else would: the bytes are identical at runtime, so the tests pass either
+way.
+
+The way they get in is not typing them. **Writing a file through a shell heredoc
+eats a level of backslash escaping**, so a payload containing `\\x1b` reaches
+Python as `\x1b` and is written out as the byte. The same trap turned `\\n` into
+a real newline once before, producing a file with an unterminated string
+literal. Write files that contain backslash escapes with an editor rather than
+through a heredoc.
+
 ## Talking to C libraries
 
 **ctypes signatures go on a function of our own, never on the library's.** A
