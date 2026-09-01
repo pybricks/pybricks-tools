@@ -33,12 +33,27 @@ import pb_client
 SCAN_SECONDS = 15.0
 """How long to look for a hub before deciding there is none to test against."""
 
-_UNAVAILABLE = (pb_client.PbClientError, TimeoutError, BaseExceptionGroup)
+_UNAVAILABLE = (
+    pb_client.PbClientError,
+    pb_client.JsonRpcError,
+    TimeoutError,
+    BaseExceptionGroup,
+)
 """What to catch when deciding whether there is anything to test against.
 
-The group is not optional: anything raised inside an ``async with
-pb_client.connect()`` comes back wrapped in a group of one, so the type to catch
-is not the type that was raised.
+Three things about this list are easy to get wrong, and leaving any of them out
+turns "there is no hub here" into an error rather than a skip.
+
+``JsonRpcError`` is **not** a ``PbClientError`` -- they are unrelated roots,
+both straight off ``Exception`` -- and it is the one a machine with no
+Bluetooth raises, since the failure happens on the service's side of the wire
+and comes back as an error response. Measured on WSL, where there is no
+adapter: ``[-32603] BleakDBusError: ... The name org.bluez was not provided by
+any .service files``.
+
+The group is not optional either: anything raised inside an ``async with
+pb_client.connect()`` comes back wrapped in a group of one, so the type to
+catch is not the type that was raised.
 """
 
 
