@@ -196,8 +196,17 @@ async def test_shutdown_stops_the_service(endpoint: Endpoint) -> None:
 async def test_idle_service_exits_on_its_own(endpoint: Endpoint) -> None:
     # A connected hub will keep it alive; with nothing to hold open it should
     # not linger.
-    async with service_module.run_service(endpoint, idle_timeout=0.5) as service:
+    #
+    # Three tenths of a second deliberately: it is not a multiple of the 250 ms
+    # tick this used to wake on, which would have rounded it up to a half. A
+    # wait for the deadline itself cannot round it up, and the service's own
+    # clock is what to measure against, so that starting the listener does not
+    # count as idle time.
+    async with service_module.run_service(endpoint, idle_timeout=0.3) as service:
         with anyio.fail_after(10):
             await service.wait_for_shutdown()
 
+        took = service.uptime
+
     assert "idle" in service.shutdown_reason
+    assert 0.3 <= took < 0.45, f"exited after {took:.3f}s, wanted about 0.3s"

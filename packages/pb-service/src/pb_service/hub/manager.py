@@ -17,10 +17,9 @@ from collections.abc import AsyncGenerator
 from contextlib import aclosing, asynccontextmanager
 
 import anyio
-from anyio.abc import TaskGroup
+from anyio.abc import TaskGroup, TaskStatus
 
 from pb_service.hub.connection import HubConnection, HubInfo
-from pb_service.hub.events import HubState
 from pb_service.hub.selection import Selection
 from pb_service.hub.transport import DeviceInfo, HubTransport, ScanFilter
 
@@ -227,7 +226,7 @@ class HubManager:
             connection = HubConnection(self.transport, device)
             # start() hands the task's lifetime to this group while returning
             # the handshake result, including failures, to the caller.
-            info = await self._tg.start(connection.run)
+            info = await self._tg.start(self._hold, connection)
             assert isinstance(info, HubInfo)
             self._hubs[device.id] = connection
             # Connecting says which hub you mean for now, but it is not
@@ -249,15 +248,10 @@ class HubManager:
         """
         connection = self.get(hub_id)
         connection.close("client requested disconnect")
-        self._hubs.pop(connection.id, None)
-
-        # The remembered choice is left alone: a hub that has been switched
-        # off is still the hub the user is working with. Only the
-        # ephemeral fallback moves.
-        if self._last_connected == connection.id:
-            self._last_connected = next(iter(self._hubs), None)
-
-        logger.info("hub disconnected: %s (%d left)", connection.id, len(self._hubs))
+        # Dropped here as well as when the task unwinds, so that a client
+        # which asked to disconnect and then asks what is connected gets the
+        # answer it just brought about, rather than one a moment behind.
+        self._forget(connection.id)
 
     def _transport_lost(self, device_id: str) -> None:
         """Note that the transport has lost a hub.
@@ -274,21 +268,56 @@ class HubManager:
             logger.info("the transport lost %s", device_id)
             connection.notify_disconnected()
 
-    def forget_closed(self) -> None:
-        """Drop connections that have gone away on their own.
+    async def _hold(
+        self, connection: HubConnection, *, task_status: TaskStatus[HubInfo]
+    ) -> None:
+        """Run one connection, and keep the registry honest about it.
 
-        A hub can disconnect without being asked -- powered off, out of range
-        -- so the registry needs sweeping rather than only being edited by
-        request.
+        The registry entry lives exactly as long as the task does, because
+        both ends of it are in this function: the entry is added by the caller
+        once ``task_status`` has been signalled, and removed here when the
+        task ends however it ends. A hub that is switched off or carried out
+        of range is therefore gone from the registry the moment its connection
+        unwinds, rather than at the next turn of somebody's timer.
+
+        This replaced a sweep. `HubConnection.run` reaches
+        ``HubState.DISCONNECTED`` in exactly one place -- the ``finally`` that
+        every ending funnels through -- so what a sweep was looking for is
+        something this task already knows, and knowing it is not the same as
+        being asked about it four times a second.
+
+        Args:
+            connection: The hub to hold open.
+            task_status: Signalled with the hub's details once connected.
         """
 
-        for hub_id, connection in list(self._hubs.items()):
-            if connection.state is HubState.DISCONNECTED:
-                logger.info("hub went away: %s", hub_id)
-                self._hubs.pop(hub_id, None)
+        try:
+            await connection.run(task_status=task_status)
 
-                if self._last_connected == hub_id:
-                    self._last_connected = next(iter(self._hubs), None)
+        finally:
+            self._forget(connection.id)
+
+    def _forget(self, hub_id: str) -> None:
+        """Take a hub out of the registry.
+
+        Idempotent, because a hub can be dropped by an explicit disconnect and
+        then again when its task unwinds, and a handshake that failed leaves
+        nothing to drop at all.
+
+        Args:
+            hub_id: Which hub.
+        """
+
+        if self._hubs.pop(hub_id, None) is None:
+            return
+
+        logger.info("hub forgotten: %s (%d left)", hub_id, len(self._hubs))
+
+        # The remembered choice is left alone: a hub that has been switched
+        # off is still the hub the user is working with. Only the ephemeral
+        # fallback moves.
+        if self._last_connected == hub_id:
+            self._last_connected = next(iter(self._hubs), None)
 
     async def close_all(self) -> None:
         """Disconnect every hub, for service shutdown."""
