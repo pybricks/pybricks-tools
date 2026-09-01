@@ -24,7 +24,9 @@ import json
 import subprocess
 import sys
 import textwrap
+from collections.abc import Sequence
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 
@@ -264,7 +266,7 @@ def _assert_waiting_works(report: dict[str, object]) -> None:
     # A wait with nothing to read ends when the caller stops waiting. If it
     # held on until a key was pressed, a session could not be left.
     for when in ("cancelled_wait_s", "next_wait_s"):
-        held, arrived = report[when]  # pyright: ignore[reportGeneralTypeIssues]
+        held, arrived = cast("Sequence[Any]", report[when])
         assert not arrived, f"{when} ended early because {arrived!r} arrived"
         assert 0.2 <= float(held) < 5.0, f"{when} was {held}s, wanted about 0.3s"
 

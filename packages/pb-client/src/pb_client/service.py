@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import aclosing, asynccontextmanager
-from typing import Any
+from typing import Any, cast
 
 import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
@@ -61,7 +61,7 @@ payload -- and, more importantly, can see them all in the order they arrived.
 
 async def _devices(
     payloads: MemoryObjectReceiveStream[tuple[str, dict[str, Any]]],
-) -> AsyncIterator[DeviceInfo]:
+) -> AsyncGenerator[DeviceInfo, None]:
     """Parse scan notifications as they arrive.
 
     Args:
@@ -392,9 +392,11 @@ class Service:
         if not isinstance(chosen, str) or not chosen:
             return Choice(name=None, connected=False)
 
+        hubs = result.get("hubs")
+        listed = cast("list[object]", hubs) if isinstance(hubs, list) else []
         connected = any(
-            item.get("name") == chosen
-            for item in result.get("hubs", [])
+            cast("dict[str, object]", item).get("name") == chosen
+            for item in listed
             if isinstance(item, dict)
         )
         return Choice(name=chosen, connected=connected)

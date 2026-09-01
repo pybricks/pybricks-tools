@@ -163,12 +163,16 @@ def _declared_root(document: Mapping[str, Any]) -> str | None:
     wheel = _table(document, "tool", "hatch", "build", "targets", "wheel")
     if wheel is not None:
         sources: object = wheel.get("sources")
+
+        # Asked before the table below, because a list and a table are
+        # different answers to the same key and testing for the table
+        # first would narrow the value out of shape for this one.
+        if (found := _first_string(sources)) is not None:
+            return found
+
         if isinstance(sources, dict):
             for key in cast("dict[str, object]", sources):
                 return key
-
-        if (found := _first_string(sources)) is not None:
-            return found
 
         for key in ("packages", "only-include"):
             if (found := _first_string(wheel.get(key))) is not None:

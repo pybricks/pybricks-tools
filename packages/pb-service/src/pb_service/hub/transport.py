@@ -15,7 +15,7 @@ because Bluetooth is assumed.
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncGenerator, Callable
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
@@ -197,7 +197,7 @@ class HubTransport(Protocol):
         """Identifier prefix for hubs on this transport, such as ``ble``."""
         ...
 
-    def discover(self, scan_filter: ScanFilter) -> AsyncIterator[DeviceInfo]:
+    def discover(self, scan_filter: ScanFilter) -> AsyncGenerator[DeviceInfo, None]:
         """Report hubs as they are seen, until the caller stops listening.
 
         A stream rather than a list, and with no timeout argument, because a
@@ -209,8 +209,11 @@ class HubTransport(Protocol):
             scan_filter: Which hubs to report.
 
         Returns:
-            An async iterator of hubs, which may repeat a hub as its
-            advertisement is seen again.
+            An async generator of hubs, which may repeat a hub as its
+            advertisement is seen again. A generator rather than any
+            async iterator because every caller closes the stream when
+            it has seen enough, and only a generator promises
+            ``aclose``.
         """
         ...
 

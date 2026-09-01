@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
+from typing import cast
 
 from pb_core import paths
 
@@ -73,14 +74,18 @@ class Selection:
         """Return the stored name, or ``None`` if there is not one to have."""
 
         try:
-            stored = json.loads(self._path.read_text(encoding="utf-8"))
+            stored: object = json.loads(self._path.read_text(encoding="utf-8"))
         except FileNotFoundError:
             return None
         except (OSError, ValueError):
             logger.warning("ignoring unreadable %s", self._path, exc_info=True)
             return None
 
-        name = stored.get(_KEY) if isinstance(stored, dict) else None
+        name = (
+            cast("dict[str, object]", stored).get(_KEY)
+            if isinstance(stored, dict)
+            else None
+        )
         return name if isinstance(name, str) and name else None
 
     def _write(self) -> None:

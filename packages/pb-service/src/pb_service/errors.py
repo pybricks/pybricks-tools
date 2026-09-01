@@ -17,7 +17,7 @@ paraphrasing a paraphrase.
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from typing import Any
 
@@ -90,7 +90,7 @@ def as_wire_error(exc: Exception, doing: str | None = None) -> JsonRpcError:
 
 
 @contextmanager
-def hub_errors(doing: str | None = None) -> Iterator[None]:
+def hub_errors(doing: str | None = None) -> Generator[None]:
     """Translate any hub failure raised inside the block.
 
     Args:

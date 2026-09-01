@@ -19,12 +19,13 @@ from typing import Any
 
 import anyio
 
-import pb_service.methods.hub
-import pb_service.methods.program
-
-# Imported to register the RPC methods.
-import pb_service.methods.service
-import pb_service.methods.stdio  # noqa: F401
+# Imported for the side effect: importing a method module registers its RPCs,
+# so nothing here reads the names. Said on each line, because a comment is
+# not something a linter can read.
+import pb_service.methods.hub  # pyright: ignore[reportUnusedImport]
+import pb_service.methods.program  # pyright: ignore[reportUnusedImport]
+import pb_service.methods.service  # pyright: ignore[reportUnusedImport]
+import pb_service.methods.stdio  # noqa: F401 # pyright: ignore[reportUnusedImport]
 from pb_core import ipc, lock
 from pb_core.ipc import AddressInUseError
 from pb_core.logging import setup_logging

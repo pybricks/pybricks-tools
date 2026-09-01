@@ -10,8 +10,9 @@ this machine's filesystem and the service may not be.
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Final
 
 import cyclopts
 
@@ -26,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 __all__ = ["check_cmd", "download_cmd", "run_cmd", "start_cmd", "stop_cmd"]
 
-_START_HINTS = {
+_START_HINTS: Final[Mapping[int, str]] = {
     ErrorCode.HUB_INVALID_COMMAND: (
         "There may be no program on the hub yet. Send one with "
         "[bold]pb run[/] or [bold]pb download[/]."

@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 import struct
-from collections.abc import AsyncGenerator, AsyncIterator, Callable
+from collections.abc import AsyncGenerator, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass, field
 from typing import final
@@ -408,7 +408,9 @@ class FakeHubTransport:
         """Identifier prefix for simulated hubs."""
         return "fake"
 
-    async def discover(self, scan_filter: ScanFilter) -> AsyncIterator[DeviceInfo]:
+    async def discover(
+        self, scan_filter: ScanFilter
+    ) -> AsyncGenerator[DeviceInfo, None]:
         """Report the simulated hubs that match, then wait to be stopped.
 
         Args:

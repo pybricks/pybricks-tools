@@ -21,7 +21,7 @@ import time
 from collections.abc import AsyncGenerator
 from contextlib import AsyncExitStack, asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import anyio
 from anyio.abc import ByteStream
@@ -160,7 +160,10 @@ def spawn_service(endpoint: Endpoint) -> None:
         # Its own session, so it survives this terminal closing.
         child = subprocess.Popen(command, start_new_session=True, **common)
 
-    _spawned.append(child)
+    # The shared options go in as **Any, so pyright picks the first Popen
+    # overload that matches -- the text-mode one -- although nothing here
+    # asks for text mode and every stream is DEVNULL. Say which it is.
+    _spawned.append(cast("subprocess.Popen[bytes]", child))
 
 
 async def _enter_with_retry(stack: AsyncExitStack, endpoint: Endpoint) -> ByteStream:

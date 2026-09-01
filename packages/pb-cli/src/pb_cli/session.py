@@ -33,6 +33,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, replace
 
 import anyio
+from anyio.abc import TaskGroup
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 
 import pb_client
@@ -641,7 +642,7 @@ async def _read_keys(
     keystrokes: MemoryObjectSendStream[bytes],
     bar: banner_module.Banner,
     ended: _Ending,
-    tg: anyio.abc.TaskGroup,
+    tg: TaskGroup,
 ) -> None:
     """Read the keyboard, sorting keys for the hub from commands for us.
 
