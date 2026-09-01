@@ -96,6 +96,7 @@ def why_unavailable() -> str | None:
     Returns:
         A sentence naming the problem, or ``None`` if there is no problem.
     """
+
     for name, stream in (("input", sys.stdin), ("output", sys.stdout)):
         try:
             if not stream.isatty():

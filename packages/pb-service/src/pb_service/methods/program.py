@@ -39,15 +39,19 @@ def _program_to_start(connection: HubConnection, slot: Any) -> int | None:
     Returns:
         The program id to send, or ``None`` for the legacy no-argument form.
     """
+
     if slot is not None:
         return int(slot)
+
     info = connection.info
     if info is None or not p.start_takes_program_id(info.profile):
         # Nothing else to say on a hub whose command has no argument.
         return None
+
     status = connection.status
     if status is not None and status.selected_slot is not None:
         return status.selected_slot
+
     # A hub that holds one program at a time reports no selection, and that
     # one program is slot 0.
     return 0
@@ -92,6 +96,7 @@ def _download_slot(connection: HubConnection, slot: Any) -> int:
             f"the hub has slot {destination} selected, and a program can only "
             f"be downloaded into the selected slot"
         )
+
     raise JsonRpcError(
         ErrorCode.PROGRAM_SLOT_NOT_SELECTED,
         message,
@@ -131,6 +136,7 @@ async def _download(
     )
 
     await connection.send_command(p.encode_write_user_program_meta(0))
+
     try:
         for offset in range(0, len(program), chunk_size):
             chunk = program[offset : offset + chunk_size]
@@ -140,7 +146,9 @@ async def _download(
         # because this is exactly the case where the connection is going away.
         with anyio.CancelScope(shield=True), anyio.move_on_after(2):
             await connection.send_command(p.encode_write_user_program_meta(0))
+
         raise
+
     await connection.send_command(p.encode_write_user_program_meta(len(program)))
 
 
@@ -161,9 +169,11 @@ async def program_download(session: Session, params: dict[str, Any]) -> dict[str
     connection = hub_of(session, params)
     program = decode_binary(require(params, "mpy", str))
     slot = _download_slot(connection, params.get("slot"))
+
     with hub_errors("store the program"):
         async with connection.abort_on_disconnect():
             await _download(connection, program)
+
     info = connection.info
     return {
         "size": len(program),
@@ -186,14 +196,17 @@ async def _start_and_watch(
     Returns:
         ``"started"``, ``"stopped"`` or ``"disconnected"``.
     """
+
     # Subscribing before starting, so the program cannot finish between the
     # start command and our first look at the status.
     async with connection.subscribe(frozenset({Channel.STATUS})) as watcher:
         try:
             async with connection.abort_on_disconnect():
                 await connection.send_command(command)
+
                 if not wait:
                     return "started"
+
                 return await _wait_for_stop(connection, watcher)
         except HubDisconnectedError:
             return "disconnected"
@@ -206,6 +219,7 @@ async def _start_and_watch(
             # running. Shielded: we are already unwinding.
             with anyio.CancelScope(shield=True), anyio.move_on_after(2):
                 await connection.send_command(p.encode_stop_user_program())
+
             raise
 
 
@@ -248,8 +262,10 @@ async def program_stop(session: Session, params: dict[str, Any]) -> dict[str, An
     """Stop the running program."""
     session.service.mark_activity()
     connection = hub_of(session, params)
+
     with hub_errors("stop the program"):
         await connection.send_command(p.encode_stop_user_program())
+
     return {}
 
 
@@ -298,6 +314,7 @@ async def program_run(session: Session, params: dict[str, Any]) -> dict[str, Any
 async def _wait_for_stop(connection: HubConnection, watcher: Any) -> str:
     """Wait until the hub reports that no user program is running."""
     started = False
+
     with anyio.move_on_after(_RUN_START_GRACE) as grace:
         async for event in connection.events(watcher):
             if isinstance(event, StatusEvent) and event.report.program_running:
@@ -314,4 +331,5 @@ async def _wait_for_stop(connection: HubConnection, watcher: Any) -> str:
     async for event in connection.events(watcher):
         if isinstance(event, StatusEvent) and not event.report.program_running:
             return "stopped"
+
     return "disconnected"

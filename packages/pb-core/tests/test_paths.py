@@ -65,6 +65,7 @@ def test_ensure_private_dir_rejects_world_readable(tmp_path: Path) -> None:
     target = tmp_path / "runtime"
     target.mkdir(mode=0o755)
     target.chmod(0o755)
+
     with pytest.raises(PermissionError, match="accessible to other users"):
         paths.ensure_private_dir(target)
 

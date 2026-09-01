@@ -116,8 +116,10 @@ class HubManager:
             HubNotFoundError: If no such hub is connected, or nothing says
                 which hub is meant.
         """
+
         if name_or_id is not None:
             return self.resolve(name_or_id)
+
         chosen = self.selection.name
         if chosen is not None:
             try:
@@ -127,13 +129,16 @@ class HubManager:
                 # the way of the only hub there is, so a chosen hub that
                 # is switched off falls through rather than refusing.
                 logger.debug("the chosen hub %r is not connected", chosen)
+
         last = self._last_connected
         if last is not None and last in self._hubs:
             return self._hubs[last]
+
         if len(self._hubs) == 1:
             # Exactly one hub is unambiguous, so do not make the user say
             # which one.
             return next(iter(self._hubs.values()))
+
         raise HubNotFoundError("no hub selected")
 
     def resolve(self, name_or_id: str) -> HubConnection:
@@ -148,11 +153,14 @@ class HubManager:
         Raises:
             HubNotFoundError: If nothing matches.
         """
+
         if name_or_id in self._hubs:
             return self._hubs[name_or_id]
+
         for connection in self._hubs.values():
             if connection.info is not None and connection.info.name == name_or_id:
                 return connection
+
         raise HubNotFoundError(f"no connected hub named {name_or_id!r}")
 
     # ------------------------------------------------------------------ scan
@@ -171,9 +179,11 @@ class HubManager:
         Yields:
             Hubs as their advertisements arrive.
         """
+
         async with self._scan_lock:
             logger.info("scanning for hubs")
             seen = 0
+
             try:
                 async with aclosing(
                     self.transport.discover(scan_filter or ScanFilter())
@@ -202,11 +212,13 @@ class HubManager:
         # Per-hub lock: two clients connecting to the same hub at once must not
         # both start a connection, which on Bluetooth would be a real mess.
         lock = self._connect_locks.setdefault(device.id, anyio.Lock())
+
         async with lock:
             existing = self._hubs.get(device.id)
             if existing is not None:
                 if exclusive:
                     raise HubAlreadyConnectedError(f"{device.id} is already connected")
+
                 if existing.info is not None:
                     logger.debug("reusing the existing connection to %s", device.id)
                     self._last_connected = device.id
@@ -238,11 +250,13 @@ class HubManager:
         connection = self.get(hub_id)
         connection.close("client requested disconnect")
         self._hubs.pop(connection.id, None)
+
         # The remembered choice is left alone: a hub that has been switched
         # off is still the hub the user is working with. Only the
         # ephemeral fallback moves.
         if self._last_connected == connection.id:
             self._last_connected = next(iter(self._hubs), None)
+
         logger.info("hub disconnected: %s (%d left)", connection.id, len(self._hubs))
 
     def _transport_lost(self, device_id: str) -> None:
@@ -267,17 +281,21 @@ class HubManager:
         -- so the registry needs sweeping rather than only being edited by
         request.
         """
+
         for hub_id, connection in list(self._hubs.items()):
             if connection.state is HubState.DISCONNECTED:
                 logger.info("hub went away: %s", hub_id)
                 self._hubs.pop(hub_id, None)
+
                 if self._last_connected == hub_id:
                     self._last_connected = next(iter(self._hubs), None)
 
     async def close_all(self) -> None:
         """Disconnect every hub, for service shutdown."""
+
         for connection in list(self._hubs.values()):
             connection.close("service shutting down")
+
         self._hubs.clear()
         self._last_connected = None
 
@@ -292,8 +310,10 @@ async def run_hub_manager(transport: HubTransport) -> AsyncGenerator[HubManager,
     Yields:
         The manager.
     """
+
     async with anyio.create_task_group() as tg:
         manager = HubManager(transport, tg)
+
         try:
             yield manager
         finally:
@@ -301,8 +321,11 @@ async def run_hub_manager(transport: HubTransport) -> AsyncGenerator[HubManager,
             # DISCONNECTED and run their own cleanup, then cancel whatever is
             # left. Shielded, because shutdown is often itself a cancellation.
             closing = manager.connected
+
             with anyio.CancelScope(shield=True), anyio.move_on_after(3):
                 await manager.close_all()
+
                 for connection in closing:
                     await connection.wait_closed()
+
             tg.cancel_scope.cancel()

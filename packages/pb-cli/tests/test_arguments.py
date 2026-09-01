@@ -30,6 +30,7 @@ def _subcommands(app: cyclopts.App) -> list[str]:
 
 def _commands(app: cyclopts.App, path: str = "pb") -> Iterator[tuple[str, Any]]:
     """Yield every command in the app and its subapps, with the function behind it."""
+
     for name in _subcommands(app):
         sub = app[name]
         if _subcommands(sub):
@@ -64,6 +65,7 @@ def test_every_top_level_command_is_in_a_named_group() -> None:
         pb_app.PROGRAM_COMMANDS.name,
         pb_app.SERVICE_COMMANDS.name,
     }
+
     for name in _subcommands(cli.app):
         # cyclopts allows one group or several, named or as objects.
         declared = cli.app[name].group
@@ -84,6 +86,7 @@ def test_the_hub_is_always_an_option_and_never_positional() -> None:
         parameter = inspect.signature(func).parameters.get("hub")
         if parameter is None:
             continue
+
         assert parameter.kind is inspect.Parameter.KEYWORD_ONLY, (
             f"{name} takes the hub positionally"
         )
@@ -125,6 +128,7 @@ def test_run_needs_exactly_one_of_a_script_and_c(
     # cyclopts turns an int result into the process exit code itself.
     with pytest.raises(SystemExit) as info:
         cli.app(argv)
+
     assert info.value.code == errors.EXIT_ERROR
     captured = capsys.readouterr()
     assert "Give a script to run" in captured.err

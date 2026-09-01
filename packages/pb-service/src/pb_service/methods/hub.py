@@ -73,8 +73,10 @@ def _scan_seconds(params: dict[str, Any]) -> float | None:
     Returns:
         Seconds to scan for, or ``None`` for no limit.
     """
+
     if "timeout_s" not in params:
         return DEFAULT_SCAN_SECONDS
+
     seconds = params["timeout_s"]
     return None if seconds is None else float(seconds)
 
@@ -94,6 +96,7 @@ def hub_of(session: Session, params: dict[str, Any]) -> HubConnection:
         JsonRpcError: If there is no such hub, or none in use.
     """
     hub_id = params.get("id")
+
     try:
         return session.service.hubs.get(str(hub_id) if hub_id else None)
     except HubNotFoundError as exc:
@@ -144,6 +147,7 @@ def _hub_json(connection: HubConnection) -> dict[str, Any]:
         "state": str(connection.state),
         "subscribers": connection.subscriber_count,
     }
+
     if info is not None:
         payload |= {
             "name": info.name,
@@ -162,6 +166,7 @@ def _hub_json(connection: HubConnection) -> dict[str, Any]:
                 flag.name for flag in info.capabilities.flags if flag.name
             ],
         }
+
     payload |= status_json(connection)
     return payload
 
@@ -190,6 +195,7 @@ async def hub_scan(session: Session, params: dict[str, Any]) -> dict[str, Any]:
     seconds = _scan_seconds(params)
     name = params.get("name")
     exclude: frozenset[str] = frozenset()
+
     if not params.get("include_connected"):
         exclude = frozenset(c.id for c in manager.connected)
 
@@ -202,6 +208,7 @@ async def hub_scan(session: Session, params: dict[str, Any]) -> dict[str, Any]:
         async with aclosing(manager.discover(scan_filter)) as stream:
             async for device in stream:
                 found[device.id] = device
+
                 # Every advertisement, not only the first from each hub: the
                 # signal strength is what changes between them, and watching
                 # it move is how someone finds out which hub is which. The
@@ -250,6 +257,7 @@ async def hub_connect(session: Session, params: dict[str, Any]) -> dict[str, Any
             async for candidate in stream:
                 if wanted_id and candidate.id != wanted_id:
                     continue
+
                 device = candidate
                 break
 
@@ -290,6 +298,7 @@ async def _stop_builtin_program(connection: HubConnection) -> None:
     status = connection.status
     if status is None or not status.program_running:
         return
+
     running = status.running_program_id
     if running is None or running < p.UserProgramId.REPL:
         return
@@ -307,11 +316,13 @@ async def _stop_builtin_program(connection: HubConnection) -> None:
         async with connection.subscribe(frozenset({Channel.STATUS})) as watcher:
             with anyio.move_on_after(STOP_BUILTIN_SECONDS) as bounded:
                 await connection.send_command(p.encode_stop_user_program())
+
                 async for event in connection.events(watcher):
                     if isinstance(event, StatusEvent) and not (
                         event.report.program_running
                     ):
                         break
+
         if bounded.cancel_called:
             logger.info("the hub did not confirm the built-in program had stopped")
         else:
@@ -331,12 +342,14 @@ async def hub_disconnect(session: Session, params: dict[str, Any]) -> dict[str, 
     manager = session.service.hubs
     session.service.mark_activity()
     hub_id = params.get("id")
+
     try:
         connection = manager.get(str(hub_id) if hub_id else None)
         await _stop_builtin_program(connection)
         await manager.disconnect(connection.id)
     except HubNotFoundError as exc:
         raise as_wire_error(exc) from exc
+
     return {}
 
 
@@ -367,6 +380,7 @@ async def hub_info(session: Session, params: dict[str, Any]) -> dict[str, Any]:
     manager = session.service.hubs
     session.service.mark_activity()
     hub_id = params.get("id")
+
     try:
         return _hub_json(manager.get(str(hub_id) if hub_id else None))
     except HubNotFoundError as exc:
@@ -403,14 +417,18 @@ async def hub_use(session: Session, params: dict[str, Any]) -> dict[str, Any]:
     if wanted is None:
         manager.selection.choose(None)
         return {"default": None, "connected": False}
+
     wanted = str(wanted)
+
     try:
         connection = manager.resolve(wanted)
     except HubNotFoundError as exc:
         if looks_like_id(wanted):
             raise as_wire_error(exc) from exc
+
         manager.selection.choose(wanted)
         return {"default": wanted, "connected": False}
+
     name = connection.info.name if connection.info else wanted
     manager.selection.choose(name)
     return {"default": name, "connected": True}
@@ -427,6 +445,7 @@ def _acting_hub_id(manager: HubManager) -> str | None:
         chosen hub: a hub can be chosen while it is switched off, and
         then the only hub connected is the one that answers.
     """
+
     try:
         return manager.get(None).id
     except HubNotFoundError:

@@ -31,6 +31,7 @@ async def _connected(
 ) -> AsyncGenerator[tuple[JsonRpcPeer, JsonRpcPeer], None]:
     """A client and a server peer joined by an in-process stream."""
     client_stream, server_stream = _pair()
+
     async with (
         client_stream,
         server_stream,
@@ -43,14 +44,18 @@ async def _connected(
 async def _echo_handler(request: jsonrpc.Request) -> Any:
     if request.method == "ping":
         return {"pong": True}
+
     if request.method == "echo":
         return request.params
+
     if request.method == "boom":
         raise RuntimeError("handler exploded")
+
     if request.method == "busy":
         raise jsonrpc.JsonRpcError(
             jsonrpc.ErrorCode.HUB_BUSY, "hub is busy", {"att_error": 0x81}
         )
+
     raise jsonrpc.JsonRpcError(jsonrpc.ErrorCode.METHOD_NOT_FOUND, request.method)
 
 
@@ -68,6 +73,7 @@ async def test_handler_error_becomes_typed_error() -> None:
     async with _connected(_echo_handler) as (client, _):
         with pytest.raises(jsonrpc.JsonRpcError) as info:
             await client.call("busy")
+
         assert info.value.code == jsonrpc.ErrorCode.HUB_BUSY
         # The raw firmware code survives the round trip.
         assert info.value.data == {"att_error": 0x81}
@@ -77,6 +83,7 @@ async def test_unexpected_handler_exception_becomes_internal_error() -> None:
     async with _connected(_echo_handler) as (client, _):
         with pytest.raises(jsonrpc.JsonRpcError) as info:
             await client.call("boom")
+
         assert info.value.code == jsonrpc.ErrorCode.INTERNAL_ERROR
         assert "handler exploded" in info.value.message
 
@@ -113,6 +120,7 @@ async def test_notification_reaches_the_handler() -> None:
 
     async with _connected(handler) as (client, _):
         client.notify("hub.stdout", {"data": "aGk="})
+
         with anyio.fail_after(5):
             await received.wait()
 
@@ -127,21 +135,26 @@ async def test_cancelling_a_call_tells_the_peer_to_stop() -> None:
 
     async def handler(request: jsonrpc.Request) -> Any:
         started.set()
+
         try:
             await anyio.sleep(30)
         except anyio.get_cancelled_exc_class():
             cancelled.set()
             raise
+
         return "never"
 
     async with _connected(handler) as (client, _):
         with anyio.move_on_after(0.5) as scope:
             async with anyio.create_task_group() as tg:
                 tg.start_soon(client.call, "slow")
+
                 with anyio.fail_after(5):
                     await started.wait()
+
                 await anyio.sleep(0.05)
                 tg.cancel_scope.cancel()
+
         assert not scope.cancelled_caught, "cancellation should have been prompt"
 
         with anyio.fail_after(5):
@@ -151,6 +164,7 @@ async def test_cancelling_a_call_tells_the_peer_to_stop() -> None:
 async def test_pending_calls_fail_when_the_connection_drops() -> None:
     # Otherwise a caller waits forever on a service that has gone away.
     client_stream, server_stream = _pair()
+
     async with (
         client_stream,
         connect_peer(client_stream) as client,
@@ -170,6 +184,7 @@ async def test_call_against_a_peer_with_no_handler_is_method_not_found() -> None
     async with _connected(None) as (client, _):
         with pytest.raises(jsonrpc.JsonRpcError) as info:
             await client.call("anything")
+
         assert info.value.code == jsonrpc.ErrorCode.METHOD_NOT_FOUND
 
 
@@ -177,9 +192,11 @@ async def test_notifications_are_dropped_rather_than_blocking() -> None:
     # The hub notification path must never be able to block, so an outbox that
     # nobody is draining must shed rather than apply backpressure.
     client_stream, server_stream = _pair()
+
     async with client_stream, server_stream, connect_peer(client_stream) as client:
         for index in range(OUTBOX_SIZE + 200):
             client.notify("flood", {"n": index})
+
     assert client.dropped_notifications > 0
 
 
@@ -189,8 +206,11 @@ async def test_no_tasks_outlive_the_connection() -> None:
     import asyncio
 
     before = len(asyncio.all_tasks())
+
     async with _connected(_echo_handler) as (client, _):
         await client.call("ping")
+
     for _ in range(10):
         await anyio.lowlevel.checkpoint()
+
     assert len(asyncio.all_tasks()) == before

@@ -135,6 +135,7 @@ def state_dir() -> Path:
     override = os.environ.get(STATE_DIR_ENV_VAR)
     if override:
         return Path(override)
+
     return Path(platformdirs.user_state_dir(APP_NAME, appauthor=False))
 
 
@@ -177,6 +178,8 @@ def ensure_private_dir(path: Path) -> Path:
     info = path.stat()
     if info.st_uid != _uid():
         raise PermissionError(f"{path} is owned by uid {info.st_uid}, not {_uid()}")
+
     if info.st_mode & (stat.S_IRWXG | stat.S_IRWXO):
         raise PermissionError(f"{path} is accessible to other users: {info.st_mode:o}")
+
     return path

@@ -197,10 +197,12 @@ def hub_warnings(status_names: Iterable[str]) -> list[str]:
         user, and saying it twice would look like a fault in the tool.
     """
     said: list[str] = []
+
     for name in status_names:
         warning = HUB_WARNINGS.get(name)
         if warning is not None and warning not in said:
             said.append(warning)
+
     return said
 
 
@@ -216,8 +218,10 @@ def signal_bars(rssi: int | None) -> str:
         aligned. A number in dBm means nothing to most people, but "how many
         bars" is something everyone already reads off a phone.
     """
+
     if rssi is None:
         return f"[dim]{SIGNAL_EMPTY * len(SIGNAL_BLOCKS)}[/]"
+
     # At least one bar: the hub was heard, so it is out there somewhere.
     level = max(1, sum(1 for floor in _SIGNAL_FLOORS if rssi >= floor))
     style = "green" if level >= 3 else "yellow" if level == 2 else "red"
@@ -259,10 +263,13 @@ def rows(out: Console, pairs: list[tuple[str, str]]) -> None:
         out: Where to write. This is data, so it is stdout.
         pairs: Name and value for each row, in the order to show them.
     """
+
     if out.is_terminal:
         table = Table(show_header=False, box=None)
+
         for key, value in pairs:
             table.add_row(key, value)
+
         out.print(table)
     else:
         # Tab-separated when piped, so cut and awk can read it.
@@ -295,16 +302,21 @@ def scan_table(
         The table, ready to print or hand to a live display.
     """
     table = Table(caption=caption or None, caption_justify="left")
+
     if selected is not None:
         table.add_column("")
+
     table.add_column("Name")
     # Known before connecting, because a Pybricks hub puts its Plug and Play ID
     # in the scan response. Two hubs called "Pybricks Hub" are told apart by
     # this and by their signal, which is the whole reason to show either.
     table.add_column("Type")
+
     if SHOW_HUB_IDS:
         table.add_column("Address", style="dim")
+
     table.add_column("Signal", justify="right")
+
     for index, device in enumerate(devices):
         strength = (
             "[green]connected[/]"
@@ -312,11 +324,15 @@ def scan_table(
             else signal_bars(device.rssi)
         )
         row = [device.name, device.hub_type or "", device.id, strength]
+
         if not SHOW_HUB_IDS:
             del row[2]
+
         if selected is not None:
             row.insert(0, SELECTED_MARK if index == selected else " ")
+
         table.add_row(*row, style="bold" if index == selected else None)
+
     return table
 
 
@@ -340,6 +356,7 @@ def connected_table(hubs: Iterable[pb_client.HubInfo], acting: str | None) -> Ta
     table.add_column("Name")
     table.add_column("Firmware")
     table.add_column("Used by", justify="right")
+
     for info in hubs:
         table.add_row(
             "*" if info.id == acting else "",
@@ -347,6 +364,7 @@ def connected_table(hubs: Iterable[pb_client.HubInfo], acting: str | None) -> Ta
             info.firmware,
             str(info.subscribers),
         )
+
     return table
 
 
@@ -367,6 +385,8 @@ def chooser_table(
         empty table with headings would look like a list of no hubs rather than
         like still looking for them.
     """
+
     if not devices:
         return Text("Looking for hubs...", style="dim")
+
     return scan_table(devices, selected=selected, connected=connected)

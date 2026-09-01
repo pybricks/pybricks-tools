@@ -63,8 +63,10 @@ def _private_runtime(  # pyright: ignore[reportUnusedFunction]
 @pytest.fixture
 def endpoint(tmp_path: Path) -> Endpoint:
     unique = uuid.uuid4().hex[:12]
+
     if sys.platform == "win32":
         return Endpoint("pipe", f"pb-hub-{unique}")
+
     return Endpoint("unix", str(tmp_path / f"{unique}.sock"))
 
 
@@ -81,6 +83,7 @@ async def service_at(
     endpoint: Endpoint, hubs: list[FakeHub]
 ) -> AsyncGenerator[Endpoint, None]:
     transport = FakeHubTransport(*hubs)
+
     async with service_module.run_service(
         endpoint, idle_timeout=0, transport=transport
     ):
@@ -90,12 +93,14 @@ async def service_at(
 async def test_scan_finds_the_simulated_hubs(service_at: Endpoint) -> None:
     async with pb_client.connect(service_at, autostart=False) as service:
         devices = await service.scan(seconds=0.3)
+
     assert {device.name for device in devices} == {FIRST, SECOND}
 
 
 async def test_scan_can_filter_by_name(service_at: Endpoint) -> None:
     async with pb_client.connect(service_at, autostart=False) as service:
         devices = await service.scan(seconds=0.3, name=SECOND)
+
     assert [device.name for device in devices] == [SECOND]
 
 
@@ -109,6 +114,7 @@ async def test_scanning_reports_a_hub_long_before_the_scan_ends(
         with anyio.fail_after(5):
             async with service.scanning(seconds=500) as devices:
                 first = await anext(aiter(devices))
+
     assert first.name in {FIRST, SECOND}
     assert first.rssi is not None
     # Known without connecting: the hub advertises its Plug and Play ID in the
@@ -123,11 +129,13 @@ async def test_scanning_ends_by_itself_when_the_scan_is_over(
     # Nothing tells the caller's loop to stop except the scan finishing, so if
     # that signal is missing this hangs rather than fails -- hence the deadline.
     names: set[str] = set()
+
     async with pb_client.connect(service_at, autostart=False) as service:
         with anyio.fail_after(10):
             async with service.scanning(seconds=0.5) as devices:
                 async for device in devices:
                     names.add(device.name)
+
     assert names == {FIRST, SECOND}
 
 
@@ -141,6 +149,7 @@ async def test_a_scan_with_no_time_limit_ends_when_the_caller_leaves(
         with anyio.fail_after(5):
             async with service.scanning(seconds=None) as devices:
                 first = await anext(aiter(devices))
+
     assert first.name in {FIRST, SECOND}
 
 
@@ -169,6 +178,7 @@ async def test_an_unfamiliar_hub_is_left_unnamed(
     # A hub this version has never heard of still works; it just does not get
     # called anything, which is better than calling it the wrong thing.
     hub = FakeHub(name=FIRST, address="00:11:22:33:44:55", hub_type=0x99)
+
     async with (
         service_module.run_service(
             endpoint, idle_timeout=0, transport=FakeHubTransport(hub)
@@ -176,6 +186,7 @@ async def test_an_unfamiliar_hub_is_left_unnamed(
         pb_client.connect(endpoint, autostart=False) as service,
     ):
         info = await service.connect_hub(name=FIRST)
+
     assert info.hub_type is None
     assert info.state == "connected"
 
@@ -211,6 +222,7 @@ async def test_several_hubs_at_once(service_at: Endpoint) -> None:
         await service.connect_hub(name=FIRST)
         await service.connect_hub(name=SECOND)
         hubs, default = await service.list_hubs()
+
     assert {hub.name for hub in hubs} == {FIRST, SECOND}
     # The most recently connected hub becomes the default.
     assert default == next(hub.id for hub in hubs if hub.name == SECOND)
@@ -222,6 +234,7 @@ async def test_scan_hides_hubs_that_are_already_connected(
     async with pb_client.connect(service_at, autostart=False) as service:
         await service.connect_hub(name=FIRST)
         devices = await service.scan(seconds=0.3)
+
     assert [device.name for device in devices] == [SECOND]
 
 
@@ -282,6 +295,7 @@ async def test_an_id_for_a_hub_that_is_not_connected_is_refused(
     async with pb_client.connect(service_at, autostart=False) as service:
         with pytest.raises(JsonRpcError) as caught:
             await service.use_hub("ble:00:00:00:00:00:00")
+
     assert caught.value.code == ErrorCode.HUB_NOT_FOUND
 
 
@@ -334,6 +348,7 @@ async def test_disconnect_removes_the_hub(service_at: Endpoint) -> None:
         info = await service.connect_hub(name=FIRST)
         await service.disconnect_hub(info.id)
         hubs, _ = await service.list_hubs()
+
     assert hubs == []
 
 
@@ -341,6 +356,7 @@ async def test_commands_for_an_unknown_hub_are_reported(service_at: Endpoint) ->
     async with pb_client.connect(service_at, autostart=False) as service:
         with pytest.raises(JsonRpcError) as info:
             await service.hub_info("fake:NO:SUCH:HUB")
+
         assert info.value.code == ErrorCode.HUB_NOT_FOUND
 
 
@@ -348,6 +364,7 @@ async def test_connecting_to_a_hub_that_is_not_there(service_at: Endpoint) -> No
     async with pb_client.connect(service_at, autostart=False) as service:
         with pytest.raises(JsonRpcError) as info:
             await service.connect_hub(name="No Such Hub")
+
         assert info.value.code == ErrorCode.HUB_NOT_FOUND
         assert info.value.message == "no hub found"
 
@@ -358,6 +375,7 @@ async def test_stop_program_reaches_the_hub(
     async with pb_client.connect(service_at, autostart=False) as service:
         await service.connect_hub(name=FIRST)
         await service.stop_program()
+
     assert hubs[0].commands[-1] == bytes([p.Command.STOP_USER_PROGRAM])
 
 
@@ -373,7 +391,9 @@ async def test_status_reflects_a_running_program(
                 info = await service.hub_info()
                 if info.program_running:
                     break
+
                 await anyio.sleep(0.02)
+
         assert "USER_PROGRAM_RUNNING" in info.status_names
 
 
@@ -383,6 +403,7 @@ async def test_a_connected_hub_keeps_the_service_alive(
     # Holding the connection open with nobody attached is the entire point, so
     # the idle timeout must not fire while a hub is connected.
     transport = FakeHubTransport(*hubs)
+
     async with service_module.run_service(
         endpoint, idle_timeout=0.4, transport=transport
     ) as service:
@@ -403,6 +424,7 @@ async def test_connecting_again_reports_the_hub_already_connected(
     async with pb_client.connect(service_at, autostart=False) as client:
         first = await client.connect_hub(name=hubs[0].name)
         again = await client.connect_hub()
+
     assert again.id == first.id
     assert again.state == "connected"
 
@@ -423,6 +445,7 @@ async def test_disconnecting_stops_a_built_in_program(
     # advertises when nothing is running on it -- so leaving it going would
     # produce a hub that nothing could find afterwards.
     hub = hubs[0]
+
     async with pb_client.connect(service_at, autostart=False) as client:
         await client.connect_hub(name=hub.name)
         await client.start_repl()
@@ -439,6 +462,7 @@ async def test_disconnecting_leaves_a_user_program_running(
     # Setting a program going and walking away is a thing people do on purpose.
     hub = hubs[0]
     hub.program_size = 8
+
     async with pb_client.connect(service_at, autostart=False) as client:
         await client.connect_hub(name=hub.name)
         await client.start_program()

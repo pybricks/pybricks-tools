@@ -82,12 +82,14 @@ def keys_available() -> bool:
         sees a pipe and no console. A caller must check this and say something
         useful rather than waiting for a keystroke that cannot arrive.
     """
+
     try:
         if not sys.stdin.isatty():
             return False
     except (AttributeError, ValueError):  # pragma: no cover - odd embeddings
         # A closed or replaced stdin, which is not a terminal either.
         return False
+
     return _is_console()
 
 
@@ -101,12 +103,14 @@ def poll_key() -> Key | None:
     char = read_ready()
     if char is None:
         return None
+
     if char in _WINDOWS_PREFIXES:
         # A Windows special key, which arrives as a prefix and then its
         # scan code. read_second rather than read_ready: the two halves
         # are not both in the console buffer, so asking whether anything
         # is waiting gets the wrong answer. See read_second.
         return _WINDOWS_SCAN_CODES.get(read_second() or "", Key.OTHER)
+
     if char == "\x1b":
         # Escape either stands alone or opens a sequence such as "\x1b[A" for
         # the up arrow. Telling those apart is the classic trap here, and
@@ -114,11 +118,15 @@ def poll_key() -> Key | None:
         # instant, the key really was Escape.
         if read_ready() != "[":
             return Key.CANCEL
+
         return _CSI_FINAL_BYTES.get(read_ready() or "", Key.OTHER)
+
     if char in ("\r", "\n"):
         return Key.ENTER
+
     if char in ("q", "Q"):
         return Key.CANCEL
+
     return Key.OTHER
 
 
@@ -208,6 +216,7 @@ else:
 
         fd = sys.stdin.fileno()
         saved = termios.tcgetattr(fd)
+
         try:
             tty.setcbreak(fd)
             yield

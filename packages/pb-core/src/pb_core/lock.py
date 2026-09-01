@@ -48,6 +48,7 @@ def _try_lock(handle: IO[str]) -> bool:
     caller must seek to the start first.
     """
     handle.seek(0)
+
     if sys.platform == "win32":
         import msvcrt
 
@@ -55,6 +56,7 @@ def _try_lock(handle: IO[str]) -> bool:
             msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
         except OSError:
             return False
+
         return True
 
     import fcntl
@@ -69,11 +71,13 @@ def _try_lock(handle: IO[str]) -> bool:
         fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
         return False
+
     return True
 
 
 def _unlock(handle: IO[str]) -> None:
     """Release the lock, ignoring failures during teardown."""
+
     try:
         if sys.platform == "win32":
             import msvcrt
@@ -130,6 +134,7 @@ def single_instance(path: Path | None = None) -> Generator[Path, None, None]:
     handle = open(  # noqa: SIM115
         lock_path, "a+", encoding="ascii", opener=_private_opener
     )
+
     try:
         # msvcrt locks a single byte, so the file must not be empty. The first
         # byte is reserved for the lock and never carries information.

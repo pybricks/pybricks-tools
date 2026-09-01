@@ -244,8 +244,10 @@ def flatten(exc: BaseException) -> list[BaseException]:
         Every non-group exception it contains, in order. A plain exception
         yields itself.
     """
+
     if not isinstance(exc, BaseExceptionGroup):
         return [exc]
+
     # The cast is only about generics: isinstance cannot tell pyright what a
     # group contains, and the answer is always "exceptions".
     group = cast("BaseExceptionGroup[BaseException]", exc)
@@ -266,9 +268,11 @@ def find(exc: BaseException, kind: type[ExcT]) -> ExcT | None:
     Returns:
         The matching exception, or ``None``.
     """
+
     for leaf in flatten(exc):
         if isinstance(leaf, kind):
             return leaf
+
     return None
 
 
@@ -277,6 +281,7 @@ def _sentence(text: str) -> str:
     text = text.strip()
     if not text:
         return "Something went wrong."
+
     text = text[0].upper() + text[1:]
     return text if text[-1] in ".!?" else text + "."
 
@@ -286,12 +291,14 @@ def _too_large(exc: JsonRpcError) -> str:
     payload: object = exc.data
     if not isinstance(payload, Mapping):
         return _sentence(exc.message)
+
     # Cast the original rather than the narrowed local: isinstance can say
     # that it is a mapping, but not of what.
     data = cast("Mapping[str, object]", exc.data)
     size, limit = data.get("size"), data.get("limit")
     if not isinstance(size, int) or not isinstance(limit, int):
         return _sentence(exc.message)
+
     return (
         f"This program is too big. Compiled size is {size} bytes "
         f"but the hub can only fit {limit} bytes."
@@ -314,6 +321,7 @@ def _slot_hint(exc: JsonRpcError, default: str | None) -> str | None:
     payload: object = exc.data
     if not isinstance(payload, Mapping):
         return default
+
     data = cast("Mapping[str, object]", exc.data)
     return _ONE_SLOT if data.get("slots") == 1 else default
 
@@ -325,15 +333,20 @@ def _describe_rpc(exc: JsonRpcError, hints: Mapping[int, str] | None) -> Problem
         # An unknown code means the service and this CLI disagree about the
         # protocol, which is a bug rather than something to paper over.
         return None
+
     if exc.code == ErrorCode.PROGRAM_TOO_LARGE:
         message = _too_large(exc)
     else:
         message = rule.message or _sentence(exc.message)
+
     hint = rule.hint if hints is None else hints.get(exc.code, rule.hint)
+
     if exc.code == ErrorCode.PROGRAM_SLOT_NOT_SELECTED:
         hint = _slot_hint(exc, hint)
+
     if exc.code == ErrorCode.UNSUPPORTED_PROTOCOL_VERSION:
         message, hint = _version_mismatch(exc, message, hint)
+
     return Problem(message=message, hint=hint, exit_code=rule.exit_code)
 
 
@@ -356,6 +369,7 @@ def _version_mismatch(
     payload: object = exc.data
     if not isinstance(payload, Mapping):
         return message, hint
+
     data = cast("Mapping[str, object]", payload)
     client = data.get("client")
     lowest = data.get("min")
@@ -364,6 +378,7 @@ def _version_mismatch(
         isinstance(client, int) and isinstance(lowest, int) and isinstance(highest, int)
     ):
         return message, hint
+
     served = f"{lowest}" if lowest == highest else f"{lowest} to {highest}"
     # No markup: a headline is printed literally, because it can carry a name
     # or a path that somebody wrote square brackets into.
@@ -375,28 +390,34 @@ def _version_mismatch(
 
 def _describe(exc: BaseException, hints: Mapping[int, str] | None) -> Problem | None:
     """Present one leaf exception, or ``None`` if it is not one we know."""
+
     if isinstance(exc, JsonRpcError):
         return _describe_rpc(exc, hints)
+
     if isinstance(exc, pb_client.CompileError):
         # The compiler's own diagnostics name the offending line, which is a
         # better suggestion than anything that could be written here.
         return Problem(_sentence(str(exc)), detail=exc.output.rstrip())
+
     if isinstance(exc, pb_client.ServiceUnavailable):
         return Problem(
             "No hub is connected.",
             "Run [bold]pb connect[/] first.",
             exit_code=EXIT_NOTHING_CONNECTED,
         )
+
     if isinstance(exc, pb_client.ServiceStartError):
         return Problem(
             "The background service would not start.",
             f"Look in {exc.log_file} for what went wrong.",
         )
+
     if isinstance(exc, _LOST_CONNECTION):
         return Problem(
             "Lost the connection to the background service.",
             "Run [bold]pb service status[/] to check on it, then try again.",
         )
+
     if isinstance(exc, EndpointError):
         return Problem(
             _sentence(str(exc)),
@@ -404,8 +425,10 @@ def _describe(exc: BaseException, hints: Mapping[int, str] | None) -> Problem | 
             "unix:///path/to/socket or pipe://name. Unset it to use the "
             "default.",
         )
+
     if isinstance(exc, KeyboardInterrupt):
         return Problem("Interrupted.", exit_code=EXIT_INTERRUPTED)
+
     return None
 
 
@@ -437,23 +460,28 @@ def explain(
         # was reported as a bug in pb, under a message asking the user to
         # report "everything below" with nothing below it to report.
         return [Problem("Interrupted.", exit_code=EXIT_INTERRUPTED)]
+
     interesting = [leaf for leaf in leaves if not isinstance(leaf, _LOST_CONNECTION)]
     leaves = interesting or leaves
 
     problems: list[Problem] = []
     seen: set[tuple[type[BaseException], str]] = set()
+
     for leaf in leaves:
         # Task groups routinely produce several copies of one failure, one for
         # each task that noticed it.
         key = (type(leaf), str(leaf))
         if key in seen:
             continue
+
         seen.add(key)
         problem = _describe(leaf, hints)
         if problem is None:
             logger.debug("no friendly wording for %r", leaf)
             return None
+
         problems.append(problem)
+
     return problems
 
 
@@ -468,14 +496,18 @@ def render(err: Console, problems: list[Problem]) -> int:
     Returns:
         The exit code of the first problem.
     """
+
     for problem in problems:
         # Messages can carry text from the service or a file path, so markup is
         # off for them; suggestions are our own literals and may use it.
         err.print(problem.message, style="red", markup=False, highlight=False)
+
         if problem.detail:
             err.print(problem.detail, markup=False, highlight=False)
+
         if problem.hint:
             err.print(problem.hint, style="dim")
+
     return problems[0].exit_code
 
 
@@ -504,6 +536,7 @@ async def run(
     Returns:
         The process exit code.
     """
+
     try:
         return await func(*args)
     except BaseException as exc:
@@ -512,4 +545,5 @@ async def run(
             logger.debug("unhandled error", exc_info=exc)
             Console(stderr=True).print(_BUG, style="yellow")
             raise
+
         return render(Console(stderr=True), problems)

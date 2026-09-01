@@ -119,6 +119,7 @@ class FakeHub:
 
     def notify(self, payload: bytes) -> None:
         """Send a notification to the connected client, if any."""
+
         if self._handler is not None:
             self._handler(payload)
 
@@ -126,11 +127,15 @@ class FakeHub:
         """Send a status report shaped for this hub's profile version."""
         payload = bytearray([p.Event.STATUS_REPORT])
         payload += struct.pack("<I", int(self.status))
+
         if self.profile >= (1, 4, 0):
             payload.append(self.running_program_id)
+
         if self.profile >= (1, 5, 0):
             payload.append(self.selected_slot)
+
         self.notify(bytes(payload))
+
         if self.on_status is not None:
             self.on_status()
 
@@ -144,18 +149,22 @@ class FakeHub:
 
     def set_program_running(self, running: bool) -> None:
         """Start or stop the simulated program and report the change."""
+
         if running:
             self.status |= p.StatusFlag.USER_PROGRAM_RUNNING
         else:
             self.status &= ~p.StatusFlag.USER_PROGRAM_RUNNING
+
         self.send_status()
 
     def press_power_button(self, pressed: bool = True) -> None:
         """Simulate the power button being held or released."""
+
         if pressed:
             self.status |= p.StatusFlag.POWER_BUTTON_PRESSED
         else:
             self.status &= ~p.StatusFlag.POWER_BUTTON_PRESSED
+
         self.send_status()
 
     def disconnect(self) -> None:
@@ -198,6 +207,7 @@ class FakeHub:
             if self.profile >= (1, 4, 0):
                 # Removed in v1.4.0, so a hub of this vintage would not know it.
                 raise HubRejection(p.HubError.INVALID_COMMAND)
+
             self.running_program_id = p.UserProgramId.REPL
             self.set_program_running(True)
         elif command == p.Command.WRITE_USER_PROGRAM_META:
@@ -209,6 +219,7 @@ class FakeHub:
         elif command == p.Command.WRITE_STDIN:
             if self.profile < (1, 3, 0):
                 raise HubRejection(p.HubError.INVALID_COMMAND)
+
             payload = data[1:]
             if self.stdin_capacity and len(payload) > self.stdin_capacity - len(
                 self.stdin
@@ -216,6 +227,7 @@ class FakeHub:
                 # All or nothing, exactly as the firmware does it: what does
                 # not fit is refused rather than partly kept.
                 raise HubRejection(p.HubError.BUSY)
+
             self.stdin += payload
             self.stdin_writes.append(bytes(payload))
         elif command == p.Command.WRITE_APP_DATA:
@@ -228,15 +240,19 @@ class FakeHub:
     def _start(self, data: bytes) -> None:
         if self.status & p.StatusFlag.USER_PROGRAM_RUNNING:
             raise HubRejection(p.HubError.BUSY)
+
         if len(data) > 1:
             if self.profile < (1, 4, 0):
                 raise HubRejection(p.HubError.VALUE_NOT_ALLOWED)
+
             self.running_program_id = data[1]
         else:
             self.running_program_id = self.selected_slot
+
         if self.running_program_id < p.UserProgramId.REPL and self.program_size == 0:
             # Nothing was ever downloaded, so there is nothing to run.
             raise HubRejection(p.HubError.VALUE_NOT_ALLOWED)
+
         self.set_program_running(True)
 
     def _write_ram(self, data: bytes) -> None:
@@ -245,18 +261,22 @@ class FakeHub:
         end = offset + len(payload)
         if end > self.max_program_size:
             raise HubRejection(p.HubError.VALUE_NOT_ALLOWED)
+
         if len(self.program) < end:
             self.program.extend(b"\x00" * (end - len(self.program)))
+
         self.program[offset:end] = payload
 
     def _write_app_data(self, data: bytes) -> None:
         if self.profile < (1, 4, 0):
             raise HubRejection(p.HubError.INVALID_COMMAND)
+
         (offset,) = struct.unpack_from("<H", data, 1)
         payload = data[p.WRITE_APP_DATA_HEADER_SIZE :]
         end = offset + len(payload)
         if end > len(self.app_data):
             raise HubRejection(p.HubError.VALUE_NOT_ALLOWED)
+
         self.app_data[offset:end] = payload
 
     # ------------------------------------------------------- characteristics
@@ -273,12 +293,16 @@ class FakeHub:
         Raises:
             HubRejection: If this hub has no such characteristic.
         """
+
         if uuid == p.DEVICE_NAME_UUID:
             return self.name.encode()
+
         if uuid == p.FIRMWARE_REVISION_UUID:
             return self.firmware.encode()
+
         if uuid == p.SOFTWARE_REVISION_UUID:
             return ".".join(str(part) for part in self.profile).encode()
+
         if uuid == p.PNP_ID_UUID:
             return struct.pack(
                 "<BHHH",
@@ -287,6 +311,7 @@ class FakeHub:
                 self.hub_type,
                 self.variant,
             )
+
         if uuid == p.PYBRICKS_HUB_CAPABILITIES_UUID:
             if self.profile >= (1, 5, 0):
                 return struct.pack(
@@ -296,9 +321,11 @@ class FakeHub:
                     self.max_program_size,
                     self.num_slots,
                 )
+
             return struct.pack(
                 "<HII", self.max_write_size, int(self.features), self.max_program_size
             )
+
         raise HubRejection(p.HubError.INVALID_HANDLE)
 
 
@@ -317,14 +344,18 @@ class _FakeLink(HubLink):
         self, uuid: str, data: bytes, *, response: bool = True
     ) -> None:
         self._require_connected()
+
         if uuid != p.PYBRICKS_COMMAND_EVENT_UUID:
             raise HubRejection(p.HubError.INVALID_HANDLE)
+
         self._hub.handle_command(data)
 
     async def start_notify(self, uuid: str, handler: NotificationHandler) -> None:
         self._require_connected()
+
         if uuid != p.PYBRICKS_COMMAND_EVENT_UUID:
             raise HubRejection(p.HubError.INVALID_HANDLE)
+
         self._hub._handler = handler  # pyright: ignore[reportPrivateUsage]
 
     @property
@@ -386,13 +417,17 @@ class FakeHubTransport:
         Yields:
             The matching hubs.
         """
+
         if self.scan_delay:
             await anyio.sleep(self.scan_delay)
+
         for hub in self.hubs:
             if scan_filter.name is not None and hub.name != scan_filter.name:
                 continue
+
             if hub.device_id in scan_filter.exclude:
                 continue
+
             yield DeviceInfo(
                 id=hub.device_id,
                 name=hub.name,
@@ -410,6 +445,7 @@ class FakeHubTransport:
                     )
                 ),
             )
+
         # A real scan keeps running until the caller stops it, so this does
         # too; otherwise tests would not exercise the cancellation path.
         await anyio.sleep_forever()
@@ -435,6 +471,7 @@ class FakeHubTransport:
 
         hub._connected = True  # pyright: ignore[reportPrivateUsage]
         logger.debug("fake hub: connected to %s", device_id)
+
         try:
             yield _FakeLink(hub)
         finally:

@@ -35,8 +35,10 @@ def anyio_backend() -> str:
 @pytest.fixture
 def endpoint(tmp_path: Path) -> Endpoint:
     unique = uuid.uuid4().hex[:12]
+
     if sys.platform == "win32":
         return Endpoint("pipe", f"pb-spawn-{unique}")
+
     return Endpoint("unix", str(tmp_path / f"{unique}.sock"))
 
 
@@ -65,6 +67,7 @@ def _private_runtime(  # pyright: ignore[reportUnusedFunction]
 
 async def _stop(endpoint: Endpoint) -> None:
     """Stop the service if it is still running, so no test leaks a process."""
+
     try:
         async with pb_client.connect(endpoint, autostart=False) as service:
             await service.shutdown()
@@ -84,6 +87,7 @@ async def test_client_starts_a_service_that_outlives_it(endpoint: Endpoint) -> N
         # whole design: state survives the command that created it.
         async with pb_client.connect(endpoint, autostart=False) as second:
             again = await second.info()
+
         assert again.pid == pid
         assert again.uptime_s >= info.uptime_s
     finally:
@@ -105,6 +109,7 @@ async def test_two_clients_racing_to_start_end_up_on_one_service(
         async with anyio.create_task_group() as tg:
             tg.start_soon(connect_once)
             tg.start_soon(connect_once)
+
         assert len(pids) == 2
         assert pids[0] == pids[1], "clients reached different services"
     finally:

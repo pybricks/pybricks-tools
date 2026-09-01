@@ -72,6 +72,7 @@ def decode_binary(text: str) -> bytes:
     Raises:
         ProtocolError: If the field is not valid base64.
     """
+
     try:
         return base64.b64decode(text, validate=True)
     except (ValueError, TypeError) as exc:
@@ -125,50 +126,62 @@ def to_wire(message: Message) -> dict[str, Any]:
     Returns:
         A JSON-serializable dictionary.
     """
+
     if isinstance(message, Request):
         wire: dict[str, Any] = {
             "jsonrpc": JSONRPC_VERSION,
             "id": message.id,
             "method": message.method,
         }
+
         if message.params is not None:
             wire["params"] = message.params
+
         return wire
 
     if isinstance(message, Notification):
         wire = {"jsonrpc": JSONRPC_VERSION, "method": message.method}
+
         if message.params is not None:
             wire["params"] = message.params
+
         return wire
 
     wire = {"jsonrpc": JSONRPC_VERSION, "id": message.id}
+
     if message.error is not None:
         error: dict[str, Any] = {
             "code": message.error.code,
             "message": message.error.message,
         }
+
         if message.error.data is not None:
             error["data"] = message.error.data
+
         wire["error"] = error
     else:
         # A successful response must carry "result" even when it is null.
         wire["result"] = message.result
+
     return wire
 
 
 def _require_id(raw: object) -> RequestId:
     if isinstance(raw, bool) or not isinstance(raw, int | str):
         raise ProtocolError(f"invalid request id: {raw!r}")
+
     return raw
 
 
 def _params(raw: object) -> dict[str, Any] | None:
     if raw is None:
         return None
+
     if not isinstance(raw, dict):
         # Positional parameters are legal JSON-RPC but this protocol always
         # uses named ones, so that adding a field is never a breaking change.
         raise ProtocolError("params must be an object")
+
     return cast("dict[str, Any]", raw)
 
 
@@ -184,8 +197,10 @@ def parse_message(raw: object) -> Message:
     Raises:
         ProtocolError: If the value is not a well-formed JSON-RPC 2.0 message.
     """
+
     if not isinstance(raw, dict):
         raise ProtocolError("message must be a JSON object")
+
     obj = cast("dict[str, Any]", raw)
 
     if obj.get("jsonrpc") != JSONRPC_VERSION:
@@ -198,9 +213,12 @@ def parse_message(raw: object) -> Message:
         method = obj["method"]
         if not isinstance(method, str):
             raise ProtocolError("method must be a string")
+
         params = _params(obj.get("params"))
+
         if has_id:
             return Request(_require_id(obj["id"]), method, params)
+
         return Notification(method, params)
 
     if not has_id:
@@ -213,17 +231,22 @@ def parse_message(raw: object) -> Message:
         raw_error = obj["error"]
         if not isinstance(raw_error, dict):
             raise ProtocolError("error must be an object")
+
         error = cast("dict[str, Any]", raw_error)
         code = error.get("code")
         message = error.get("message")
+
         if not isinstance(code, int) or isinstance(code, bool):
             raise ProtocolError("error.code must be an integer")
+
         if not isinstance(message, str):
             raise ProtocolError("error.message must be a string")
+
         return Response(identifier, error=ErrorObject(code, message, error.get("data")))
 
     if "result" not in obj:
         raise ProtocolError("response has neither result nor error")
+
     return Response(identifier, result=obj["result"])
 
 

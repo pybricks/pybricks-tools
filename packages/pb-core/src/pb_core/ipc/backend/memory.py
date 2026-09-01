@@ -48,6 +48,7 @@ class _MemoryByteStream(ByteStream):
     async def receive(self, max_bytes: int = 65536) -> bytes:
         if not self._pending:
             self._pending = await self._inner.receive()
+
         chunk, self._pending = self._pending[:max_bytes], self._pending[max_bytes:]
         return chunk
 
@@ -91,16 +92,19 @@ class _MemoryListener(IpcListener):
     @override
     async def serve(self, handler: StreamHandler, task_group: TaskGroup) -> None:
         wrapped = owned(handler)
+
         async for stream in self._rx:
             task_group.start_soon(wrapped, stream)
 
     @override
     async def aclose(self) -> None:
         self.tx.close()
+
         # Close anything accepted but never served, or it leaks on shutdown.
         with suppress(anyio.WouldBlock, anyio.EndOfStream, anyio.ClosedResourceError):
             while True:
                 await self._rx.receive_nowait().aclose()
+
         self._rx.close()
 
 
@@ -119,7 +123,9 @@ class MemoryBackend(IpcBackend):
         listener = self._listeners.get(endpoint.target)
         if listener is None:
             raise ConnectionRefusedError(f"no listener at {endpoint}")
+
         client, server = _pair()
+
         try:
             listener.tx.send_nowait(server)
         except (anyio.WouldBlock, anyio.ClosedResourceError, anyio.BrokenResourceError):
@@ -128,7 +134,9 @@ class MemoryBackend(IpcBackend):
             raise ConnectionRefusedError(
                 f"listener at {endpoint} is not accepting"
             ) from None
+
         logger.debug("memory: connected to %s", endpoint)
+
         async with client:
             yield client
 
@@ -142,10 +150,12 @@ class MemoryBackend(IpcBackend):
     async def _do_listen(self, endpoint: Endpoint) -> AsyncGenerator[IpcListener, None]:
         if endpoint.target in self._listeners:
             raise AddressInUseError(f"address already in use: {endpoint}")
+
         tx, rx = anyio.create_memory_object_stream[ByteStream](_BUFFER)
         listener = _MemoryListener(endpoint.target, tx, rx)
         self._listeners[endpoint.target] = listener
         logger.debug("memory: listening on %s", endpoint)
+
         try:
             yield listener
         finally:

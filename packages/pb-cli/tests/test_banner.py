@@ -69,11 +69,13 @@ class _Screen:
 
 def test_the_bottom_row_is_reserved_and_given_back() -> None:
     screen = _Screen(rows=24)
+
     with Banner(screen, HUB):
         # Every row but the last scrolls, so the hub's output can never write
         # over the status line.
         assert "\x1b[1;23r" in screen.text
         assert "\x1b[24;1H" in screen.text
+
     # A margin left set is as broken as a terminal left in raw mode, and just
     # as invisible.
     assert screen.text.endswith("\x1b[r\x1b[24;1H\x1b[2K")
@@ -81,6 +83,7 @@ def test_the_bottom_row_is_reserved_and_given_back() -> None:
 
 def test_the_line_names_the_hub_and_what_it_is_doing() -> None:
     screen = _Screen()
+
     with Banner(screen, HUB) as bar:
         bar.update(_status())
         assert "Rover" in screen.text
@@ -107,6 +110,7 @@ def test_the_worst_warning_is_the_one_shown() -> None:
 
 def test_a_battery_warning_reaches_the_line() -> None:
     screen = _Screen()
+
     with Banner(screen, HUB) as bar:
         bar.update(_status("BATTERY_LOW_VOLTAGE_WARNING"))
         assert "battery low" in screen.text
@@ -116,6 +120,7 @@ def test_an_unchanged_status_is_not_redrawn() -> None:
     # The hub reports its status about twice a second whether or not anything
     # has changed, and redrawing on each would flicker for no reason.
     screen = _Screen()
+
     with Banner(screen, HUB) as bar:
         bar.update(_status())
         before = len(screen.written)
@@ -138,6 +143,7 @@ def test_a_long_name_pushes_the_help_off_rather_than_wrapping() -> None:
 
 def test_resizing_moves_the_line_to_the_new_bottom_row() -> None:
     screen = _Screen(rows=24)
+
     with Banner(screen, HUB) as bar:
         screen.resize(80, 40)
         bar.tick()
@@ -149,6 +155,7 @@ def test_a_notice_appears_and_then_goes_away(monkeypatch) -> None:  # type: igno
     clock = [1000.0]
     monkeypatch.setattr(banner.time, "monotonic", lambda: clock[0])
     screen = _Screen()
+
     with Banner(screen, HUB) as bar:
         bar.notice("the hub is not reading its input")
         assert "not reading" in screen.text
@@ -159,7 +166,9 @@ def test_a_notice_appears_and_then_goes_away(monkeypatch) -> None:  # type: igno
 
 def test_a_terminal_too_short_for_a_status_line_still_works() -> None:
     screen = _Screen(rows=1)
+
     with Banner(screen, HUB) as bar:
         bar.update(_status())
         bar.write(b"output")
+
     assert b"output" in screen.written

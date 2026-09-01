@@ -53,6 +53,7 @@ def test_the_service_starts_without_a_console_window(
     autostart.spawn_service(Endpoint("memory", "unused"))
 
     deadline = time.monotonic() + 30
+
     while not report.exists() and time.monotonic() < deadline:
         time.sleep(0.02)
 
@@ -80,8 +81,10 @@ def _run_probe(source: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     autostart.spawn_service(Endpoint("memory", "unused"))
 
     deadline = time.monotonic() + 30
+
     while not report.exists() and time.monotonic() < deadline:
         time.sleep(0.02)
+
     assert report.exists(), "the probe never ran"
     return report.read_text(encoding="utf-8")
 

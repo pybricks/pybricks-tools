@@ -76,6 +76,7 @@ def _advertised_pnp_id(advertisement: AdvertisementData) -> p.PnpId | None:
     data = advertisement.service_data.get(p.PNP_ID_UUID)
     if data is None:
         return None
+
     try:
         return p.unpack_pnp_id(data)
     except ValueError:
@@ -94,10 +95,12 @@ def _rejection(exc: BleakGATTProtocolError) -> HubCommandError:
         where it is one we know.
     """
     code = int(exc.args[0])
+
     try:
         error = p.HubError(code)
     except ValueError:
         return HubCommandError(code, f"hub refused the command (error {code:#04x})")
+
     return HubCommandError(error, f"hub refused the command: {error.name}")
 
 
@@ -164,15 +167,19 @@ class BleHubTransport:
             Hubs as they are seen. A hub may be reported more than once as its
             advertisement repeats; callers deduplicate by id.
         """
+
         async with BleakScanner(service_uuids=[p.PYBRICKS_SERVICE_UUID]) as scanner:
             async for device, advertisement in scanner.advertisement_data():
                 info = self._to_device_info(device, advertisement)
                 if info is None:
                     continue
+
                 if scan_filter.name is not None and info.name != scan_filter.name:
                     continue
+
                 if info.id in scan_filter.exclude:
                     continue
+
                 self._devices[info.id] = device
                 yield info
 
@@ -184,6 +191,7 @@ class BleHubTransport:
         name = advertisement.local_name or device.name
         if not name:
             return None
+
         return DeviceInfo(
             id=device_id_for(device.address),
             name=name,
@@ -215,10 +223,12 @@ class BleHubTransport:
         def on_disconnect(_client: BleakClient) -> None:
             # Also outside our task tree, so it only reports the fact.
             logger.info("bluetooth reported a disconnect for %s", device_id)
+
             if self.on_disconnect is not None:
                 self.on_disconnect(device_id)
 
         client = BleakClient(device, disconnected_callback=on_disconnect)
         logger.debug("connecting over bluetooth to %s", device_id)
+
         async with client:
             yield _BleLink(client)

@@ -72,11 +72,13 @@ class Session:
             raise JsonRpcError(
                 ErrorCode.METHOD_NOT_FOUND, f"unknown method: {request.method}"
             )
+
         if entry.needs_hello and not self.authenticated:
             raise JsonRpcError(
                 ErrorCode.HELLO_REQUIRED,
                 "service.hello must be the first call on a connection",
             )
+
         return await entry.func(self, request.params or {})
 
 
@@ -88,9 +90,11 @@ async def serve_session(service: Service, stream: ByteStream) -> None:
         stream: The client's transport.
     """
     session = Session(service)
+
     with log_context(client=session.id):
         logger.info("client connected")
         service.sessions.add(session)
+
         try:
             async with connect_peer(stream, session.dispatch) as peer:
                 session.peer = peer

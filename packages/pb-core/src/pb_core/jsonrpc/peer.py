@@ -134,8 +134,10 @@ class JsonRpcPeer:
         request_id = next(self._ids)
         pending = _Pending()
         self._pending[request_id] = pending
+
         try:
             await self._outbox_tx.send(Request(request_id, method, params))
+
             try:
                 await pending.done.wait()
             except anyio.get_cancelled_exc_class():
@@ -149,6 +151,7 @@ class JsonRpcPeer:
 
         if pending.error is not None:
             raise pending.error
+
         return pending.result
 
     def notify(self, method: str, params: dict[str, Any] | None = None) -> None:
@@ -187,6 +190,7 @@ class JsonRpcPeer:
         Args:
             task_status: Signalled once both tasks are running.
         """
+
         try:
             async with anyio.create_task_group() as tg:
                 tg.start_soon(self._writer_loop)
@@ -239,6 +243,7 @@ class JsonRpcPeer:
                         error_response(None, ErrorCode.PARSE_ERROR, str(exc))
                     )
                     return
+
                 self._dispatch(message)
         except (
             anyio.EndOfStream,
@@ -253,6 +258,7 @@ class JsonRpcPeer:
 
     def _fail_pending(self) -> None:
         """Wake every outstanding call, so none of them hang forever."""
+
         for request_id, pending in list(self._pending.items()):
             pending.error = PeerClosedError(
                 "connection closed before the response arrived"
@@ -277,16 +283,19 @@ class JsonRpcPeer:
         if response.id is None:
             logger.warning("peer reported: %s", response.error)
             return
+
         pending = self._pending.get(response.id)
         if pending is None:
             logger.debug("response for unknown request %s", response.id)
             return
+
         if response.error is not None:
             pending.error = JsonRpcError(
                 response.error.code, response.error.message, response.error.data
             )
         else:
             pending.result = response.result
+
         pending.done.set()
 
     def _cancel_inflight(self, notification: Notification) -> None:
@@ -294,6 +303,7 @@ class JsonRpcPeer:
         request_id = params.get("id")
         if not isinstance(request_id, int | str):
             return
+
         scope = self._inflight.get(request_id)
         if scope is not None:
             logger.debug("cancelling in-flight request %s", request_id)
@@ -301,6 +311,7 @@ class JsonRpcPeer:
 
     async def _run_notification(self, notification: Notification) -> None:
         assert self._handler is not None
+
         try:
             await self._handler(Request(0, notification.method, notification.params))
         except anyio.get_cancelled_exc_class():
@@ -327,8 +338,10 @@ class JsonRpcPeer:
         response = error_response(
             request.id, ErrorCode.REQUEST_CANCELLED, "request cancelled"
         )
+
         with anyio.CancelScope() as scope:
             self._inflight[request.id] = scope
+
             try:
                 result = await self._handler(request)
                 response = Response(request.id, result=result)
@@ -364,9 +377,11 @@ async def connect_peer(
     Yields:
         The peer, ready to use.
     """
+
     async with anyio.create_task_group() as tg:
         peer = JsonRpcPeer(stream, tg, handler)
         await tg.start(peer.run)
+
         try:
             yield peer
         finally:

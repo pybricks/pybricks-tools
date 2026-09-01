@@ -28,6 +28,7 @@ def get_backend(endpoint: Endpoint) -> IpcBackend:
     Raises:
         NotImplementedError: If the scheme is not supported on this platform.
     """
+
     if endpoint.scheme == "memory":
         from pb_core.ipc.backend.memory import MemoryBackend
 
@@ -41,6 +42,7 @@ def get_backend(endpoint: Endpoint) -> IpcBackend:
     if endpoint.scheme == "pipe":
         if sys.platform != "win32":
             raise NotImplementedError("named pipes are only available on Windows")
+
         from pb_core.ipc.backend.windows import WindowsPipeBackend
 
         return WindowsPipeBackend()
@@ -50,6 +52,7 @@ def get_backend(endpoint: Endpoint) -> IpcBackend:
             "asyncio cannot serve AF_UNIX sockets on the Windows proactor loop; "
             "use a pipe:// endpoint"
         )
+
     from pb_core.ipc.backend.posix import PosixBackend
 
     return PosixBackend()

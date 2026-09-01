@@ -90,10 +90,13 @@ def _service_command() -> list[str]:
         # mode leaves quotes attached, so strip them.
         if sys.platform == "win32":
             return [token.strip('"') for token in shlex.split(override, posix=False)]
+
         return shlex.split(override)
+
     found = shutil.which("pb-service")
     if found:
         return [found]
+
     return [sys.executable, "-m", "pb_service"]
 
 
@@ -130,6 +133,7 @@ def spawn_service(endpoint: Endpoint) -> None:
         # it writes comes from pb_core.paths, which is absolute.
         "cwd": neutral_directory(),
     }
+
     if sys.platform == "win32":
         # CREATE_NO_WINDOW, emphatically not DETACHED_PROCESS. Both are
         # described as freeing a child from the parent's console, and only one
@@ -163,12 +167,14 @@ async def _enter_with_retry(stack: AsyncExitStack, endpoint: Endpoint) -> ByteSt
     """Keep trying to connect until the service is up, or give up."""
     deadline = time.monotonic() + READY_TIMEOUT
     delay = _FIRST_DELAY
+
     while True:
         try:
             return await stack.enter_async_context(ipc.connect(endpoint))
         except _NOT_LISTENING:
             if time.monotonic() >= deadline:
                 raise ServiceStartError(str(endpoint), paths.log_file()) from None
+
             await anyio.sleep(delay)
             delay = min(delay * _BACKOFF, _MAX_DELAY)
 
@@ -190,6 +196,7 @@ async def open_connection(
         ServiceUnavailable: If no service is running and ``autostart`` is false.
         ServiceStartError: If a service was started but never became reachable.
     """
+
     async with AsyncExitStack() as stack:
         try:
             stream = await stack.enter_async_context(ipc.connect(endpoint))
@@ -198,7 +205,9 @@ async def open_connection(
                 raise ServiceUnavailable(
                     f"the background service is not running ({endpoint})"
                 ) from None
+
             logger.debug("no service at %s; starting one", endpoint)
             spawn_service(endpoint)
             stream = await _enter_with_retry(stack, endpoint)
+
         yield stream

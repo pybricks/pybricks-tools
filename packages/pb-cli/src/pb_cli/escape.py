@@ -116,8 +116,10 @@ def describe(key: int = ESCAPE_KEY) -> str:
     Returns:
         Something like ``Ctrl-]``.
     """
+
     if 0 < key < 0x20:
         return f"Ctrl-{chr(key + 0x40)}"
+
     return repr(chr(key))
 
 
@@ -159,6 +161,7 @@ class Filter:
         for byte in data:
             if armed:
                 armed = False
+
                 if byte == self.key:
                     # Pressed twice, so it was meant for the hub after all.
                     for_hub.append(byte)

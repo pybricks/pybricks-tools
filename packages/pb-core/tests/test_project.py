@@ -18,8 +18,10 @@ def make(directory: Path, *, extra: str = "", src: bool = False) -> Path:
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / project.PROJECT_FILE
     path.write_text(MINIMAL + extra, encoding="utf-8")
+
     if src:
         (directory / "src").mkdir(exist_ok=True)
+
     return path
 
 

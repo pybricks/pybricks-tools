@@ -48,6 +48,8 @@ def is_address_in_use(exc: OSError) -> bool:
     Returns:
         ``True`` if this is an address-in-use failure on any platform.
     """
+
     if exc.errno == errno.EADDRINUSE:
         return True
+
     return getattr(exc, "winerror", None) == _WSAEADDRINUSE

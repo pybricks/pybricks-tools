@@ -77,8 +77,10 @@ def test_a_traceback_that_scrolled_away_is_not_a_crash() -> None:
 
 def test_the_tail_stays_bounded() -> None:
     program = Running("program", watch_for_crash=True)
+
     for _ in range(10):
         program = program.saw(b"y" * TAIL_BYTES)
+
     assert len(program.tail) == TAIL_BYTES
 
 

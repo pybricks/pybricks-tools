@@ -45,11 +45,15 @@ def _free_port() -> int:
 @pytest.fixture(params=["tcp", "native"])
 def endpoint(request: pytest.FixtureRequest, tmp_path: Path) -> Endpoint:
     """A private endpoint per test, on TCP and on the platform's own transport."""
+
     if request.param == "tcp":
         return Endpoint("tcp", f"127.0.0.1:{_free_port()}")
+
     unique = uuid.uuid4().hex[:12]
+
     if sys.platform == "win32":
         return Endpoint("pipe", f"pb-e2e-{unique}")
+
     return Endpoint("unix", str(tmp_path / f"{unique}.sock"))
 
 
@@ -76,6 +80,7 @@ def _private_runtime(  # pyright: ignore[reportUnusedFunction]
 @pytest.fixture
 async def running_service(endpoint: Endpoint) -> AsyncGenerator[Endpoint, None]:
     """A service running in this process, so no subprocess is needed."""
+
     async with service_module.run_service(endpoint, idle_timeout=0):
         yield endpoint
 
@@ -83,6 +88,7 @@ async def running_service(endpoint: Endpoint) -> AsyncGenerator[Endpoint, None]:
 async def test_client_can_query_a_running_service(running_service: Endpoint) -> None:
     async with pb_client.connect(running_service, autostart=False) as service:
         info = await service.info()
+
     assert info.protocol_version == PROTOCOL_VERSION
     assert info.endpoint == str(running_service)
     assert info.uptime_s >= 0
@@ -130,6 +136,7 @@ async def test_a_bad_token_is_rejected(running_service: Endpoint) -> None:
                     "token": "0" * 64,
                 },
             )
+
         assert info.value.code == ErrorCode.NOT_AUTHENTICATED
 
 
@@ -142,6 +149,7 @@ async def test_calls_before_the_handshake_are_refused(
     ):
         with pytest.raises(JsonRpcError) as info:
             await peer.call("service.info")
+
         assert info.value.code == ErrorCode.HELLO_REQUIRED
 
 
@@ -164,6 +172,7 @@ async def test_an_unsupported_protocol_version_is_refused(
                     "token": auth.read_or_create_token(),
                 },
             )
+
         assert info.value.code == ErrorCode.UNSUPPORTED_PROTOCOL_VERSION
 
 
@@ -171,6 +180,7 @@ async def test_unknown_methods_are_reported(running_service: Endpoint) -> None:
     async with pb_client.connect(running_service, autostart=False) as service:
         with pytest.raises(JsonRpcError) as info:
             await service._peer.call("no.such.method")  # pyright: ignore[reportPrivateUsage]
+
         assert info.value.code == ErrorCode.METHOD_NOT_FOUND
 
 
@@ -178,6 +188,7 @@ async def test_shutdown_stops_the_service(endpoint: Endpoint) -> None:
     async with service_module.run_service(endpoint, idle_timeout=0) as service:
         async with pb_client.connect(endpoint, autostart=False) as client:
             await client.shutdown()
+
         with anyio.fail_after(5):
             await service.wait_for_shutdown()
 
@@ -188,4 +199,5 @@ async def test_idle_service_exits_on_its_own(endpoint: Endpoint) -> None:
     async with service_module.run_service(endpoint, idle_timeout=0.5) as service:
         with anyio.fail_after(10):
             await service.wait_for_shutdown()
+
     assert "idle" in service.shutdown_reason

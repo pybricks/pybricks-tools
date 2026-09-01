@@ -104,6 +104,7 @@ def test_every_expected_failure_is_worded(code: ErrorCode) -> None:
     problems = errors.explain(JsonRpcError(code, "something happened"))
     assert problems is not None, f"{code.name} has no friendly wording"
     assert problems[0].message
+
     if code not in _NOTHING_TO_SUGGEST:
         # A message with no way forward is only half an error message.
         assert problems[0].hint, f"{code.name} suggests nothing"
@@ -307,6 +308,7 @@ async def test_run_lets_an_unexpected_failure_through(
     # traceback is the useful part.
     with pytest.raises(ValueError, match="bang"):
         await errors.run(_raise, ValueError("bang"))
+
     assert "bug in pb" in capsys.readouterr().err
 
 
@@ -328,6 +330,7 @@ def test_nothing_in_the_cli_starts_an_event_loop() -> None:
     # obvious way. It would also put the command outside the one place that
     # turns failures into messages, bringing the traceback back.
     package = Path(cli.__file__).parent
+
     for module in sorted(package.glob("*.py")):
         source = module.read_text(encoding="utf-8")
         assert "anyio.run(" not in source, module.name

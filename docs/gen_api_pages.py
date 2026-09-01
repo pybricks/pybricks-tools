@@ -106,8 +106,10 @@ def is_documented(name: str) -> bool:
         counts as public, because it is something callers read; ``__init__``
         and its like are functions and are covered by the class they are on.
     """
+
     if name == CONSTRUCTOR:
         return False
+
     return not name.startswith("_") or (name.startswith("__") and name.endswith("__"))
 
 
@@ -122,12 +124,15 @@ def summarise(obj: griffe.Object | griffe.Alias) -> str:
         docstrings open with a one-line summary, which is exactly what a list
         of links wants beside each entry.
     """
+
     try:
         docstring = obj.docstring
     except (griffe.AliasResolutionError, KeyError):
         return ""
+
     if docstring is None:
         return ""
+
     first = docstring.value.strip().splitlines()
     return first[0].strip() if first else ""
 
@@ -145,8 +150,10 @@ def target_of(member: griffe.Object | griffe.Alias) -> str:
         there. Documenting it twice would give two pages claiming the same
         identifier, which is exactly what a cross-reference cannot resolve.
     """
+
     if isinstance(member, griffe.Alias):
         return str(member.target_path)
+
     return member.canonical_path
 
 
@@ -163,10 +170,13 @@ def has_something_to_say(member: griffe.Object | griffe.Alias) -> bool:
         listed: mkdocstrings leaves undocumented members out for the same
         reason, and generating a page each would quietly overrule that.
     """
+
     if summarise(member):
         return True
+
     if isinstance(member, griffe.Module | griffe.Class):
         return any(True for _ in children(member))
+
     return False
 
 
@@ -204,9 +214,11 @@ def collect(obj: griffe.Object) -> None:
         obj: A module or a class.
     """
     PAGES.add(obj.canonical_path)
+
     for _, member in children(obj):
         if isinstance(member, griffe.Alias):
             continue
+
         if isinstance(member, griffe.Module | griffe.Class):
             collect(member)
         else:
@@ -226,8 +238,10 @@ def slug(name: str, taken: set[str]) -> str:
         module would otherwise quietly become the same page.
     """
     candidate = name
+
     while candidate.lower() in taken:
         candidate += "_"
+
     taken.add(candidate.lower())
     return candidate
 
@@ -244,8 +258,10 @@ def stanza(path: str, *, leaf: bool) -> str:
         has a page; the links to those pages are written separately.
     """
     block = f"::: {path}\n    options:\n      heading_level: 1\n"
+
     if not leaf:
         block += "      members: false\n"
+
     return block
 
 
@@ -266,12 +282,15 @@ def write_page(
 
     on_a_class = isinstance(obj, griffe.Class)
     lines = [stanza(obj.canonical_path, leaf=not members)]
+
     for kind, in_a_module, in_a_class in GROUPS:
         heading = in_a_class if on_a_class else in_a_module
         listed = [(name, m) for name, m in members if m.kind.value == kind]
         if not listed:
             continue
+
         lines.append(f"\n## {heading}\n\n")
+
         for name, member in listed:
             described = summarise(member)
             tail = f" -- {described}" if described else ""
@@ -283,10 +302,13 @@ def write_page(
     nav[parts or (SECTION,)] = page.as_posix()
 
     taken: set[str] = {"index"}
+
     for name, member in members:
         if isinstance(member, griffe.Alias):
             continue  # documented where it is defined
+
         child = directory / slug(name, taken)
+
         if isinstance(member, griffe.Module | griffe.Class):
             write_page(member, (*parts, name), child)
         else:
@@ -303,14 +325,18 @@ def emit(page: Path, text: str, obj: griffe.Object | griffe.Alias) -> None:
         text: The page's contents.
         obj: What it documents, for the source location.
     """
+
     with mkdocs_gen_files.open(Path("reference") / page, "w") as fd:
         fd.write(text)
+
     try:
         filepath = obj.filepath
     except (griffe.AliasResolutionError, KeyError):
         return
+
     if isinstance(filepath, list) or not filepath.is_relative_to(ROOT):
         return
+
     mkdocs_gen_files.set_edit_path(Path("reference") / page, filepath.relative_to(ROOT))
 
 

@@ -69,6 +69,8 @@ select = [
 ignore = [
     "E501",           # line length is the formatter's job
     "D203", "D213",   # mutually exclusive with the google convention pair
+    "D202",           # a block after a docstring gets its blank line, as
+                      # every block does. See CONTRIBUTING.md.
 ]
 
 [tool.ruff.lint.pydocstyle]

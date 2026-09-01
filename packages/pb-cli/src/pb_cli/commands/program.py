@@ -73,11 +73,13 @@ async def run_cmd(
             walking away.
         verbose: Increase log detail.
     """
+
     if (script is None) == (command is None):
         return ui.usage(
             "Give a script to run, or -c with the code to run.",
             "For example [bold]pb run demo.py[/] or [bold]pb run -c 'print(1)'[/].",
         )
+
     configure_logging(verbose)
     return await errors.run(_run, script, command, hub, slot, wait)
 
@@ -92,6 +94,7 @@ async def _run(
     err = ui.console(err=True)
     compiled: pb_client.CompiledProgram | None = None
     program = b""
+
     with ui.spinner(err, "Compiling..."):
         if script is not None:
             roots = await project.module_roots(script)
@@ -107,8 +110,10 @@ async def _run(
     async with pb_client.connect(autostart=False) as service:
         if compiled is not None:
             program = compiled.pack(legacy_main=await _legacy_main(service, hub))
+
         with ui.spinner(err, f"Downloading {len(program)} bytes..."):
             await service.download(program, hub_id=hub, slot=slot)
+
         if wait is not False:
             # The hub stays connected either way, so there is nothing to be
             # gained by watching a spinner instead of the program. Asking for
@@ -116,6 +121,7 @@ async def _run(
             # says nothing about wanting the terminal taken over, so it is
             # taken to mean the plain form.
             return await _stay_with_it(service, hub, slot, terminal=wait is None)
+
         with ui.spinner(err, "Starting..."):
             await service.start_program(hub_id=hub, slot=slot, wait=False)
 
@@ -216,6 +222,7 @@ async def start_cmd(
 
 async def _start(hub: str | None, slot: int | None, wait: bool | None) -> int:
     err = ui.console(err=True)
+
     if wait is None and not session.have_terminal():
         # The one place this differs from pb run. Starting a program that is
         # already on the hub, from something that is not a terminal, is what a
@@ -224,10 +231,13 @@ async def _start(hub: str | None, slot: int | None, wait: bool | None) -> int:
         # At a terminal the opposite is true: somebody typing pb start wants
         # to see what it does.
         wait = False
+
     async with pb_client.connect(autostart=False) as service:
         if wait is not False:
             return await _stay_with_it(service, hub, slot, terminal=wait is None)
+
         await service.start_program(hub_id=hub, slot=slot)
+
     err.print("Program started.")
     return EXIT_OK
 
@@ -299,8 +309,10 @@ async def stop_cmd(*, hub: str | None = None, verbose: Verbose = ()) -> int:
 
 async def _stop(hub: str | None) -> int:
     err = ui.console(err=True)
+
     async with pb_client.connect(autostart=False) as service:
         await service.stop_program(hub)
+
     err.print("Stopped.")
     return EXIT_OK
 
@@ -330,17 +342,20 @@ async def check_cmd(
         command: Python code to check, instead of a file. Like python -c.
         verbose: Increase log detail.
     """
+
     if (script is None) == (command is None):
         return ui.usage(
             "Give a script to check, or -c with the code to check.",
             "For example [bold]pb check demo.py[/] or [bold]pb check -c 'print(1)'[/].",
         )
+
     configure_logging(verbose)
     return await errors.run(_check, script, command)
 
 
 async def _check(script: Path | None, command: str | None) -> int:
     err = ui.console(err=True)
+
     if script is not None:
         roots = await project.module_roots(script)
         # Packed with the modern naming, which nothing here depends on: no
@@ -351,6 +366,7 @@ async def _check(script: Path | None, command: str | None) -> int:
         assert command is not None
         program = await pb_client.compile_source(command)
         named = pb_client.SOURCE_NAME
+
     # A failure needs no branch here: the compiler's own diagnostics come back
     # as a CompileError, and errors.run prints them under one plain sentence.
     err.print(f"[green]{named} compiles.[/] {len(program)} bytes.")

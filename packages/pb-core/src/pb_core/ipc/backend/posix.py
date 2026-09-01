@@ -47,7 +47,9 @@ class PosixBackend(IpcBackend):
         except FileNotFoundError:
             # No socket file: the service is not running. Callers may start one.
             raise ConnectionRefusedError(f"no service at {endpoint}") from None
+
         logger.debug("unix: connected to %s", endpoint)
+
         async with stream:
             yield stream
 
@@ -73,6 +75,7 @@ class PosixBackend(IpcBackend):
         # same thing on every transport.
         if await _is_live(endpoint):
             raise AddressInUseError(f"address already in use: {endpoint}")
+
         with suppress(FileNotFoundError):
             await socket.unlink()
 
@@ -81,13 +84,17 @@ class PosixBackend(IpcBackend):
         except OSError as exc:
             if is_address_in_use(exc):
                 raise AddressInUseError(f"address already in use: {endpoint}") from exc
+
             raise
+
         logger.info("unix: listening on %s", endpoint)
         listener = AnyioListener(inner)
+
         try:
             yield listener
         finally:
             await listener.aclose()
+
             with suppress(FileNotFoundError):
                 await socket.unlink()
 
@@ -101,9 +108,11 @@ async def _is_live(endpoint: Endpoint) -> bool:
     Returns:
         True if a connection was accepted, which only a running service can do.
     """
+
     try:
         stream = await anyio.connect_unix(endpoint.target)
     except (FileNotFoundError, ConnectionRefusedError, OSError):
         return False
+
     await stream.aclose()
     return True

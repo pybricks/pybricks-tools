@@ -81,17 +81,23 @@ class _Keyboard:
     def __call__(self) -> Key | None:
         if not self.ready.is_set():
             return None
+
         while self._script:
             head = self._script[0]
             if isinstance(head, anyio.Event):
                 if not head.is_set():
                     return None
+
                 self._script.pop(0)
                 continue
+
             self._script.pop(0)
+
             if isinstance(head, type):
                 raise head
+
             return head
+
         return None
 
 
@@ -99,8 +105,10 @@ async def _devices(
     keyboard: _Keyboard, hubs: list[pb_client.DeviceInfo]
 ) -> AsyncIterator[pb_client.DeviceInfo]:
     """Report hubs, then keep the scan open the way a real one does."""
+
     for hub in hubs:
         yield hub
+
     keyboard.ready.set()
     await anyio.sleep_forever()
 
@@ -111,6 +119,7 @@ async def _choose(
     hubs: list[pb_client.DeviceInfo] | None = None,
 ) -> pb_client.DeviceInfo | None:
     monkeypatch.setattr(keys, "poll_key", keyboard)
+
     with anyio.fail_after(5):
         return await picker.choose_hub(
             _console(), _devices(keyboard, hubs or HUBS), _render
@@ -182,12 +191,14 @@ async def test_a_hub_arriving_later_does_not_move_the_selection(
     async def devices() -> AsyncIterator[pb_client.DeviceInfo]:
         for hub in HUBS[:2]:
             yield hub
+
         keyboard.ready.set()
         yield HUBS[2]
         arrived.set()
         await anyio.sleep_forever()
 
     monkeypatch.setattr(keys, "poll_key", keyboard)
+
     with anyio.fail_after(5):
         chosen = await picker.choose_hub(_console(), devices(), record)
 

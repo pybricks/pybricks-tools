@@ -73,6 +73,7 @@ def test_the_landing_page_has_a_table_at_all() -> None:
 @pytest.mark.parametrize("command", _rows())
 def test_every_row_names_a_command_that_exists(command: str) -> None:
     found = app
+
     for word in command.split():
         assert word in found, (
             f"docs/index.md names `pb {command}`, which does not exist"

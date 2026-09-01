@@ -99,8 +99,10 @@ def _peer(session: Session) -> JsonRpcPeer:
         JsonRpcError: If the session has no peer, which would leave the caller
             waiting for notifications that could never be sent.
     """
+
     if session.peer is None:  # pragma: no cover - a served session always has one
         raise JsonRpcError(ErrorCode.INTERNAL_ERROR, "this session cannot be notified")
+
     return session.peer
 
 
@@ -120,6 +122,7 @@ async def _offer(connection: HubConnection, chunk: bytes, profile: p.Version) ->
         JsonRpcError: If the hub refused for any other reason, or cannot take
             input at all.
     """
+
     try:
         command = p.encode_write_stdin(chunk, profile=profile)
     except ValueError as exc:
@@ -131,7 +134,9 @@ async def _offer(connection: HubConnection, chunk: bytes, profile: p.Version) ->
     except JsonRpcError as exc:
         if exc.code != ErrorCode.HUB_BUSY:
             raise
+
         return False
+
     return True
 
 
@@ -162,6 +167,7 @@ async def _write_stdin(connection: HubConnection, data: bytes) -> int:
         raise JsonRpcError(ErrorCode.HUB_NOT_CONNECTED, "hub is not ready")
 
     offset = 0
+
     with anyio.move_on_after(STDIN_PATIENCE_SECONDS) as patience:
         while offset < len(data):
             limit = max(1, connection.stdin_limit)
@@ -188,6 +194,7 @@ async def _write_stdin(connection: HubConnection, data: bytes) -> int:
             "the hub is not reading its input",
             {"waited_s": STDIN_PATIENCE_SECONDS, "written": offset},
         )
+
     return offset
 
 
@@ -295,5 +302,6 @@ async def program_repl(session: Session, params: dict[str, Any]) -> dict[str, An
 
     with hub_errors("start the interpreter"):
         await connection.send_command(command)
+
     logger.info("REPL started")
     return {}

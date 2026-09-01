@@ -88,18 +88,22 @@ async def choose_hub(
                 async for device in devices:
                     if device.id not in seen:
                         order.append(device.id)
+
                     seen[device.id] = device
                     live.update(frame(), refresh=True)
 
             tg.start_soon(watch)
+
             try:
                 while True:
                     key = keys.poll_key()
                     if key is Key.CANCEL:
                         break
+
                     if key is Key.ENTER and order:
                         chosen = seen[order[selected]]
                         break
+
                     if key in (Key.UP, Key.DOWN) and order:
                         step = -1 if key is Key.UP else 1
                         # Wrapping, because a list of two with the highlight

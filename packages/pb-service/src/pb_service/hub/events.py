@@ -92,12 +92,16 @@ def channel_of(event: HubEvent) -> Channel:
     Returns:
         Its channel.
     """
+
     if isinstance(event, StdoutEvent):
         return Channel.STDOUT
+
     if isinstance(event, AppDataEvent):
         return Channel.APP_DATA
+
     if isinstance(event, StatusEvent):
         return Channel.STATUS
+
     return Channel.STATE
 
 
@@ -133,6 +137,7 @@ class StdoutRing:
         """
         self._chunks.append((seq, data))
         self._size += len(data)
+
         while self._size > self._max_bytes and self._chunks:
             dropped_seq, dropped = self._chunks.popleft()
             self._size -= len(dropped)
@@ -160,11 +165,14 @@ class StdoutRing:
         """
         selected: list[tuple[int, bytes]] = []
         total = 0
+
         for seq, data in reversed(self._chunks):
             if total + len(data) > max_bytes and selected:
                 break
+
             selected.append((seq, data))
             total += len(data)
+
         selected.reverse()
         return selected
 

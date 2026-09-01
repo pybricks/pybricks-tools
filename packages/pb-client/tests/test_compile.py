@@ -53,6 +53,7 @@ async def test_a_precompiled_module_of_the_wrong_version_is_refused(
 
     with pytest.raises(compiling.CompileError) as caught:
         await compiling.compile_program(entry, roots=[tmp_path])
+
     assert "native.mpy" in str(caught.value)
     assert "version 5" in str(caught.value)
 
@@ -85,6 +86,7 @@ async def test_a_relative_import_is_a_friendly_error(tmp_path: Path) -> None:
 
     with pytest.raises(compiling.CompileError) as caught:
         await compiling.compile_program(entry, roots=[tmp_path])
+
     assert "relative import" in str(caught.value)
     assert "motors.py" in str(caught.value)
 
@@ -104,6 +106,7 @@ async def test_an_unreadable_module_names_itself(tmp_path: Path) -> None:
 
     with pytest.raises(compiling.CompileError) as caught:
         await compiling.compile_program(tmp_path / "gone.py", roots=[tmp_path])
+
     assert "gone.py" in str(caught.value)
 
 
@@ -111,8 +114,10 @@ async def test_a_syntax_error_comes_from_the_compiler(tmp_path: Path) -> None:
     # find_imports says nothing about source it cannot parse, deliberately:
     # the compiler names the line, which is a better message.
     entry = script(tmp_path, "demo.py", "def (:\n")
+
     with pytest.raises(compiling.CompileError) as caught:
         await compiling.compile_program(entry, roots=[tmp_path])
+
     assert "demo.py" in str(caught.value)
 
 

@@ -57,8 +57,10 @@ def hub() -> FakeHub:
 @pytest.fixture
 def endpoint(tmp_path: Path) -> Endpoint:
     unique = uuid.uuid4().hex[:12]
+
     if sys.platform == "win32":
         return Endpoint("pipe", f"pb-cmd-{unique}")
+
     return Endpoint("unix", str(tmp_path / f"{unique}.sock"))
 
 
@@ -285,12 +287,14 @@ async def _while_running(hub: FakeHub, prints: bytes) -> None:
         hub: The simulated hub.
         prints: What the program puts on its output before ending.
     """
+
     with anyio.fail_after(10):
         # A poll rather than an event, because what is being waited for is a
         # change in the simulated hub's own state, which has nothing to signal
         # with. Ruff is told so: the alternative it suggests does not exist.
         while not hub.status & p.StatusFlag.USER_PROGRAM_RUNNING:  # noqa: ASYNC110
             await anyio.sleep(0.005)
+
         hub.send_stdout(prints)
         await anyio.sleep(0.05)
         hub.set_program_running(False)
@@ -329,6 +333,7 @@ async def test_a_program_that_ends_in_a_traceback_fails_the_command(
         b"ZeroDivisionError: divide by zero\r\n"
     )
     code = errors.EXIT_OK
+
     async with anyio.create_task_group() as tg:
         tg.start_soon(_while_running, hub, traceback)
         code = await program_commands.run_cmd(_script(tmp_path))

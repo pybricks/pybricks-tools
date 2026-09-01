@@ -37,6 +37,7 @@ def _app() -> tuple[cyclopts.App, list[str | None]]:
 
 def _run(app: cyclopts.App, argv: list[str]) -> None:
     """Run one command, absorbing the exit cyclopts makes on the way out."""
+
     with contextlib.suppress(SystemExit):
         app(argv, exit_on_error=False)
 
@@ -132,8 +133,10 @@ def test_a_key_we_do_not_understand_is_named(
     # one.
     _project(tmp_path, '[tool.pb]\nhubb = "Robot A"\n')
     monkeypatch.chdir(tmp_path)
+
     with pytest.raises(config.ProjectConfigError) as caught:
         config.check_project_file()
+
     assert "hubb" in str(caught.value)
     assert caught.value.path.name == config.PROJECT_FILE
 
@@ -143,8 +146,10 @@ def test_every_unknown_key_is_named_at_once(
 ) -> None:
     _project(tmp_path, '[tool.pb]\nhub = "A"\nslot = 1\nwait = true\n')
     monkeypatch.chdir(tmp_path)
+
     with pytest.raises(config.ProjectConfigError) as caught:
         config.check_project_file()
+
     said = str(caught.value)
     assert "slot" in said
     assert "wait" in said
@@ -157,8 +162,10 @@ def test_a_file_that_is_not_toml_says_so(
 ) -> None:
     _project(tmp_path, "[tool.pb\nhub =\n")
     monkeypatch.chdir(tmp_path)
+
     with pytest.raises(config.ProjectConfigError) as caught:
         config.check_project_file()
+
     assert "TOML" in str(caught.value)
 
 
@@ -167,5 +174,6 @@ def test_a_pb_table_that_is_not_a_table_says_so(
 ) -> None:
     _project(tmp_path, '[tool]\npb = "Robot A"\n')
     monkeypatch.chdir(tmp_path)
+
     with pytest.raises(config.ProjectConfigError):
         config.check_project_file()

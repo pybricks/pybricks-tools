@@ -79,11 +79,14 @@ def _table(document: Mapping[str, Any], *keys: str) -> Mapping[str, Any] | None:
         The table, or ``None`` if any step is missing or is not a table.
     """
     current: Mapping[str, Any] = document
+
     for key in keys:
         value = current.get(key)
         if not isinstance(value, dict):
             return None
+
         current = cast("dict[str, Any]", value)
+
     return current
 
 
@@ -113,11 +116,13 @@ def _first_string(value: object) -> str | None:
     Returns:
         The first string in it, or ``None``.
     """
+
     if isinstance(value, list):
         for item in cast("list[object]", value):
             found = _string(item)
             if found is not None:
                 return found
+
     return None
 
 
@@ -147,6 +152,7 @@ def _declared_root(document: Mapping[str, Any]) -> str | None:
             found = _string(cast("dict[str, object]", package_dir).get(""))
             if found is not None:
                 return found
+
     find = _table(document, "tool", "setuptools", "packages", "find")
     if find is not None and (found := _first_string(find.get("where"))) is not None:
         return found
@@ -160,8 +166,10 @@ def _declared_root(document: Mapping[str, Any]) -> str | None:
         if isinstance(sources, dict):
             for key in cast("dict[str, object]", sources):
                 return key
+
         if (found := _first_string(sources)) is not None:
             return found
+
         for key in ("packages", "only-include"):
             if (found := _first_string(wheel.get(key))) is not None:
                 parent = str(Path(found).parent)
@@ -182,6 +190,7 @@ def _declared_root(document: Mapping[str, Any]) -> str | None:
     pdm = _table(document, "tool", "pdm", "build")
     if pdm is not None and (found := _string(pdm.get("package-dir"))) is not None:
         return found
+
     maturin = _table(document, "tool", "maturin")
     if (
         maturin is not None
@@ -207,6 +216,7 @@ async def _read_project(path: Path) -> Mapping[str, Any] | None:
         The parsed document, or ``None`` if it cannot be read, is not valid
         TOML, or has no ``[project]`` table.
     """
+
     try:
         text = await anyio.Path(path).read_text(encoding="utf-8")
     except FileNotFoundError:
@@ -216,6 +226,7 @@ async def _read_project(path: Path) -> Mapping[str, Any] | None:
     except OSError:
         logger.debug("could not read %s", path)
         return None
+
     try:
         document = tomllib.loads(text)
     except tomllib.TOMLDecodeError:
@@ -223,8 +234,10 @@ async def _read_project(path: Path) -> Mapping[str, Any] | None:
         # pyproject.toml is not a reason to refuse to run a script.
         logger.debug("%s is not valid TOML", path)
         return None
+
     if not isinstance(document.get("project"), dict):
         return None
+
     return document
 
 
@@ -241,10 +254,12 @@ async def find_project(start: Path | None = None) -> Path | None:
         shadowed by whatever sits above it.
     """
     here = (start or Path.cwd()).absolute()
+
     for directory in (here, *here.parents):
         candidate = directory / PROJECT_FILE
         if await _read_project(candidate) is not None:
             return candidate
+
     return None
 
 
@@ -264,8 +279,10 @@ async def source_root(project_file: Path) -> Path:
         # An explicit empty string means the top level, which is how uv_build
         # spells a flat layout.
         return project / declared if declared else project
+
     if await anyio.Path(project / SOURCE_DIR).is_dir():
         return project / SOURCE_DIR
+
     return project
 
 
@@ -315,7 +332,9 @@ async def module_roots(
         roots.append(directory)
 
     seen: list[Path] = []
+
     for root in roots:
         if not any(modules.canonical(root) == modules.canonical(kept) for kept in seen):
             seen.append(root)
+
     return tuple(seen)

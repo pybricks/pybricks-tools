@@ -38,6 +38,7 @@ def _leave_the_app_as_it_was() -> Iterator[None]:
         Nothing.
     """
     original = cli.app.config
+
     try:
         yield
     finally:
@@ -57,6 +58,7 @@ def run(*tokens: str, directory: Path | None = None) -> int:
     Returns:
         The exit code.
     """
+
     try:
         return cli.launcher(*tokens, directory=directory)
     except SystemExit as leaving:

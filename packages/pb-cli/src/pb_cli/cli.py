@@ -77,6 +77,7 @@ def launcher(
     Returns:
         The process exit code.
     """
+
     if directory is not None:
         try:
             os.chdir(directory)
@@ -105,6 +106,7 @@ def launcher(
             f"Check [bold]{exc.path}[/]. [bold]\\[tool.pb][/] understands "
             f"{', '.join(sorted(KNOWN_KEYS))}.",
         )
+
     result = app(tokens)
     return result if isinstance(result, int) else EXIT_OK
 

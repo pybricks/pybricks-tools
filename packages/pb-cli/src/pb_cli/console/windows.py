@@ -185,6 +185,7 @@ def _returned_true(result: Any, _func: Any, args: Any) -> Any:
     Raises:
         OSError: If the call failed.
     """
+
     if not result:
         raise ctypes.WinError(ctypes.get_last_error())
 
@@ -205,6 +206,7 @@ def _returned_handle(result: Any, _func: Any, args: Any) -> Any:
     Raises:
         OSError: If the call failed.
     """
+
     if not result or result == _INVALID_HANDLE:
         raise ctypes.WinError(ctypes.get_last_error())
 
@@ -347,6 +349,7 @@ def platform_problem() -> str | None:
     Returns:
         A sentence naming the problem, or None.
     """
+
     for name, std in (("input", _STD_INPUT), ("output", _STD_OUTPUT)):
         try:
             _GetConsoleMode(_GetStdHandle(std))

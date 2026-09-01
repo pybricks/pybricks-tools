@@ -160,8 +160,10 @@ def test_rows_are_a_table_on_a_terminal() -> None:
 def test_a_spinner_is_only_a_spinner_on_a_terminal() -> None:
     # In a log file it would be a few hundred escape codes and no information.
     piped, buffer = _piped()
+
     with ui.spinner(piped, "Working..."):
         pass
+
     assert buffer.getvalue() == ""
 
 

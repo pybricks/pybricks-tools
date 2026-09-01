@@ -34,11 +34,14 @@ __all__ = ["TcpBackend"]
 
 def _was_refused(exc: BaseException) -> bool:
     """Whether ``exc`` ultimately reports a refused connection."""
+
     if isinstance(exc, ConnectionRefusedError):
         return True
+
     if isinstance(exc, BaseExceptionGroup):
         group = cast("BaseExceptionGroup[BaseException]", exc)
         return any(_was_refused(sub) for sub in group.exceptions)
+
     cause = exc.__cause__ or exc.__context__
     return _was_refused(cause) if cause is not None else False
 
@@ -54,6 +57,7 @@ class TcpBackend(IpcBackend):
     @asynccontextmanager
     async def _connect(self, endpoint: Endpoint) -> AsyncGenerator[ByteStream, None]:
         host, port = endpoint.tcp_address
+
         try:
             stream = await anyio.connect_tcp(host, port)
         except OSError as exc:
@@ -63,8 +67,11 @@ class TcpBackend(IpcBackend):
             # the cause. Recover it, and let anything else propagate unchanged.
             if _was_refused(exc):
                 raise ConnectionRefusedError(f"no service at {endpoint}") from exc
+
             raise
+
         logger.debug("tcp: connected to %s", endpoint)
+
         async with stream:
             yield stream
 
@@ -77,12 +84,15 @@ class TcpBackend(IpcBackend):
     @asynccontextmanager
     async def _listen(self, endpoint: Endpoint) -> AsyncGenerator[IpcListener, None]:
         host, port = endpoint.tcp_address
+
         try:
             inner = await anyio.create_tcp_listener(local_host=host, local_port=port)
         except OSError as exc:
             if is_address_in_use(exc):
                 raise AddressInUseError(f"address already in use: {endpoint}") from exc
+
             raise
+
         if not endpoint.is_loopback:
             logger.warning(
                 "tcp: listening on %s, which is reachable from the network; "
@@ -92,7 +102,9 @@ class TcpBackend(IpcBackend):
             )
         else:
             logger.info("tcp: listening on %s", endpoint)
+
         listener = AnyioListener(inner)
+
         try:
             yield listener
         finally:
