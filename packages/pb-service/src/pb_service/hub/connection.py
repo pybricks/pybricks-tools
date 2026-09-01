@@ -520,6 +520,18 @@ class HubConnection:
     async def events(self, subscriber: Subscriber) -> AsyncIterator[HubEvent]:
         """Iterate a subscriber's events, replaying any backlog first.
 
+        **Holds nothing, deliberately.** Every caller stops early -- on the
+        event it was waiting for, or when a ``move_on_after`` fires -- which
+        abandons this generator at its ``yield`` and leaves it to be finalised
+        later, in whatever task is running then. That is only harmless because
+        there is no ``async with`` and no ``try``/``finally`` here to be run at
+        the wrong moment. What the subscriber owns is released by
+        :meth:`subscribe`, which is a context manager the caller holds.
+
+        So anything added here that needs cleaning up has to be paired with
+        ``aclosing`` at every call site. See the async rules in
+        ``CONTRIBUTING.md``.
+
         Args:
             subscriber: The subscriber to read from.
 

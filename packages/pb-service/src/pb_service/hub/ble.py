@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import AsyncGenerator, Callable
-from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from contextlib import AbstractAsyncContextManager, aclosing, asynccontextmanager
 from typing import Any, final
 
 from bleak import BleakClient, BleakScanner
@@ -170,8 +170,17 @@ class BleHubTransport:
             advertisement repeats; callers deduplicate by id.
         """
 
-        async with BleakScanner(service_uuids=[p.PYBRICKS_SERVICE_UUID]) as scanner:
-            async for device, advertisement in scanner.advertisement_data():
+        # aclosing on bleak's generator, because this one is nearly always
+        # abandoned: a scan ends when the caller has seen enough, which closes
+        # this generator at its yield below and leaves bleak's suspended inside
+        # the loop. Its finally unregisters the radio's detection callback, and
+        # without this that would run whenever it happened to be finalised, in
+        # whatever task was running then, and after the scanner had stopped.
+        async with (
+            BleakScanner(service_uuids=[p.PYBRICKS_SERVICE_UUID]) as scanner,
+            aclosing(scanner.advertisement_data()) as seen,
+        ):
+            async for device, advertisement in seen:
                 info = self._to_device_info(device, advertisement)
                 if info is None:
                     continue
