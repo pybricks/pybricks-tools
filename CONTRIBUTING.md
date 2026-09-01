@@ -55,6 +55,15 @@ are enforced by ruff and by tests.
    `anyio.CancelScope(shield=True)` with a bounded `move_on_after`.
 6. **Async functions all the way down.** No futures, no `call_soon`, no
    Protocol/Transport callback layering in our own code.
+7. **Wait for something; do not ask repeatedly whether it has happened.** A loop
+   whose body is "look, find nothing, sleep, look again" is a timer standing in
+   for an event, and it costs a wakeup every period plus half a period of
+   latency on everything it waits for. Where the platform can say "there is
+   input now" — a file descriptor, an `anyio.Event`, a memory object stream —
+   take that. Polling is for the places where nothing will ever say so: retrying
+   after a device has refused a write, or waiting for a process that has not
+   started listening yet. Each of those owes a comment naming what cannot be
+   waited on, so a forced poll can be told from a lazy one.
 
 ### The two sanctioned exceptions
 
@@ -83,6 +92,51 @@ and terminal restore), level-triggered cancellation, and memory object streams
 with real close/EOF semantics.
 
 [nsc]: https://vorpus.org/blog/notes-on-structured-concurrency-or-go-statement-considered-harmful/
+
+## Layout on the page
+
+**A block statement gets a blank line before and after it.** An `if`, `for`,
+`while`, `with`, `try` or `match` is separated from what comes before it and
+what comes after it by an empty line, because a block is a shape on the page and
+air around it makes where it begins and ends visible without counting
+indentation. The `else`, `elif`, `except` and `finally` clauses belong to the
+statement and stay with it. A block with nothing before it in its body, or
+nothing after it, has nothing to be separated from.
+
+**Except an `if` that tests what the line above assigned**, which stays attached
+to it. Getting a value and checking it is one thought:
+
+```python
+wake = _CreateEventW(None, True, False, None)
+if not wake:
+    raise OSError(ctypes.get_last_error(), "cannot create a wake-up event")
+```
+
+No linter checks this — ruff's `E301`–`E306` are about functions and classes —
+so it is held to by hand.
+
+**Source files stay near 500 lines.** Up to 1000 where it genuinely reads better
+as one thing, and not past that. A file over the line is usually doing several
+jobs, so the fix is to split along a seam that means something rather than to
+cut it at a convenient point, and a group of related modules is a subpackage
+rather than several modules sharing a name prefix.
+
+## Talking to C libraries
+
+**ctypes signatures go on a function of our own, never on the library's.** A
+ctypes library object hands the same function object to everybody who asks for
+it, so assigning `argtypes` or `restype` to it changes how every other caller in
+the process — including other packages — marshals that call. Build a binding
+instead, with `ctypes.WINFUNCTYPE` or `CFUNCTYPE`, and call the prototype with a
+`(name, library)` pair; `pb_cli.console.windows` does this for every kernel32
+entry it uses.
+
+Declaring the types is still necessary. Left to ctypes' defaults everything is a
+C `int`, so a handle or a pointer is passed as four bytes — which works right up
+until a value is large enough that it does not.
+
+**ctypes, not pywin32.** Importing `pythoncom` initialises COM as an apartment,
+which makes bleak hang; `bleak.backends.winrt.util.assert_mta` names it.
 
 ## Values, not things that get edited
 
