@@ -14,8 +14,8 @@ nothing is connected.
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncIterator
-from typing import Annotated
+from collections.abc import AsyncIterator, Mapping
+from typing import Annotated, Final
 
 import cyclopts
 from rich.console import Console, RenderableType
@@ -47,7 +47,7 @@ Catching the error's own type is not enough: anything raised inside an
 so the type to catch is not the type that was raised.
 """
 
-_CONNECT_HINTS = {
+_CONNECT_HINTS: Final[Mapping[int, str]] = {
     ErrorCode.HUB_NOT_FOUND: (
         "Switch the hub on and press its button so that its light flashes. "
         "If it is new, is the Pybricks firmware installed?"

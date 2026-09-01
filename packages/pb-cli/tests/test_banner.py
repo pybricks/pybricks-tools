@@ -5,7 +5,10 @@
 
 from __future__ import annotations
 
+import time
+
 import anyio
+import pytest
 
 import pb_client
 from pb_cli import banner
@@ -131,12 +134,13 @@ def test_an_unchanged_status_is_not_redrawn() -> None:
 def test_the_line_never_fills_the_last_cell() -> None:
     # Writing the bottom-right cell scrolls some terminals, which would take
     # the status line with it.
-    line = banner._Layout("left", "right").fit(40)
+    # A test may reach into the module it is testing; nothing else may.
+    line = banner._Layout("left", "right").fit(40)  # pyright: ignore[reportPrivateUsage]
     assert len(line) == 39
 
 
 def test_a_long_name_pushes_the_help_off_rather_than_wrapping() -> None:
-    line = banner._Layout("x" * 100, "Ctrl-] h for help").fit(40)
+    line = banner._Layout("x" * 100, "Ctrl-] h for help").fit(40)  # pyright: ignore[reportPrivateUsage]
     assert len(line) == 39
     assert "Ctrl-]" not in line
 
@@ -151,9 +155,12 @@ def test_resizing_moves_the_line_to_the_new_bottom_row() -> None:
         assert "\x1b[40;1H" in screen.text
 
 
-def test_a_notice_appears_and_then_goes_away(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+def test_a_notice_appears_and_then_goes_away(monkeypatch: pytest.MonkeyPatch) -> None:
     clock = [1000.0]
-    monkeypatch.setattr(banner.time, "monotonic", lambda: clock[0])
+    # The clock itself rather than the banner's reference to it: reaching
+    # through one module for another's import is not something a type
+    # checker can follow, and monkeypatch puts this back either way.
+    monkeypatch.setattr(time, "monotonic", lambda: clock[0])
     screen = _Screen()
 
     with Banner(screen, HUB) as bar:

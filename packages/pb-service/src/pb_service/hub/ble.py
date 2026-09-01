@@ -17,7 +17,7 @@ with it every other hub.
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncGenerator, AsyncIterator, Callable
+from collections.abc import AsyncGenerator, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import Any, final
 
@@ -153,7 +153,9 @@ class BleHubTransport:
         """Identifier prefix for Bluetooth hubs."""
         return SCHEME
 
-    async def discover(self, scan_filter: ScanFilter) -> AsyncIterator[DeviceInfo]:
+    async def discover(
+        self, scan_filter: ScanFilter
+    ) -> AsyncGenerator[DeviceInfo, None]:
         """Report Pybricks hubs as their advertisements arrive.
 
         Filtering on the Pybricks service UUID keeps other Bluetooth devices out

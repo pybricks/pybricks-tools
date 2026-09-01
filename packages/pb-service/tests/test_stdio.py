@@ -23,7 +23,11 @@ from pb_service.hub.connection import HubConnection, HubInfo
 from pb_service.hub.fake import FakeHub, FakeHubTransport
 from pb_service.hub.transport import DeviceInfo, ScanFilter
 from pb_service.methods import stdio
-from pb_service.methods.stdio import STDIN_FLOOR, _write_stdin
+from pb_service.methods.stdio import (
+    STDIN_FLOOR,
+    # A test may reach into the module it is testing; nothing else may.
+    _write_stdin,  # pyright: ignore[reportPrivateUsage]
+)
 
 pytestmark = pytest.mark.anyio
 
@@ -95,6 +99,9 @@ async def test_a_hub_with_a_small_buffer_is_measured_once(
     # Firmware from before the input buffer grew. Nothing on the wire says so,
     # so the only way to find out is to be refused.
     hub.stdin_capacity = 21
+    # Bound before the block: a task group may swallow what its body
+    # raised, so nothing assigned inside one is certain to exist after it.
+    written = 0
 
     async with anyio.create_task_group() as tg:
         tg.start_soon(_keep_draining, hub)
@@ -127,6 +134,7 @@ async def test_a_hub_that_is_briefly_full_is_not_measured_at_all(
     # one before it left behind.
     hub.stdin_capacity = 128
     hub.stdin += b"y" * 120
+    written = 0
 
     async with anyio.create_task_group() as tg:
         tg.start_soon(_reading, hub)

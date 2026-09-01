@@ -23,14 +23,13 @@ from pb_service.hub import protocol as p
 from pb_service.hub.connection import (
     INGRESS_HIGH_WATER,
     SUBSCRIBER_QUEUE,
-    HubCommandError,
     HubConnection,
     HubDisconnectedError,
     HubInfo,
 )
 from pb_service.hub.events import Channel, HubState, StatusEvent, StdoutEvent
 from pb_service.hub.fake import FakeHub, FakeHubTransport, HubRejection
-from pb_service.hub.transport import DeviceInfo, ScanFilter
+from pb_service.hub.transport import DeviceInfo, HubCommandError, ScanFilter
 
 pytestmark = pytest.mark.anyio
 
@@ -316,10 +315,16 @@ async def test_a_rejected_command_reports_the_firmware_error(
 
 async def test_commands_after_disconnect_are_refused(hub: FakeHub) -> None:
     transport = FakeHubTransport(hub)
+    # Bound before the block, because a task group may swallow what its
+    # body raised, so nothing assigned inside one is certain to exist
+    # after it.
+    connection: HubConnection | None = None
 
     async with anyio.create_task_group() as tg:
         connection, _ = await _start(tg, transport, hub)
         connection.close("test")
+
+    assert connection is not None
 
     with pytest.raises(HubDisconnectedError):
         await connection.send_command(p.encode_stop_user_program())

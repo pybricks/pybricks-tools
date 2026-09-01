@@ -14,7 +14,7 @@ rather than stopping it from running.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 __all__ = ["Choice", "DeviceInfo", "Downloaded", "HubInfo", "ServiceInfo"]
 
@@ -226,7 +226,8 @@ class HubInfo:
         Returns:
             The parsed hub.
         """
-        names = payload.get("status_names") or []
+        names = payload.get("status_names")
+        listed = cast("list[object]", names) if isinstance(names, list) else []
         return cls(
             id=str(payload.get("id", "")),
             name=str(payload.get("name", "")),
@@ -246,5 +247,5 @@ class HubInfo:
                 if isinstance(payload.get("running_program_id"), int)
                 else None
             ),
-            status_names=tuple(str(name) for name in names),
+            status_names=tuple(str(name) for name in listed),
         )

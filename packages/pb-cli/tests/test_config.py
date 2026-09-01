@@ -25,11 +25,11 @@ def _app() -> tuple[cyclopts.App, list[str | None]]:
     app = cyclopts.App(name="probe", config=config.config_sources())
 
     @app.command(name="takes-a-hub")
-    def _takes_a_hub(*, hub: str | None = None) -> None:
+    def _takes_a_hub(*, hub: str | None = None) -> None:  # pyright: ignore[reportUnusedFunction]
         seen.append(hub)
 
     @app.command(name="takes-no-hub")
-    def _takes_no_hub(*, thing: int = 1) -> None:
+    def _takes_no_hub(*, thing: int = 1) -> None:  # pyright: ignore[reportUnusedFunction]
         seen.append(str(thing))
 
     return app, seen

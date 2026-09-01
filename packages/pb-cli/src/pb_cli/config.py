@@ -136,8 +136,10 @@ def _settings(path: Path) -> dict[str, object] | None:
     except tomllib.TOMLDecodeError as exc:
         raise ProjectConfigError(f"{PROJECT_FILE} is not valid TOML.", path) from exc
 
-    table = document.get("tool", {})
-    settings = table.get("pb") if isinstance(table, dict) else None
+    table: object = document.get("tool")
+    settings = (
+        cast("dict[str, object]", table).get("pb") if isinstance(table, dict) else None
+    )
     if settings is None:
         return None
 

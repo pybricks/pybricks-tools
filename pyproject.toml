@@ -141,13 +141,25 @@ exclude_also = [
 
 # ---------------------------------------------------------------- pyright
 [tool.pyright]
-include = ["packages/*/src", "packages/*/tests", "tests", "tools"]
+# "**" rather than "*", and the difference is the whole gate. A "*" path
+# segment matches nothing here -- measured against pyright 1.1.411 by planting
+# a type error in packages/pb-cli/src and watching it go unreported, while the
+# same error in tests/ was caught -- so this read as the whole repository and
+# checked seven files.
+include = ["packages/**/src", "packages/**/tests", "tests", "tools"]
 # "ignore" rather than "exclude": an excluded file still gets red squiggles in
 # the editor when it is open, and examples/ is MicroPython for a hub, whose
 # imports cannot resolve here and never will.
 ignore = ["examples"]
 typeCheckingMode = "strict"
 pythonVersion = "3.11"
+# Every platform at once, rather than whichever one is running. Half of this
+# repository is per-platform backends, and on the default setting the other
+# half of every one of them is skipped as unreachable -- so a mistake in the
+# POSIX console could only be found by a POSIX runner. Measured: a planted
+# POSIX-only error is invisible on Windows by default and reported under
+# "All". It also means the three CI runners agree about what is wrong.
+pythonPlatform = "All"
 venvPath = "."
 venv = ".venv"
 reportMissingTypeStubs = false

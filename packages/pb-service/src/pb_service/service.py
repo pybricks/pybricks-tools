@@ -23,6 +23,7 @@ from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Final
 
 import anyio
+from anyio.abc import ByteStream
 
 from pb_core import auth, ipc
 from pb_core.ipc import Endpoint
@@ -177,7 +178,7 @@ async def run_service(
 
                 async with anyio.create_task_group() as clients:
 
-                    async def handle(stream: anyio.abc.ByteStream) -> None:
+                    async def handle(stream: ByteStream) -> None:
                         await serve_session(service, stream)
 
                     clients.start_soon(listener.serve, handle, clients)

@@ -25,11 +25,13 @@ from typing import Annotated
 
 import cyclopts
 
-# Imported to register the commands.
-import pb_cli.commands.hub
-import pb_cli.commands.program
-import pb_cli.commands.repl
-import pb_cli.commands.service  # noqa: F401
+# Imported for the side effect: importing a command module registers it with
+# the app, so nothing here reads the names. Said on each line, because a
+# comment is not something a linter can read.
+import pb_cli.commands.hub  # pyright: ignore[reportUnusedImport]
+import pb_cli.commands.program  # pyright: ignore[reportUnusedImport]
+import pb_cli.commands.repl  # pyright: ignore[reportUnusedImport]
+import pb_cli.commands.service  # noqa: F401 # pyright: ignore[reportUnusedImport]
 from pb_cli import ui
 from pb_cli.app import app
 from pb_cli.config import (

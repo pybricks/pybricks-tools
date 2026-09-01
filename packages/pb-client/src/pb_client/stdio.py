@@ -17,9 +17,9 @@ a position to decode, and it needs an incremental decoder to do it.
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 from anyio.streams.memory import MemoryObjectReceiveStream
 
@@ -106,13 +106,14 @@ def _parse(method: str, params: dict[str, Any]) -> HubEvent | None:
         return Output(seq=seq, data=decode_binary(str(params.get("data", ""))))
 
     if method == HUB_STATUS:
-        names = params.get("status_names") or []
+        names = params.get("status_names")
+        listed = cast("list[object]", names) if isinstance(names, list) else []
         running = params.get("running_program_id")
         slot = params.get("selected_slot")
         return Status(
             seq=seq,
             flags=int(params.get("status_flags") or 0),
-            names=tuple(str(name) for name in names),
+            names=tuple(str(name) for name in listed),
             program_running=bool(params.get("program_running")),
             running_program_id=int(running) if isinstance(running, int) else None,
             selected_slot=int(slot) if isinstance(slot, int) else None,
@@ -131,7 +132,7 @@ def _parse(method: str, params: dict[str, Any]) -> HubEvent | None:
 
 async def events(
     payloads: MemoryObjectReceiveStream[tuple[str, dict[str, Any]]],
-) -> AsyncIterator[HubEvent]:
+) -> AsyncGenerator[HubEvent, None]:
     """Parse a hub's notifications as they arrive.
 
     Args:

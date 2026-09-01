@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from pathlib import Path
+from typing import cast
 
 import cyclopts
 import pytest
@@ -28,7 +29,8 @@ QUIET_COMMAND = ("check", "-c", "print(1)")
 
 
 @pytest.fixture(autouse=True)
-def _leave_the_app_as_it_was() -> Iterator[None]:
+def _leave_the_app_as_it_was(  # pyright: ignore[reportUnusedFunction]
+) -> Iterator[None]:
     """Put back the config layers the launcher replaces.
 
     ``app.config`` is a global, and a test that leaves it pointing at its own
@@ -77,7 +79,11 @@ def toml_source() -> cyclopts.config.Toml:
     """The project-file layer the launcher last handed to cyclopts."""
     sources = cli.app.config
     assert isinstance(sources, tuple)
-    found = [item for item in sources if isinstance(item, cyclopts.config.Toml)]
+    found = [
+        item
+        for item in cast("tuple[object, ...]", sources)
+        if isinstance(item, cyclopts.config.Toml)
+    ]
     assert len(found) == 1
     return found[0]
 

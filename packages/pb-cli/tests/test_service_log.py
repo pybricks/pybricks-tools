@@ -128,7 +128,8 @@ async def test_following_prints_what_arrives(log: Path) -> None:
             tg.start_soon(append)
 
             with anyio.move_on_after(service.POLL_SECONDS * 12):
-                await service._follow(out, log, _size(log))
+                # A test may reach into the module it is testing.
+                await service._follow(out, log, _size(log))  # pyright: ignore[reportPrivateUsage]
 
             tg.cancel_scope.cancel()
 
@@ -153,7 +154,7 @@ async def test_following_survives_the_log_being_rotated(log: Path) -> None:
             tg.start_soon(rotate)
 
             with anyio.move_on_after(service.POLL_SECONDS * 12):
-                await service._follow(out, log, start)
+                await service._follow(out, log, start)  # pyright: ignore[reportPrivateUsage]
 
             tg.cancel_scope.cancel()
 
@@ -179,7 +180,7 @@ async def test_a_line_split_across_two_reads_is_printed_once(log: Path) -> None:
             tg.start_soon(dribble)
 
             with anyio.move_on_after(service.POLL_SECONDS * 14):
-                await service._follow(out, log, 0)
+                await service._follow(out, log, 0)  # pyright: ignore[reportPrivateUsage]
 
             tg.cancel_scope.cancel()
 

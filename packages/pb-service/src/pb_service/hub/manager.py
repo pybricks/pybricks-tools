@@ -13,7 +13,7 @@ of the structure rather than something to remember.
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncGenerator, AsyncIterator
+from collections.abc import AsyncGenerator
 from contextlib import aclosing, asynccontextmanager
 
 import anyio
@@ -167,7 +167,7 @@ class HubManager:
 
     async def discover(
         self, scan_filter: ScanFilter | None = None
-    ) -> AsyncIterator[DeviceInfo]:
+    ) -> AsyncGenerator[DeviceInfo, None]:
         """Report hubs as they are seen, until the caller stops listening.
 
         Only one scan runs at a time, since the radio cannot do more. Callers
