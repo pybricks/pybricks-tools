@@ -135,6 +135,16 @@ Declaring the types is still necessary. Left to ctypes' defaults everything is a
 C `int`, so a handle or a pointer is passed as four bytes — which works right up
 until a value is large enough that it does not.
 
+**Use paramflags, and an `errcheck` with them.** A prototype takes a flag per
+parameter, and they earn their keep: an output parameter comes back as the
+return value instead of the caller allocating one and passing `byref`, and an
+argument that never varies becomes a default instead of being repeated at every
+call site. The catch is that an output parameter *replaces* the function's own
+result, which for a Win32 `BOOL` is the only thing that reported failure — so
+anything with one needs an `errcheck` that raises `ctypes.WinError` and returns
+`args`, which is ctypes' signal to hand the output parameters back. Without it,
+a failed call returns a plausible zero and says nothing.
+
 **ctypes, not pywin32.** Importing `pythoncom` initialises COM as an apartment,
 which makes bleak hang; `bleak.backends.winrt.util.assert_mta` names it.
 

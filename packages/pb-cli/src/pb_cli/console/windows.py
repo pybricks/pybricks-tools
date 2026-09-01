@@ -48,6 +48,13 @@ What is *not* needed here, because ``ENABLE_VIRTUAL_TERMINAL_INPUT`` is set, is
 the translation from virtual key codes to escape sequences that other tools
 carry a few hundred lines for. The console has already done it, so a record's
 character is a byte of the sequence a terminal would have sent.
+
+Every kernel32 entry below is a binding of our own, built from a prototype and
+its paramflags, so that a Win32 call reads as a Python one: what the function
+fills in comes back as the return value, the arguments that never vary are
+defaults, and a failure is an ``OSError`` rather than a result to remember to
+test. Nothing here assigns to the function objects ctypes hands out, which are
+shared with every other caller in the process.
 """
 
 from __future__ import annotations
@@ -57,7 +64,7 @@ import ctypes
 import ctypes.wintypes as wintypes
 import shutil
 from collections.abc import Generator
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Final
 
 import anyio
 import anyio.to_thread
@@ -67,7 +74,7 @@ if TYPE_CHECKING:
 
 __all__ = ["platform_problem", "raw_console"]
 
-READ_LIMIT = 4096
+READ_LIMIT: Final = 4096
 """Characters to take from the console in one go.
 
 Well past what typing produces and enough that pasting a block of code arrives
@@ -147,10 +154,69 @@ class _Record(ctypes.Structure):
 
 # ctypes rather than pywin32 throughout: importing pythoncom initialises COM as
 # an apartment, which makes bleak hang.
-_kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+_kernel32: Final = ctypes.WinDLL("kernel32", use_last_error=True)
+
+_IN: Final = 1
+"""A parameter the caller supplies."""
+
+_OUT: Final = 2
+"""A parameter the function fills in.
+
+ctypes allocates it, passes it by reference, and hands it back as the call's
+return value, so the ``DWORD`` and ``byref`` dance stays out of the code that
+does the work. The catch is that the function's own result is then discarded --
+which for a Win32 ``BOOL`` is the only thing that says it failed -- so anything
+with one of these needs an :func:`_returned_true` to put the failure back.
+"""
 
 
-def _entry(name: str, restype: Any, *argtypes: Any) -> Any:
+def _returned_true(result: Any, _func: Any, args: Any) -> Any:
+    """Raise the error the platform recorded, if the call reported failure.
+
+    Args:
+        result: What the function returned.
+        _func: The function, which is not needed.
+        args: What it was called with, output parameters included.
+
+    Returns:
+        ``args``, which is ctypes' signal to carry on and hand back the output
+        parameters as the call's return value.
+
+    Raises:
+        OSError: If the call failed.
+    """
+    if not result:
+        raise ctypes.WinError(ctypes.get_last_error())
+
+    return args
+
+
+def _returned_handle(result: Any, _func: Any, args: Any) -> Any:
+    """Raise the error the platform recorded, if no handle came back.
+
+    Args:
+        result: The handle, or a value saying there is none.
+        _func: The function, which is not needed.
+        args: What it was called with, which is not needed.
+
+    Returns:
+        The handle.
+
+    Raises:
+        OSError: If the call failed.
+    """
+    if not result or result == _INVALID_HANDLE:
+        raise ctypes.WinError(ctypes.get_last_error())
+
+    return result
+
+
+def _entry(
+    name: str,
+    restype: Any,
+    *params: tuple[Any, tuple[Any, ...]],
+    check: Any = None,
+) -> Any:
     """Bind one kernel32 function, with a signature of our own.
 
     A prototype rather than ``getattr`` and then ``argtypes``, because the
@@ -165,77 +231,108 @@ def _entry(name: str, restype: Any, *argtypes: Any) -> Any:
     Args:
         name: The exported symbol.
         restype: What it returns.
-        *argtypes: What it takes.
+        *params: One ``(type, flags)`` pair per parameter, where the flags are
+            what ctypes calls paramflags: a direction, a name, and optionally a
+            default that lets the caller leave a trailing argument off.
+        check: What to do with the result, if the result is worth checking.
 
     Returns:
         A callable bound to that symbol.
     """
+    argtypes = tuple(ctype for ctype, _ in params)
+    paramflags = tuple(flags for _, flags in params)
     prototype = ctypes.WINFUNCTYPE(restype, *argtypes, use_last_error=True)
+    entry = prototype((name, _kernel32), paramflags)
 
-    return prototype((name, _kernel32))
+    if check is not None:
+        entry.errcheck = check
+
+    return entry
 
 
-_CreateFileW = _entry(
+_CreateFileW: Final = _entry(
     "CreateFileW",
     wintypes.HANDLE,
-    wintypes.LPCWSTR,
-    wintypes.DWORD,
-    wintypes.DWORD,
-    ctypes.c_void_p,
-    wintypes.DWORD,
-    wintypes.DWORD,
-    wintypes.HANDLE,
+    (wintypes.LPCWSTR, (_IN, "name")),
+    (wintypes.DWORD, (_IN, "access")),
+    (wintypes.DWORD, (_IN, "share")),
+    # The tail is the same on every call this module makes, so it is a default
+    # rather than four arguments repeated at each one.
+    (ctypes.c_void_p, (_IN, "security", None)),
+    (wintypes.DWORD, (_IN, "disposition", _OPEN_EXISTING)),
+    (wintypes.DWORD, (_IN, "flags", 0)),
+    (wintypes.HANDLE, (_IN, "template", None)),
+    check=_returned_handle,
 )
-_CreateEventW = _entry(
+_CreateEventW: Final = _entry(
     "CreateEventW",
     wintypes.HANDLE,
-    ctypes.c_void_p,
-    wintypes.BOOL,
-    wintypes.BOOL,
-    wintypes.LPCWSTR,
+    (ctypes.c_void_p, (_IN, "security", None)),
+    (wintypes.BOOL, (_IN, "manual_reset", True)),
+    (wintypes.BOOL, (_IN, "initial_state", False)),
+    (wintypes.LPCWSTR, (_IN, "name", None)),
+    check=_returned_handle,
 )
-_CloseHandle = _entry("CloseHandle", wintypes.BOOL, wintypes.HANDLE)
-_SetEvent = _entry("SetEvent", wintypes.BOOL, wintypes.HANDLE)
-_ResetEvent = _entry("ResetEvent", wintypes.BOOL, wintypes.HANDLE)
-_WaitForMultipleObjects = _entry(
+_CloseHandle: Final = _entry(
+    "CloseHandle", wintypes.BOOL, (wintypes.HANDLE, (_IN, "handle"))
+)
+_SetEvent: Final = _entry("SetEvent", wintypes.BOOL, (wintypes.HANDLE, (_IN, "event")))
+_ResetEvent: Final = _entry(
+    "ResetEvent", wintypes.BOOL, (wintypes.HANDLE, (_IN, "event"))
+)
+_WaitForMultipleObjects: Final = _entry(
     "WaitForMultipleObjects",
     wintypes.DWORD,
-    wintypes.DWORD,
-    ctypes.POINTER(wintypes.HANDLE),
+    (wintypes.DWORD, (_IN, "count")),
+    (ctypes.POINTER(wintypes.HANDLE), (_IN, "handles")),
+    (wintypes.BOOL, (_IN, "all", False)),
+    (wintypes.DWORD, (_IN, "milliseconds", _INFINITE)),
+)
+_GetStdHandle: Final = _entry(
+    "GetStdHandle", wintypes.HANDLE, (wintypes.DWORD, (_IN, "which"))
+)
+_GetConsoleMode: Final = _entry(
+    "GetConsoleMode",
     wintypes.BOOL,
-    wintypes.DWORD,
+    (wintypes.HANDLE, (_IN, "handle")),
+    (ctypes.POINTER(wintypes.DWORD), (_OUT, "mode")),
+    check=_returned_true,
 )
-_GetStdHandle = _entry("GetStdHandle", wintypes.HANDLE, wintypes.DWORD)
-_GetConsoleMode = _entry(
-    "GetConsoleMode", wintypes.BOOL, wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)
+_SetConsoleMode: Final = _entry(
+    "SetConsoleMode",
+    wintypes.BOOL,
+    (wintypes.HANDLE, (_IN, "handle")),
+    (wintypes.DWORD, (_IN, "mode")),
 )
-_SetConsoleMode = _entry(
-    "SetConsoleMode", wintypes.BOOL, wintypes.HANDLE, wintypes.DWORD
+_GetConsoleOutputCP: Final = _entry("GetConsoleOutputCP", wintypes.UINT)
+_SetConsoleOutputCP: Final = _entry(
+    "SetConsoleOutputCP", wintypes.BOOL, (wintypes.UINT, (_IN, "code_page"))
 )
-_GetConsoleOutputCP = _entry("GetConsoleOutputCP", wintypes.UINT)
-_SetConsoleOutputCP = _entry("SetConsoleOutputCP", wintypes.BOOL, wintypes.UINT)
-_GetNumberOfConsoleInputEvents = _entry(
+_GetNumberOfConsoleInputEvents: Final = _entry(
     "GetNumberOfConsoleInputEvents",
     wintypes.BOOL,
-    wintypes.HANDLE,
-    ctypes.POINTER(wintypes.DWORD),
+    (wintypes.HANDLE, (_IN, "handle")),
+    (ctypes.POINTER(wintypes.DWORD), (_OUT, "waiting")),
+    check=_returned_true,
 )
-_ReadConsoleInputW = _entry(
+_ReadConsoleInputW: Final = _entry(
     "ReadConsoleInputW",
     wintypes.BOOL,
-    wintypes.HANDLE,
-    ctypes.c_void_p,
-    wintypes.DWORD,
-    ctypes.POINTER(wintypes.DWORD),
+    (wintypes.HANDLE, (_IN, "handle")),
+    (ctypes.c_void_p, (_IN, "records")),
+    (wintypes.DWORD, (_IN, "wanted")),
+    (ctypes.POINTER(wintypes.DWORD), (_OUT, "taken")),
+    check=_returned_true,
 )
-_WriteFile = _entry(
+_WriteFile: Final = _entry(
     "WriteFile",
     wintypes.BOOL,
-    wintypes.HANDLE,
-    ctypes.c_void_p,
-    wintypes.DWORD,
-    ctypes.POINTER(wintypes.DWORD),
-    ctypes.c_void_p,
+    (wintypes.HANDLE, (_IN, "handle")),
+    (ctypes.c_void_p, (_IN, "data")),
+    (wintypes.DWORD, (_IN, "length")),
+    (ctypes.POINTER(wintypes.DWORD), (_OUT, "written")),
+    (ctypes.c_void_p, (_IN, "overlapped", None)),
+    check=_returned_true,
 )
 
 
@@ -250,11 +347,11 @@ def platform_problem() -> str | None:
     Returns:
         A sentence naming the problem, or None.
     """
-    mode = wintypes.DWORD()
-
     for name, std in (("input", _STD_INPUT), ("output", _STD_OUTPUT)):
-        handle = _GetStdHandle(std)
-        if not _GetConsoleMode(handle, ctypes.byref(mode)):
+        try:
+            _GetConsoleMode(_GetStdHandle(std))
+
+        except OSError:
             return (
                 f"standard {name} is not a Windows console (a terminal "
                 f"emulated over pipes, such as Git Bash, cannot do this)"
@@ -283,12 +380,8 @@ class _WindowsConsole:
         # reached the wait yet as surely as one already in it. Every wait
         # clears it first, so a set from a previous wait cannot leak into the
         # next one.
-        wake = _CreateEventW(None, True, False, None)
-        if not wake:
-            raise OSError(ctypes.get_last_error(), "cannot create a wake-up event")
-
-        self._wake = wake
-        self._waited = (wintypes.HANDLE * 2)(wake, conin)
+        self._wake = _CreateEventW(manual_reset=True)
+        self._waited = (wintypes.HANDLE * 2)(self._wake, conin)
 
     async def wait(self) -> None:
         """Wait until the console has input, or this task is cancelled.
@@ -327,7 +420,7 @@ class _WindowsConsole:
         Runs in a worker thread. ctypes releases the interpreter lock around
         the call, so nothing else is held up by it.
         """
-        _WaitForMultipleObjects(2, self._waited, False, _INFINITE)
+        _WaitForMultipleObjects(2, self._waited)
 
     def read(self) -> bytes:
         """Take whatever has been typed, as UTF-8.
@@ -340,6 +433,10 @@ class _WindowsConsole:
 
         Returns:
             The bytes typed, or empty.
+
+        Raises:
+            OSError: If the console cannot be read, which would otherwise show
+                up as a session that has quietly gone deaf.
         """
         text = self._pending
         self._pending = ""
@@ -356,24 +453,23 @@ class _WindowsConsole:
 
         Returns:
             What was typed, as text.
+
+        Raises:
+            OSError: If the console cannot be read. Deliberately not swallowed:
+                a read that fails quietly leaves every wait returning at once,
+                which is a session spinning rather than a session ending.
         """
         typed: list[str] = []
 
         while len(typed) < READ_LIMIT:
-            waiting = wintypes.DWORD()
-            if not _GetNumberOfConsoleInputEvents(self._conin, ctypes.byref(waiting)):
-                break
-
-            count = min(waiting.value, READ_LIMIT)
+            count = min(_GetNumberOfConsoleInputEvents(self._conin), READ_LIMIT)
             if not count:
                 break
 
             records = (_Record * count)()
-            taken = wintypes.DWORD()
-            if not _ReadConsoleInputW(self._conin, records, count, ctypes.byref(taken)):
-                break
+            taken = _ReadConsoleInputW(self._conin, records, count)
 
-            for index in range(taken.value):
+            for index in range(taken):
                 record = records[index]
                 if record.EventType != _KEY_EVENT:
                     continue
@@ -401,8 +497,7 @@ class _WindowsConsole:
         Args:
             data: What to write.
         """
-        written = wintypes.DWORD()
-        _WriteFile(self._conout, data, len(data), ctypes.byref(written), None)
+        _WriteFile(self._conout, data, len(data))
 
     def size(self) -> tuple[int, int]:
         """Return the console's size.
@@ -436,19 +531,11 @@ def _open(name: str) -> int:
     Raises:
         OSError: If the console cannot be opened.
     """
-    handle = _CreateFileW(
+    return _CreateFileW(
         name,
         _GENERIC_READ | _GENERIC_WRITE,
         _FILE_SHARE_READ | _FILE_SHARE_WRITE,
-        None,
-        _OPEN_EXISTING,
-        0,
-        None,
     )
-    if handle in (None, _INVALID_HANDLE):
-        raise OSError(ctypes.get_last_error(), f"cannot open {name}")
-
-    return handle
 
 
 @contextlib.contextmanager
@@ -464,16 +551,14 @@ def raw_console() -> Generator[Console]:
     conin = _open("CONIN$")
     conout = _open("CONOUT$")
 
-    saved_in = wintypes.DWORD()
-    saved_out = wintypes.DWORD()
-    _GetConsoleMode(conin, ctypes.byref(saved_in))
-    _GetConsoleMode(conout, ctypes.byref(saved_out))
+    saved_in = _GetConsoleMode(conin)
+    saved_out = _GetConsoleMode(conout)
     saved_cp = _GetConsoleOutputCP()
 
     _SetConsoleMode(conin, _RAW_INPUT_MODE)
     _SetConsoleMode(
         conout,
-        saved_out.value
+        saved_out
         | _ENABLE_PROCESSED_OUTPUT
         | _ENABLE_WRAP_AT_EOL_OUTPUT
         | _ENABLE_VIRTUAL_TERMINAL_PROCESSING
