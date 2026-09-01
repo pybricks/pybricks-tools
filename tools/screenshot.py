@@ -216,10 +216,13 @@ class _Keystrokes:
             The key to deliver to the chooser this poll.
         """
         now = time.monotonic()
+
         if self._start is None:
             self._start = now
+
         if now - self._start < self._after or self._taken:
             return None
+
         wanted = next(
             (
                 index
@@ -231,8 +234,10 @@ class _Keystrokes:
         if wanted is None:
             # Not heard yet. Keep waiting rather than settling for another.
             return None
+
         if wanted != self._selected:
             return Key.DOWN
+
         self._taken = True
         return Key.ENTER
 
@@ -284,6 +289,7 @@ def _capture(console: Console) -> Generator[None]:
     keys.keys_available = lambda: True
     pb_client.DeviceInfo.from_wire = _named_device
     pb_client.HubInfo.from_wire = _named_hub
+
     try:
         yield
     finally:
@@ -304,6 +310,7 @@ def _prompt(console: Console, typed: str) -> None:
     """Print a command the way a shell shows it, continuation lines and all."""
     first, *rest = typed.splitlines()
     console.print(f"[bold green]$[/] [bold]{first}[/]", highlight=False)
+
     for line in rest:
         console.print(f"[dim]>[/] [bold]{line}[/]", highlight=False)
 
@@ -315,6 +322,7 @@ async def main() -> int:
         The process exit code.
     """
     console = Console(record=True, force_terminal=True, width=WIDTH)
+
     with _capture(console):
         for typed, command in SESSION:
             _prompt(console, typed)

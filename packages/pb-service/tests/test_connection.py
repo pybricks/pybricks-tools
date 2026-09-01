@@ -47,11 +47,13 @@ def hub() -> FakeHub:
 
 async def _find(transport: FakeHubTransport, device_id: str) -> DeviceInfo:
     """Scan until the wanted hub appears, then stop scanning."""
+
     with anyio.fail_after(5):
         async with aclosing(transport.discover(ScanFilter())) as stream:
             async for device in stream:
                 if device.id == device_id:
                     return device
+
     raise AssertionError(f"never saw {device_id}")
 
 
@@ -71,8 +73,10 @@ async def connected(
     hub: FakeHub,
 ) -> AsyncGenerator[tuple[HubConnection, FakeHub], None]:
     transport = FakeHubTransport(hub)
+
     async with anyio.create_task_group() as tg:
         connection, _ = await _start(tg, transport, hub)
+
         try:
             yield connection, hub
         finally:
@@ -84,6 +88,7 @@ async def connected(
 
 async def test_handshake_reads_identity_and_capabilities(hub: FakeHub) -> None:
     transport = FakeHubTransport(hub)
+
     async with anyio.create_task_group() as tg:
         connection, info = await _start(tg, transport, hub)
         assert info.name == hub.name
@@ -100,9 +105,11 @@ async def test_old_firmware_is_refused_with_advice() -> None:
     # and the message should say what to do about it.
     hub = FakeHub(profile=(1, 1, 0))
     transport = FakeHubTransport(hub)
+
     with pytest.raises(BaseExceptionGroup) as info:
         async with anyio.create_task_group() as tg:
             await _start(tg, transport, hub)
+
     assert info.group_contains(HubCommandError, match="update the hub's firmware")
 
 
@@ -112,9 +119,11 @@ async def test_connect_failure_reaches_the_caller() -> None:
     transport = FakeHubTransport(FakeHub())
     missing = DeviceInfo(id="fake:NO:SUCH", name="ghost", address="NO:SUCH")
     connection = HubConnection(transport, missing)
+
     with pytest.raises(BaseExceptionGroup) as info:
         async with anyio.create_task_group() as tg:
             await tg.start(connection.run)
+
     assert info.group_contains(ConnectionRefusedError)
 
 
@@ -125,10 +134,13 @@ async def test_stdout_reaches_a_subscriber(
     connected: tuple[HubConnection, FakeHub],
 ) -> None:
     connection, hub = connected
+
     async with connection.subscribe(frozenset({Channel.STDOUT})) as subscriber:
         hub.send_stdout(b"hello\n")
+
         with anyio.fail_after(5):
             event = await subscriber.rx.receive()
+
         assert isinstance(event, StdoutEvent)
         assert event.data == b"hello\n"
 
@@ -138,15 +150,18 @@ async def test_two_clients_receive_identical_output(
 ) -> None:
     # Sharing one hub between clients is the point of the service.
     connection, hub = connected
+
     async with (
         connection.subscribe(frozenset({Channel.STDOUT})) as first,
         connection.subscribe(frozenset({Channel.STDOUT})) as second,
     ):
         for index in range(5):
             hub.send_stdout(f"line {index}\n".encode())
+
         with anyio.fail_after(5):
             got_first = [(await first.rx.receive()) for _ in range(5)]
             got_second = [(await second.rx.receive()) for _ in range(5)]
+
     assert [e.data for e in got_first if isinstance(e, StdoutEvent)] == [
         e.data for e in got_second if isinstance(e, StdoutEvent)
     ]
@@ -157,15 +172,19 @@ async def test_detaching_one_client_leaves_the_hub_and_others_alone(
 ) -> None:
     # The promise that a hub survives its clients, as an assertion.
     connection, hub = connected
+
     async with connection.subscribe(frozenset({Channel.STDOUT})) as survivor:
         async with connection.subscribe(frozenset({Channel.STDOUT})):
             assert connection.subscriber_count == 2
+
         assert connection.subscriber_count == 1
         assert connection.state is HubState.CONNECTED
 
         hub.send_stdout(b"still here\n")
+
         with anyio.fail_after(5):
             event = await survivor.rx.receive()
+
         assert isinstance(event, StdoutEvent)
 
 
@@ -173,11 +192,14 @@ async def test_channels_are_independent(
     connected: tuple[HubConnection, FakeHub],
 ) -> None:
     connection, hub = connected
+
     async with connection.subscribe(frozenset({Channel.STATUS})) as subscriber:
         hub.send_stdout(b"ignored by this subscriber\n")
         hub.set_program_running(True)
+
         with anyio.fail_after(5):
             event = await subscriber.rx.receive()
+
         assert isinstance(event, StatusEvent)
         assert event.report.program_running
 
@@ -188,6 +210,7 @@ async def test_a_slow_client_loses_only_its_own_events(
     # The load-bearing property: a client that stops reading must not be able
     # to slow the hub or affect anyone else.
     connection, hub = connected
+
     async with (
         connection.subscribe(frozenset({Channel.STDOUT})) as slow,
         connection.subscribe(frozenset({Channel.STDOUT})) as attentive,
@@ -201,6 +224,7 @@ async def test_a_slow_client_loses_only_its_own_events(
             while slow.dropped == 0:
                 with suppress(anyio.WouldBlock):
                     attentive.rx.receive_nowait()
+
                 await anyio.sleep(0.01)
 
         assert slow.dropped > 0, "the idle client should have lost events"
@@ -215,6 +239,7 @@ async def test_program_output_is_shed_before_status_when_overloaded(
     # Losing a status report would leave the service disagreeing with the hub
     # about whether a program is running, so output is shed first.
     transport = FakeHubTransport(hub)
+
     async with anyio.create_task_group() as tg:
         connection, _ = await _start(tg, transport, hub)
         # Stall the pump by never letting it run, then flood past the mark.
@@ -249,6 +274,7 @@ async def test_a_late_client_can_replay_recent_output(
         frozenset({Channel.STDOUT}), replay_bytes=4096
     ) as subscriber:
         events = [event async for event in _take(connection, subscriber, 1)]
+
     assert isinstance(events[0], StdoutEvent)
     assert events[0].data == b"printed before anyone attached\n"
 
@@ -257,6 +283,7 @@ async def _take(
     connection: HubConnection, subscriber: object, count: int
 ) -> AsyncGenerator[object, None]:
     taken = 0
+
     async for event in connection.events(subscriber):  # pyright: ignore[reportArgumentType]
         yield event
         taken += 1
@@ -280,16 +307,20 @@ async def test_a_rejected_command_reports_the_firmware_error(
 ) -> None:
     connection, hub = connected
     hub.reject_next = p.HubError.BUSY
+
     with pytest.raises(HubRejection) as info:
         await connection.send_command(p.encode_stop_user_program())
+
     assert info.value.error is p.HubError.BUSY
 
 
 async def test_commands_after_disconnect_are_refused(hub: FakeHub) -> None:
     transport = FakeHubTransport(hub)
+
     async with anyio.create_task_group() as tg:
         connection, _ = await _start(tg, transport, hub)
         connection.close("test")
+
     with pytest.raises(HubDisconnectedError):
         await connection.send_command(p.encode_stop_user_program())
 
@@ -319,6 +350,7 @@ async def test_abort_scope_is_transparent_when_nothing_goes_wrong(
     connected: tuple[HubConnection, FakeHub],
 ) -> None:
     connection, _ = connected
+
     async with connection.abort_on_disconnect():
         await anyio.lowlevel.checkpoint()
     # No exception: the guard must not disturb the ordinary path.

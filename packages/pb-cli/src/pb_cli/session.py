@@ -186,8 +186,10 @@ class Running:
         Returns:
             The same, remembering the end of the output.
         """
+
         if not self.watch_for_crash:
             return self
+
         return replace(self, tail=(self.tail + data)[-TAIL_BYTES:])
 
     def note(self, status: pb_client.Status) -> Running:
@@ -207,10 +209,13 @@ class Running:
             never do -- a hub with something running does not advertise, so it
             cannot then be found.
         """
+
         if status.program_running:
             return replace(self, running=True, arrived=True)
+
         if not self.arrived:
             return self
+
         return replace(self, running=False, gone=True)
 
     def _final_exception(self) -> bytes:
@@ -220,17 +225,22 @@ class Running:
             The line naming it, such as ``b"ZeroDivisionError: divide by
             zero"``, or empty if the tail holds no traceback.
         """
+
         if not self.watch_for_crash:
             return b""
+
         start = self.tail.rfind(TRACEBACK)
         if start < 0:
             return b""
+
         # A traceback's frames are indented and the exception that ends it is
         # not, so the first unindented line after the header is the answer.
         after = self.tail[start + len(TRACEBACK) :]
+
         for line in after.splitlines():
             if line and not line.startswith((b" ", b"\t")):
                 return line
+
         return b""
 
     @property
@@ -268,6 +278,7 @@ def needs_terminal(command: str) -> int | None:
     problem = console_module.why_unavailable()
     if problem is None:
         return None
+
     # No markup in the message: an error's headline is printed literally,
     # because it can carry a hub's name or a file path and a stray bracket in
     # one of those would either vanish or colour the rest of the line.
@@ -302,6 +313,7 @@ async def attached(
     Returns:
         The exit code: zero unless the hub went away or the program failed.
     """
+
     # Attached before anything is started, so that the first thing it prints is
     # already being listened for by the time it arrives.
     async with service.attach(hub_id=hub, replay_bytes=replay) as events:
@@ -337,6 +349,7 @@ async def _session(
 
     with banner_module.Banner(console, info) as bar:
         bar.line(f"{escape.describe()} q to leave, {escape.describe()} h for help.")
+
         # Before the tasks, not inside them, so that leaving in the same breath
         # as starting cannot race the decision about what to leave running.
         if await start(bar.line):
@@ -382,12 +395,16 @@ def _ending(disconnected: bool, running: Running) -> int:
         what the user asked for -- so it is told apart from an exception the
         program did not catch, the way CPython tells them apart.
     """
+
     if disconnected:
         return EXIT_HUB_ERROR
+
     if running.interrupted:
         return EXIT_INTERRUPTED
+
     if running.crashed:
         return EXIT_HUB_ERROR
+
     return EXIT_OK
 
 
@@ -429,6 +446,7 @@ async def streamed(
         try:
             if await start(err.print):
                 running = running.we_started_it()
+
             async for event in events:
                 if isinstance(event, pb_client.Output):
                     running = running.saw(event.data)
@@ -462,6 +480,7 @@ async def _stop_quietly(service: pb_client.Service, hub: str | None, noun: str) 
         hub: Which hub.
         noun: What is being stopped, for the log.
     """
+
     # Shielded and bounded, because the likeliest reason to be here is that the
     # command was interrupted, and stopping the program is the whole point.
     with anyio.CancelScope(shield=True), anyio.move_on_after(STOP_SECONDS):
@@ -493,6 +512,7 @@ async def _stop_what_we_started(
         bar: The status line, for saying what was done and why.
         noun: What to call what was stopped.
     """
+
     # Shielded and bounded: this runs while the session is already unwinding,
     # and a hub that will not answer must not hold the command open.
     with anyio.move_on_after(STOP_SECONDS, shield=True):
@@ -501,8 +521,10 @@ async def _stop_what_we_started(
         except pb_client.JsonRpcError as exc:
             logger.info("could not stop the %s: %s", noun, exc)
             return
+
         bar.line(f"{noun.capitalize()} stopped, so the hub can be found again.")
         return
+
     logger.info("the hub did not confirm the %s had stopped", noun)
 
 
@@ -546,6 +568,7 @@ async def _show_hub(
         scope: The session's scope, cancelled when there is nothing left to
             listen to.
     """
+
     async for event in events:
         if isinstance(event, pb_client.Output):
             ended.running = ended.running.saw(event.data)
@@ -553,6 +576,7 @@ async def _show_hub(
         elif isinstance(event, pb_client.Status):
             ended.running = ended.running.note(event)
             bar.update(event)
+
             if ended.running.gone:
                 # A program ends by itself, and Ctrl-D ends the interpreter, as
                 # does stopping either from anywhere else. However it happened
@@ -571,6 +595,7 @@ async def _show_hub(
     if not ended.disconnected:
         bar.line("The hub is no longer connected.")
         ended.disconnected = True
+
     scope.cancel()
 
 
@@ -595,6 +620,7 @@ async def _send_input(
         bar: The status line, for saying when the hub would not take it.
         ended: Where to report that the queue has run dry.
     """
+
     async with keystrokes:
         async for data in keystrokes:
             try:
@@ -602,6 +628,7 @@ async def _send_input(
             except pb_client.JsonRpcError as exc:
                 logger.info("the hub would not take input: %s", exc)
                 bar.notice(str(exc))
+
     # Nothing more is coming and everything that came has gone, so leaving no
     # longer risks throwing away something that was typed.
     ended.flushed.set()
@@ -627,6 +654,7 @@ async def _read_keys(
         ended: How the session is ending.
         tg: The session's task group, cancelled when the user leaves.
     """
+
     try:
         await _keys_until_done(service, hub, console, keystrokes, bar)
     finally:
@@ -636,6 +664,7 @@ async def _read_keys(
 
     with anyio.move_on_after(FLUSH_SECONDS):
         await ended.flushed.wait()
+
     tg.cancel_scope.cancel()
 
 
@@ -656,6 +685,7 @@ async def _keys_until_done(
         bar: The status line.
     """
     keys = escape.Filter()
+
     while True:
         typed = console.read()
         if not typed:
@@ -667,9 +697,11 @@ async def _keys_until_done(
             continue
 
         keys, for_hub, actions = keys.feed(typed)
+
         for action in actions:
             if await _act(action, service, hub, bar):
                 return
+
         if for_hub:
             try:
                 keystrokes.send_nowait(for_hub)
@@ -697,8 +729,10 @@ async def _act(
     Returns:
         True if the session should end.
     """
+
     if action is Action.QUIT:
         return True
+
     if action is Action.STOP:
         try:
             await service.stop_program(hub)
@@ -711,11 +745,14 @@ async def _act(
             bar.notice("stopped")
     elif action is Action.HELP:
         bar.line("")
+
         for keystrokes, what in escape.help_lines():
             bar.line(f"  {keystrokes:<16} {what}")
+
         bar.line("")
     else:
         bar.notice(f"no such command; {escape.describe()} h for help")
+
     return False
 
 
@@ -725,6 +762,7 @@ async def _tick(bar: banner_module.Banner) -> None:
     Args:
         bar: The status line.
     """
+
     while True:
         await anyio.sleep(TICK_SECONDS)
         bar.tick()

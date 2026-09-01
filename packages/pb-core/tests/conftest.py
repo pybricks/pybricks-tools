@@ -44,8 +44,10 @@ def endpoint(
 
     if scheme == "memory":
         return Endpoint("memory", f"test-{unique}")
+
     if scheme == "tcp":
         return Endpoint("tcp", f"127.0.0.1:{_free_tcp_port()}")
+
     if scheme == "pipe":
         return Endpoint("pipe", f"pb-test-{unique}")
 

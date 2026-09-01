@@ -116,15 +116,20 @@ def parse_version(text: str) -> Version:
     cleaned = text.strip().split("+", 1)[0].split("-", 1)[0]
     parts = cleaned.split(".")
     numbers: list[int] = []
+
     for part in parts[:3]:
         digits = "".join(c for c in part if c.isdigit())
         if not digits:
             break
+
         numbers.append(int(digits))
+
     if not numbers:
         raise ValueError(f"not a version: {text!r}")
+
     while len(numbers) < 3:
         numbers.append(0)
+
     return (numbers[0], numbers[1], numbers[2])
 
 
@@ -264,6 +269,7 @@ def encode_start_user_program(program_id: int | None, *, profile: Version) -> by
             accept one, since silently starting the wrong program would be
             worse than failing.
     """
+
     if profile < _PROFILE_SLOT_ARGUMENT:
         if program_id is not None:
             raise ValueError(
@@ -271,6 +277,7 @@ def encode_start_user_program(program_id: int | None, *, profile: Version) -> by
                 f"{'.'.join(map(str, _PROFILE_SLOT_ARGUMENT))} or later; "
                 f"this hub reports {'.'.join(map(str, profile))}"
             )
+
         return struct.pack("<B", Command.START_USER_PROGRAM)
 
     if program_id is None:
@@ -280,6 +287,7 @@ def encode_start_user_program(program_id: int | None, *, profile: Version) -> by
         # are expected to name the program and this stays for the hubs that
         # have nothing else.
         return struct.pack("<B", Command.START_USER_PROGRAM)
+
     return struct.pack("<BB", Command.START_USER_PROGRAM, program_id)
 
 
@@ -294,8 +302,10 @@ def encode_start_repl(*, profile: Version) -> bytes:
         ``START_USER_PROGRAM`` with the REPL id, because the dedicated
         ``START_REPL`` command was removed.
     """
+
     if profile >= _PROFILE_SLOT_ARGUMENT:
         return struct.pack("<BB", Command.START_USER_PROGRAM, UserProgramId.REPL)
+
     return struct.pack("<B", Command.START_REPL)
 
 
@@ -345,8 +355,10 @@ def encode_write_stdin(payload: bytes, *, profile: Version) -> bytes:
     Raises:
         ValueError: If the hub predates standard input support.
     """
+
     if profile < (1, 3, 0):
         raise ValueError("this hub's firmware does not support writing to stdin")
+
     return struct.pack(f"<B{len(payload)}s", Command.WRITE_STDIN, payload)
 
 
@@ -368,10 +380,13 @@ def encode_write_app_data(offset: int, payload: bytes, *, profile: Version) -> b
     Raises:
         ValueError: If the hub predates app data, or the offset does not fit.
     """
+
     if profile < (1, 4, 0):
         raise ValueError("this hub's firmware does not support app data")
+
     if not 0 <= offset <= 0xFFFF:
         raise ValueError(f"app data offset must fit in 16 bits, got {offset}")
+
     return struct.pack(f"<BH{len(payload)}s", Command.WRITE_APP_DATA, offset, payload)
 
 
@@ -410,8 +425,10 @@ def parse_status_report(payload: bytes) -> StatusReport:
     Raises:
         ValueError: If the payload is too short to contain the flags.
     """
+
     if len(payload) < 5:
         raise ValueError(f"status report too short: {len(payload)} bytes")
+
     (flags,) = struct.unpack_from("<I", payload, 1)
     running = payload[5] if len(payload) >= 6 else None
     slot = payload[6] if len(payload) >= 7 else None
@@ -466,6 +483,7 @@ def unpack_capabilities(data: bytes) -> Capabilities:
     Raises:
         ValueError: If the value is not a length this code understands.
     """
+
     if len(data) >= 11:
         max_write, flags, max_program, slots = struct.unpack_from("<HIIB", data, 0)
     elif len(data) >= 10:
@@ -473,6 +491,7 @@ def unpack_capabilities(data: bytes) -> Capabilities:
         slots = 0
     else:
         raise ValueError(f"hub capabilities too short: {len(data)} bytes")
+
     return Capabilities(max_write, FeatureFlag(flags), max_program, slots)
 
 
@@ -498,8 +517,10 @@ def unpack_pnp_id(data: bytes) -> PnpId:
     Raises:
         ValueError: If the value is not seven bytes.
     """
+
     if len(data) != 7:
         raise ValueError(f"PnP ID must be 7 bytes, got {len(data)}")
+
     source, vendor, product, version = struct.unpack("<BHHH", data)
     return PnpId(source, vendor, product, version)
 
@@ -565,11 +586,15 @@ def hub_type_name(pnp: PnpId | None) -> str | None:
         guessing: a hub that works but cannot be named is better described by
         silence than by "Unsupported".
     """
+
     if pnp is None:
         return None
+
     if pnp.vendor_id_source != VendorIdSource.BLUETOOTH_SIG:
         return None
+
     if pnp.vendor_id != LEGO_COMPANY_ID:
         return None
+
     exact = _HUB_TYPE_NAMES.get((pnp.product_id, pnp.product_version))
     return exact or _HUB_TYPE_NAMES.get((pnp.product_id, None))

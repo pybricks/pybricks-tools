@@ -82,6 +82,7 @@ def method(
     def register(func: MethodFunc) -> MethodFunc:
         if name in METHODS:
             raise RuntimeError(f"duplicate RPC method: {name}")
+
         METHODS[name] = Method(
             name=name,
             func=func,
@@ -113,12 +114,15 @@ def require(params: dict[str, Any], key: str, kind: type[Any]) -> Any:
     Raises:
         JsonRpcError: If the parameter is missing or the wrong type.
     """
+
     if key not in params:
         raise JsonRpcError(ErrorCode.INVALID_PARAMS, f"missing parameter: {key}")
+
     value = params[key]
     if not isinstance(value, kind):
         raise JsonRpcError(
             ErrorCode.INVALID_PARAMS,
             f"parameter {key} must be {kind.__name__}, got {type(value).__name__}",
         )
+
     return value

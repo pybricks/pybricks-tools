@@ -24,6 +24,7 @@ pytestmark = pytest.mark.anyio
 
 async def _echo(stream: ByteStream) -> None:
     """Echo until the peer goes away."""
+
     try:
         async for chunk in stream:
             await stream.send(chunk)
@@ -33,8 +34,10 @@ async def _echo(stream: ByteStream) -> None:
 
 async def _receive_exactly(stream: ByteStream, count: int) -> bytes:
     buf = bytearray()
+
     while len(buf) < count:
         buf.extend(await stream.receive(count - len(buf)))
+
     return bytes(buf)
 
 
@@ -59,10 +62,12 @@ async def _run_echo_server(
 async def test_round_trip(endpoint: Endpoint) -> None:
     async with anyio.create_task_group() as tg:
         await _serve(endpoint, tg)
+
         async with ipc.connect(endpoint) as client:
             greeting = b"hello service"
             await client.send(greeting)
             assert await _receive_exactly(client, len(greeting)) == greeting
+
         tg.cancel_scope.cancel()
 
 
@@ -70,8 +75,10 @@ async def test_large_message(endpoint: Endpoint) -> None:
     # Firmware images and program blobs are chunked, but the transport must
     # still cope with a payload far larger than one read.
     payload = bytes(range(256)) * 16384  # 4 MiB
+
     async with anyio.create_task_group() as tg:
         await _serve(endpoint, tg)
+
         async with ipc.connect(endpoint) as client:
 
             async def send_all() -> None:
@@ -80,6 +87,7 @@ async def test_large_message(endpoint: Endpoint) -> None:
             async with anyio.create_task_group() as inner:
                 inner.start_soon(send_all)
                 assert await _receive_exactly(client, len(payload)) == payload
+
         tg.cancel_scope.cancel()
 
 
@@ -94,9 +102,11 @@ async def test_many_concurrent_clients(endpoint: Endpoint) -> None:
 
     async with anyio.create_task_group() as tg:
         await _serve(endpoint, tg)
+
         async with anyio.create_task_group() as clients:
             for index in range(10):
                 clients.start_soon(one, index)
+
         tg.cancel_scope.cancel()
 
     assert sorted(results) == sorted(f"client-{i:02d}".encode() for i in range(10))
@@ -126,10 +136,13 @@ async def test_server_sees_client_disconnect(endpoint: Endpoint) -> None:
 
     async with anyio.create_task_group() as tg:
         await tg.start(server)
+
         async with ipc.connect(endpoint):
             pass  # close immediately without sending
+
         with anyio.fail_after(5):
             await noticed.wait()
+
         tg.cancel_scope.cancel()
 
     # Either signal is a correct report of "the peer went away".
@@ -150,9 +163,11 @@ async def test_second_listener_is_rejected(endpoint: Endpoint) -> None:
     # point of this test is that callers see one normalised exception.
     async with anyio.create_task_group() as tg:
         await _serve(endpoint, tg)
+
         with pytest.raises(ipc.AddressInUseError):
             async with ipc.create_listener(endpoint):
                 pass
+
         tg.cancel_scope.cancel()
 
 
@@ -160,9 +175,12 @@ async def test_second_listener_is_rejected(endpoint: Endpoint) -> None:
 async def test_pipe_cannot_half_close(endpoint: Endpoint) -> None:
     if endpoint.scheme != "pipe":
         pytest.skip("only meaningful for the pipe transport")
+
     async with anyio.create_task_group() as tg:
         await _serve(endpoint, tg)
+
         async with ipc.connect(endpoint) as client:
             with pytest.raises(NotImplementedError):
                 await client.send_eof()
+
         tg.cancel_scope.cancel()

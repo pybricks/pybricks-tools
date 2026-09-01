@@ -101,8 +101,10 @@ def _parse(method: str, params: dict[str, Any]) -> HubEvent | None:
         error, it is just not for us.
     """
     seq = int(params.get("seq") or 0)
+
     if method == HUB_STDOUT:
         return Output(seq=seq, data=decode_binary(str(params.get("data", ""))))
+
     if method == HUB_STATUS:
         names = params.get("status_names") or []
         running = params.get("running_program_id")
@@ -115,6 +117,7 @@ def _parse(method: str, params: dict[str, Any]) -> HubEvent | None:
             running_program_id=int(running) if isinstance(running, int) else None,
             selected_slot=int(slot) if isinstance(slot, int) else None,
         )
+
     if method == HUB_STATE:
         reason = params.get("reason")
         return State(
@@ -122,6 +125,7 @@ def _parse(method: str, params: dict[str, Any]) -> HubEvent | None:
             state=str(params.get("state", "unknown")),
             reason=str(reason) if reason else None,
         )
+
     return None
 
 
@@ -137,6 +141,7 @@ async def events(
         One event per notification this build understands, in the order the
         hub produced them.
     """
+
     async with payloads:
         async for method, params in payloads:
             event = _parse(method, params)

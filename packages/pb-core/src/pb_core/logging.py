@@ -88,6 +88,7 @@ def log_context(**fields: object) -> Generator[None, None, None]:
     previous = _CONTEXT.get({})
     merged = {**previous, **fields}
     token = _CONTEXT.set(merged)
+
     try:
         yield
     finally:
@@ -126,6 +127,7 @@ def elide(data: object, limit: int = _MAX_TRACE_CHARS) -> str:
     text = data if isinstance(data, str) else repr(data)
     if len(text) <= limit:
         return text
+
     return f"{text[:limit]}... ({len(text)} chars)"
 
 
@@ -133,12 +135,14 @@ def _make_handler(
     style: LogStyle, stream: TextIO | None, log_file: Path | None
 ) -> logging.Handler:
     """Build the single handler for ``style``."""
+
     if style == "null":
         return logging.NullHandler()
 
     if style == "file":
         if log_file is None:
             raise ValueError("style='file' requires log_file")
+
         log_file.parent.mkdir(parents=True, exist_ok=True)
         return logging.handlers.RotatingFileHandler(
             log_file, maxBytes=2 * 1024 * 1024, backupCount=5, encoding="utf-8"
@@ -190,6 +194,7 @@ def setup_logging(
     """
     handler = _make_handler(style, stream, log_file)
     handler.addFilter(_ContextFilter())
+
     if not isinstance(handler, logging.NullHandler):
         handler.setFormatter(logging.Formatter(_FORMAT, datefmt=_DATEFMT))
 
@@ -200,6 +205,7 @@ def setup_logging(
     effective_quiet = (
         quiet_level if quiet_level is not None else min(level + 10, logging.CRITICAL)
     )
+
     for name in quiet_loggers:
         logging.getLogger(name).setLevel(effective_quiet)
 

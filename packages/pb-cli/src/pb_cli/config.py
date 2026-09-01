@@ -125,8 +125,10 @@ def _settings(path: Path) -> dict[str, object] | None:
             worth saying so about, where a file that simply says nothing about
             this tool is not.
     """
+
     if not path.is_file():
         return None
+
     try:
         document = tomllib.loads(path.read_text(encoding="utf-8"))
     except OSError as exc:
@@ -138,8 +140,10 @@ def _settings(path: Path) -> dict[str, object] | None:
     settings = table.get("pb") if isinstance(table, dict) else None
     if settings is None:
         return None
+
     if not isinstance(settings, dict):
         raise ProjectConfigError("[tool.pb] is not a table.", path)
+
     return cast("dict[str, object]", settings)
 
 
@@ -164,10 +168,12 @@ def find_project_file(start: Path | None = None) -> Path | None:
         ProjectConfigError: If a candidate cannot be read or parsed.
     """
     here = (start or Path.cwd()).resolve()
+
     for directory in (here, *here.parents):
         candidate = directory / PROJECT_FILE
         if _settings(candidate) is not None:
             return candidate
+
     return None
 
 
@@ -187,6 +193,7 @@ def check_project_file(start: Path | None = None) -> None:
     path = find_project_file(start)
     if path is None:
         return
+
     settings = _settings(path)
     if settings is None:  # pragma: no cover - find_project_file just read it
         return

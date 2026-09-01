@@ -47,6 +47,7 @@ def _write(path: Path, text: str) -> None:
 
 def _append(path: Path, text: str) -> None:
     """Add to a file the way the service adds to its log."""
+
     with path.open("a", encoding="utf-8") as handle:
         handle.write(text)
 
@@ -119,13 +120,16 @@ async def test_following_prints_what_arrives(log: Path) -> None:
         for line in ("during\n", "after\n"):
             await anyio.sleep(service.POLL_SECONDS)
             _append(log, line)
+
         await anyio.sleep(service.POLL_SECONDS * 3)
 
     with anyio.move_on_after(10):
         async with anyio.create_task_group() as tg:
             tg.start_soon(append)
+
             with anyio.move_on_after(service.POLL_SECONDS * 12):
                 await service._follow(out, log, _size(log))
+
             tg.cancel_scope.cancel()
 
     assert buffer.getvalue().splitlines() == ["during", "after"]
@@ -147,8 +151,10 @@ async def test_following_survives_the_log_being_rotated(log: Path) -> None:
     with anyio.move_on_after(10):
         async with anyio.create_task_group() as tg:
             tg.start_soon(rotate)
+
             with anyio.move_on_after(service.POLL_SECONDS * 12):
                 await service._follow(out, log, start)
+
             tg.cancel_scope.cancel()
 
     assert buffer.getvalue().splitlines() == ["brand new"]
@@ -165,13 +171,16 @@ async def test_a_line_split_across_two_reads_is_printed_once(log: Path) -> None:
         for piece in ("half a ", "line\n"):
             await anyio.sleep(service.POLL_SECONDS * 2)
             _append(log, piece)
+
         await anyio.sleep(service.POLL_SECONDS * 3)
 
     with anyio.move_on_after(10):
         async with anyio.create_task_group() as tg:
             tg.start_soon(dribble)
+
             with anyio.move_on_after(service.POLL_SECONDS * 14):
                 await service._follow(out, log, 0)
+
             tg.cancel_scope.cancel()
 
     assert buffer.getvalue().splitlines() == ["half a line"]

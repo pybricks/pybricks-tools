@@ -72,14 +72,19 @@ def as_wire_error(exc: Exception, doing: str | None = None) -> JsonRpcError:
         The equivalent :class:`JsonRpcError`. Anything unrecognised becomes
         ``INTERNAL_ERROR``, which is the honest answer for a bug.
     """
+
     if isinstance(exc, HubCommandError):
         return _refusal(exc, doing)
+
     if isinstance(exc, HubNotFoundError):
         return JsonRpcError(ErrorCode.HUB_NOT_FOUND, str(exc))
+
     if isinstance(exc, HubAlreadyConnectedError):
         return JsonRpcError(ErrorCode.HUB_ALREADY_CONNECTED, str(exc))
+
     if isinstance(exc, HubDisconnectedError):
         return JsonRpcError(ErrorCode.HUB_DISCONNECTED, str(exc))
+
     logger.error("unexpected hub failure", exc_info=exc)
     return JsonRpcError(ErrorCode.INTERNAL_ERROR, str(exc))
 
@@ -94,6 +99,7 @@ def hub_errors(doing: str | None = None) -> Iterator[None]:
     Yields:
         Nothing; this only shapes what escapes.
     """
+
     try:
         yield
     except HUB_FAILURES as exc:

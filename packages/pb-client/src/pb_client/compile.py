@@ -113,8 +113,10 @@ class CompiledProgram:
             The packed program.
         """
         modules = self.modules
+
         if legacy_main:
             modules = (modules[0]._replace(name=MAIN_MODULE), *modules[1:])
+
         packed = pack_program([(module.name, module.mpy) for module in modules])
         logger.info(
             "packed %d module(s) into %d bytes, starting at %s",
@@ -137,6 +139,7 @@ def describe_compiler() -> str:
     """
     path = Path(mpy_cross_v6.MPY_CROSS_PATH)
     machine = "unknown"
+
     try:
         header = path.read_bytes()[:0x400]
         if header[:2] == b"MZ":
@@ -151,6 +154,7 @@ def describe_compiler() -> str:
             machine = "native"
     except OSError:  # pragma: no cover - diagnostics only
         pass
+
     return f"{path} ({machine})"
 
 
@@ -168,6 +172,7 @@ def _compile_sync(name: str, source: str) -> bytes:
     if completed.returncode != 0 or mpy is None:
         output = completed.stderr.decode("utf-8", "replace") if completed.stderr else ""
         raise CompileError(f"could not compile {name}", output)
+
     return mpy
 
 
@@ -205,10 +210,12 @@ def pack_program(modules: Sequence[tuple[str, bytes]]) -> bytes:
         The bytes to store on the hub.
     """
     parts: list[bytes] = []
+
     for name, mpy in modules:
         parts.append(len(mpy).to_bytes(4, "little"))
         parts.append(name.encode() + b"\x00")
         parts.append(mpy)
+
     return b"".join(parts)
 
 
@@ -227,10 +234,12 @@ async def _compile(source: str, *, name: str) -> bytes:
         CompileError: If the compiler rejects it.
     """
     logger.info("compiling %s (%d bytes of source)", name, len(source))
+
     try:
         mpy = await anyio.to_thread.run_sync(_compile_sync, name, source)
     except subprocess.SubprocessError as exc:  # pragma: no cover - environment
         raise CompileError(f"could not run the compiler: {exc}") from exc
+
     logger.info("compiled %s to %d bytes", name, len(mpy))
     return mpy
 
@@ -271,6 +280,7 @@ async def _read(path: Path) -> str:
     Raises:
         CompileError: If it cannot be read.
     """
+
     try:
         # Off the event loop: reading a file is blocking, and a script can
         # live on a slow or remote filesystem.
@@ -296,6 +306,7 @@ async def _already_compiled(module: Module) -> CompiledModule:
         CompileError: If it cannot be read, or is not a ``.mpy`` this hub
             firmware would accept.
     """
+
     try:
         mpy = await anyio.Path(module.path).read_bytes()
     except OSError as exc:
@@ -307,11 +318,13 @@ async def _already_compiled(module: Module) -> CompiledModule:
     # they are much more useful here.
     if not mpy.startswith(b"M"):
         raise CompileError(f"cannot use {module.path}: it is not a .mpy file")
+
     if mpy[1] != MPY_ABI_VERSION:
         raise CompileError(
             f"cannot use {module.path}: it is .mpy version {mpy[1]}, but the "
             f"hub needs version {MPY_ABI_VERSION}"
         )
+
     logger.info("%s arrived compiled, %d bytes", module.name, len(mpy))
     return CompiledModule(module.name, mpy)
 
@@ -339,6 +352,7 @@ async def compile_program(
             module imports relative to its own package -- which the hub cannot
             do, so it is refused here where the line can be named.
     """
+
     try:
         found = await discover(entry, roots if roots is not None else (entry.parent,))
     except OSError as exc:
@@ -354,10 +368,12 @@ async def compile_program(
         raise CompileError(str(exc)) from exc
 
     compiled: list[CompiledModule] = []
+
     for module in found:
         if module.precompiled:
             compiled.append(await _already_compiled(module))
             continue
+
         source = await _read(module.path)
         # The file's name rather than the module's: this is what the hub
         # prints in a traceback, and a traceback should name a file somebody

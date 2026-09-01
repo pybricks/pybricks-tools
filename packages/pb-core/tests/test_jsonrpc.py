@@ -111,6 +111,7 @@ async def _framed() -> tuple[
 
 async def test_framer_round_trip() -> None:
     a, b, left, right = await _framed()
+
     async with left, right:
         sent = jsonrpc.Request(1, "service.ping")
         await a.send(sent)
@@ -121,12 +122,14 @@ async def test_framer_handles_split_and_coalesced_writes() -> None:
     # A read never corresponds to one write: messages can arrive glued together
     # or cut in half, which is the classic framing bug.
     left, right = _pair()
+
     async with left, right:
         framer = jsonrpc.LineFramer(right)
         blob = b"".join(
             json.dumps(jsonrpc.to_wire(jsonrpc.Request(i, "m"))).encode() + b"\n"
             for i in range(3)
         )
+
         async with anyio.create_task_group() as tg:
 
             async def feed() -> None:
@@ -134,6 +137,7 @@ async def test_framer_handles_split_and_coalesced_writes() -> None:
                     await left.send(blob[index : index + 7])
 
             tg.start_soon(feed)
+
             for i in range(3):
                 message = await framer.receive()
                 assert isinstance(message, jsonrpc.Request)
@@ -144,8 +148,10 @@ async def test_framer_reports_clean_eof() -> None:
     left, right = _pair()
     framer = jsonrpc.LineFramer(right)
     await left.aclose()
+
     with pytest.raises(anyio.EndOfStream):
         await framer.receive()
+
     await right.aclose()
 
 
@@ -156,19 +162,25 @@ async def test_framer_reports_truncated_message_as_eof() -> None:
     framer = jsonrpc.LineFramer(right)
     await left.send(b'{"jsonrpc":"2.0","id":1,"me')
     await left.aclose()
+
     with pytest.raises(anyio.EndOfStream):
         await framer.receive()
+
     await right.aclose()
 
 
 async def test_framer_rejects_oversized_line() -> None:
     left, right = _pair()
     framer = jsonrpc.LineFramer(right, max_line=64)
+
     async with anyio.create_task_group() as tg:
         tg.start_soon(left.send, b"x" * 512)
+
         with pytest.raises(jsonrpc.ProtocolError, match="exceeded"):
             await framer.receive()
+
         tg.cancel_scope.cancel()
+
     await left.aclose()
     await right.aclose()
 
@@ -176,11 +188,15 @@ async def test_framer_rejects_oversized_line() -> None:
 async def test_framer_rejects_invalid_json() -> None:
     left, right = _pair()
     framer = jsonrpc.LineFramer(right)
+
     async with anyio.create_task_group() as tg:
         tg.start_soon(left.send, b"{not json}\n")
+
         with pytest.raises(jsonrpc.ProtocolError, match="invalid JSON"):
             await framer.receive()
+
         tg.cancel_scope.cancel()
+
     await left.aclose()
     await right.aclose()
 
@@ -189,6 +205,7 @@ async def test_framer_survives_a_message_containing_newline_text() -> None:
     # json.dumps escapes newlines, so an embedded newline must not split a
     # message. Cheap to get wrong with a hand-rolled encoder.
     a, b, left, right = await _framed()
+
     async with left, right:
         sent = jsonrpc.Notification("hub.stdout", {"text": "line one\nline two\n"})
         await a.send(sent)

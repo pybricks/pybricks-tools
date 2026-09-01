@@ -54,14 +54,17 @@ def read_or_create_token(path: Path | None = None) -> str:
     # Create with restrictive permissions from the outset rather than widening
     # then narrowing, which would leave a window where the token is readable.
     descriptor = cookie.open("w", encoding="ascii")
+
     try:
         if sys.platform != "win32":
             import os
 
             os.fchmod(descriptor.fileno(), 0o600)
+
         descriptor.write(token)
     finally:
         descriptor.close()
+
     logger.debug("wrote a new authentication token to %s", cookie)
     return token
 
@@ -78,8 +81,10 @@ def load_token(path: Path | None = None) -> str | None:
         The token, or ``None`` if no service has ever run for this user.
     """
     cookie = path or paths.cookie_file()
+
     try:
         token = cookie.read_text(encoding="ascii").strip()
     except OSError:
         return None
+
     return token or None

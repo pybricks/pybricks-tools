@@ -91,6 +91,7 @@ async def _watch_signals(service: service_module.Service) -> None:
     loop is used instead, together with the service's periodic tick, which keeps
     the loop awake enough to notice.
     """
+
     if sys.platform == "win32":
         import asyncio
 
@@ -104,12 +105,14 @@ async def _watch_signals(service: service_module.Service) -> None:
             (sig, signal.signal(sig, handler))
             for sig in (signal.SIGINT, signal.SIGBREAK)
         ]
+
         try:
             await event.wait()
             service.request_shutdown("signal")
         finally:
             for sig, old in previous:
                 signal.signal(sig, old)
+
         return
 
     with anyio.open_signal_receiver(signal.SIGINT, signal.SIGTERM) as signals:
@@ -130,6 +133,7 @@ async def _serve(args: argparse.Namespace) -> int:
                 tg.start_soon(_watch_signals, service)
                 await service.wait_for_shutdown()
                 tg.cancel_scope.cancel()
+
             logger.info("shutting down: %s", service.shutdown_reason)
     except AddressInUseError:
         # The common case is two clients racing to start a service. One wins,

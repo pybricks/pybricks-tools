@@ -77,6 +77,7 @@ class LineFramer:
             ProtocolError: If the line is oversized or not a valid message. The
                 caller should answer with a parse error and close.
         """
+
         try:
             line = await self._buffered.receive_until(_DELIMITER, self._max_line)
         except anyio.DelimiterNotFound as exc:
@@ -108,8 +109,10 @@ class LineFramer:
             anyio.BrokenResourceError: If the connection failed.
         """
         payload = json.dumps(to_wire(message), separators=(",", ":")).encode("utf-8")
+
         if logger.isEnabledFor(TRACE):
             logger.log(TRACE, "tx %s", elide(payload.decode("utf-8", "replace")))
+
         await self._stream.send(payload + _DELIMITER)
 
     async def aclose(self) -> None:

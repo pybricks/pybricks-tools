@@ -62,12 +62,14 @@ def without_contents(markdown: str) -> str:
         when the headings are flat.
     """
     lines = markdown.splitlines(keepends=True)
+
     try:
         start = lines.index(TOC_HEADING + "\n")
     except ValueError:
         # cyclopts stopped writing one, or writes it differently. Leaving it
         # in is a much smaller problem than failing the build over it.
         return markdown
+
     # Only the contents list itself. The group listings -- **Hubs**, and the
     # rest -- follow it under the same heading, and they are the overview
     # worth keeping: they are what `pb --help` shows.

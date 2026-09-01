@@ -69,19 +69,23 @@ def _endpoint(tmp_path: Path) -> Endpoint:
         Where a service for one test should listen.
     """
     unique = uuid.uuid4().hex[:12]
+
     if sys.platform == "win32":
         return Endpoint("pipe", f"pb-prog-{unique}")
+
     return Endpoint("unix", str(tmp_path / f"{unique}.sock"))
 
 
 @pytest.fixture
 async def connected(tmp_path: Path, hub: FakeHub) -> AsyncGenerator[Endpoint, None]:
     endpoint = _endpoint(tmp_path)
+
     async with service_module.run_service(
         endpoint, idle_timeout=0, transport=FakeHubTransport(hub)
     ):
         async with pb_client.connect(endpoint, autostart=False) as service:
             await service.connect_hub(name=HUB_NAME)
+
         yield endpoint
 
 
@@ -138,6 +142,7 @@ async def test_a_program_of_several_files(tmp_path: Path) -> None:
         "helpers",
     ]
     packed = compiled.pack()
+
     for module in compiled.modules:
         assert module.name.encode() + b"\x00" in packed
 
@@ -164,6 +169,7 @@ async def test_compile_error_carries_the_compiler_output(tmp_path: Path) -> None
     # a syntax error, so it must not be swallowed.
     with pytest.raises(pb_client.CompileError) as info:
         await pb_client.compile_script(_script(tmp_path, "def broken(\n"))
+
     assert "SyntaxError" in info.value.output
 
 
@@ -187,6 +193,7 @@ async def test_download_puts_the_program_on_the_hub(
     connected: Endpoint, hub: FakeHub, tmp_path: Path
 ) -> None:
     program = await pb_client.compile_script(_script(tmp_path, "print('hi')\n"))
+
     async with pb_client.connect(connected, autostart=False) as service:
         written = await service.download(program)
 
@@ -205,6 +212,7 @@ async def test_a_download_goes_to_the_slot_the_hub_has_selected(
     hub.selected_slot = 2
     hub.send_status()
     program = await pb_client.compile_script(_script(tmp_path, "print('hi')\n"))
+
     async with pb_client.connect(connected, autostart=False) as service:
         # Naming the slot the hub has selected is agreement rather than an
         # instruction, and is carried out.
@@ -216,6 +224,7 @@ async def test_a_download_goes_to_the_slot_the_hub_has_selected(
         # and a later start of slot 4 would run whatever was already there.
         with pytest.raises(JsonRpcError) as info:
             await service.download(program, slot=4)
+
     assert info.value.code == ErrorCode.PROGRAM_SLOT_NOT_SELECTED
     assert "slot 2 selected" in str(info.value)
 
@@ -229,6 +238,7 @@ async def test_a_single_slot_hub_says_so_rather_than_naming_a_slot(
     hub = FakeHub(name=HUB_NAME, address="00:11:22:33:44:55", num_slots=1)
     program = await pb_client.compile_script(_script(tmp_path, "print('hi')\n"))
     endpoint = _endpoint(tmp_path)
+
     async with (
         service_module.run_service(
             endpoint, idle_timeout=0, transport=FakeHubTransport(hub)
@@ -236,6 +246,7 @@ async def test_a_single_slot_hub_says_so_rather_than_naming_a_slot(
         pb_client.connect(endpoint, autostart=False) as service,
     ):
         await service.connect_hub(name=HUB_NAME)
+
         with pytest.raises(JsonRpcError, match="one program at a time"):
             await service.download(program, slot=3)
 
@@ -246,6 +257,7 @@ async def test_download_clears_the_metadata_first(
     # Zero first, real length last: an interrupted download must never leave
     # something that looks runnable.
     program = await pb_client.compile_script(_script(tmp_path, "print('hi')\n"))
+
     async with pb_client.connect(connected, autostart=False) as service:
         await service.download(program)
 
@@ -269,6 +281,7 @@ async def test_a_program_that_is_too_large_is_refused(
         if sys.platform == "win32"
         else Endpoint("unix", str(tmp_path / f"{unique}.sock"))
     )
+
     async with (
         service_module.run_service(
             endpoint, idle_timeout=0, transport=FakeHubTransport(hub)
@@ -279,6 +292,7 @@ async def test_a_program_that_is_too_large_is_refused(
         program = await pb_client.compile_script(
             _script(tmp_path, "print('a longer program')\n" * 20)
         )
+
         with pytest.raises(JsonRpcError) as info:
             await service.download(program)
 
@@ -297,6 +311,7 @@ async def test_download_is_chunked_to_the_hub_limit(
         if sys.platform == "win32"
         else Endpoint("unix", str(tmp_path / f"{unique}.sock"))
     )
+
     async with (
         service_module.run_service(
             endpoint, idle_timeout=0, transport=FakeHubTransport(hub)
@@ -309,8 +324,10 @@ async def test_download_is_chunked_to_the_hub_limit(
 
     writes = [c for c in hub.commands if c[0] == p.Command.WRITE_USER_RAM]
     assert len(writes) > 1, "a small write limit should force several chunks"
+
     for write in writes:
         assert len(write) <= hub.max_write_size
+
     assert bytes(hub.program[: len(program)]) == program
 
 
@@ -321,8 +338,10 @@ async def test_run_without_waiting_starts_the_program(
     connected: Endpoint, hub: FakeHub, tmp_path: Path
 ) -> None:
     program = await pb_client.compile_script(_script(tmp_path, "print('hi')\n"))
+
     async with pb_client.connect(connected, autostart=False) as service:
         reason = await service.run_program(program, wait=False)
+
     assert reason == "started"
     assert hub.status & p.StatusFlag.USER_PROGRAM_RUNNING
 
@@ -351,10 +370,12 @@ async def test_run_waits_for_the_program_to_finish(
 
         async with anyio.create_task_group() as tg:
             tg.start_soon(run)
+
             # Let the program start, then stop it the way a second command
             # or the hub's own button would.
             with anyio.fail_after(5):
                 await running.wait()
+
             await other.stop_program()
 
     assert reasons == ["stopped"]
@@ -364,6 +385,7 @@ async def test_start_uses_the_requested_slot(
     connected: Endpoint, hub: FakeHub, tmp_path: Path
 ) -> None:
     program = await pb_client.compile_script(_script(tmp_path, "print('hi')\n"))
+
     async with pb_client.connect(connected, autostart=False) as service:
         await service.download(program)
         await service.start_program(slot=2)
@@ -384,6 +406,7 @@ async def test_starting_a_slot_on_old_firmware_is_refused(
         if sys.platform == "win32"
         else Endpoint("unix", str(tmp_path / f"{unique}.sock"))
     )
+
     async with (
         service_module.run_service(
             endpoint, idle_timeout=0, transport=FakeHubTransport(hub)
@@ -391,6 +414,7 @@ async def test_starting_a_slot_on_old_firmware_is_refused(
         pb_client.connect(endpoint, autostart=False) as service,
     ):
         await service.connect_hub(name=HUB_NAME)
+
         with pytest.raises(JsonRpcError) as info:
             await service.start_program(slot=2)
 
@@ -402,6 +426,7 @@ async def test_a_hub_that_refuses_says_so(connected: Endpoint, hub: FakeHub) -> 
     # it -- and must not arrive as an internal error with the reason left in
     # the service's log.
     hub.reject_next = p.HubError.BUSY
+
     async with pb_client.connect(connected, autostart=False) as service:
         with pytest.raises(JsonRpcError) as info:
             await service.start_program()

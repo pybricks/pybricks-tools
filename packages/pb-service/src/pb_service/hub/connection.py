@@ -170,6 +170,7 @@ class HubConnection:
         Args:
             task_status: Signalled with the hub's details once connected.
         """
+
         with log_context(hub=self.id):
             try:
                 await self._run(task_status=task_status)
@@ -240,6 +241,7 @@ class HubConnection:
         )
 
         raw_pnp = await link.read_characteristic(p.PNP_ID_UUID)
+
         try:
             pnp = p.unpack_pnp_id(raw_pnp)
         except ValueError:
@@ -282,6 +284,7 @@ class HubConnection:
         Runs outside any task. It may not await, may not start tasks and may
         not block; it only hands the bytes over.
         """
+
         if logger.isEnabledFor(TRACE):
             logger.log(TRACE, "rx %s", payload.hex(" "))
 
@@ -296,6 +299,7 @@ class HubConnection:
             return
 
         self._rx_bytes += len(payload)
+
         try:
             self._rx_tx.send_nowait(payload)
         except (anyio.ClosedResourceError, anyio.BrokenResourceError):
@@ -307,16 +311,20 @@ class HubConnection:
         Also invoked from outside any task, so it does the same minimal thing.
         """
         self._reason = "the hub stopped answering"
+
         with suppress(anyio.ClosedResourceError, anyio.BrokenResourceError):
             self._rx_tx.send_nowait(_DISCONNECTED_MARKER)
+
         self._closing.set()
 
     async def _pump(self) -> None:
         """Decode notifications and fan them out. Owned by the connection."""
+
         async for item in self._rx_rx:
             if item is _DISCONNECTED_MARKER:
                 self._abort_all("the hub disconnected")
                 return
+
             assert isinstance(item, bytes)
             self._rx_bytes -= len(item)
             self._decode(item)
@@ -324,6 +332,7 @@ class HubConnection:
     def _decode(self, payload: bytes) -> None:
         if not payload:
             return
+
         kind = payload[0]
 
         if kind == p.Event.STATUS_REPORT:
@@ -332,6 +341,7 @@ class HubConnection:
             except ValueError:
                 logger.warning("ignoring malformed status report: %s", payload.hex(" "))
                 return
+
             self.status = report
             self._publish(StatusEvent(next(self._seq), report))
         elif kind == p.Event.WRITE_STDOUT:
@@ -351,6 +361,7 @@ class HubConnection:
     def _set_state(self, state: HubState, reason: str | None = None) -> None:
         if self.state is state:
             return
+
         logger.info("state: %s -> %s", self.state, state)
         self.state = state
         self._publish(StateEvent(next(self._seq), state, reason))
@@ -358,9 +369,11 @@ class HubConnection:
     def _publish(self, event: HubEvent) -> None:
         """Deliver an event to every interested subscriber, dropping if full."""
         channel = channel_of(event)
+
         for subscriber in list(self._subscribers.values()):
             if channel not in subscriber.channels:
                 continue
+
             try:
                 subscriber.tx.send_nowait(event)
             except anyio.WouldBlock:
@@ -371,6 +384,7 @@ class HubConnection:
                         subscriber.id,
                         subscriber.dropped,
                     )
+
                 if subscriber.dropped > DROP_LIMIT:
                     logger.error(
                         "client %s is hopelessly behind; detaching it",
@@ -422,6 +436,7 @@ class HubConnection:
             subscriber_id,
             len(self._subscribers),
         )
+
         try:
             yield subscriber
         finally:
@@ -456,18 +471,22 @@ class HubConnection:
             HubDisconnectedError: If the hub disconnected before the block
                 finished.
         """
+
         with anyio.CancelScope() as scope:
             self._abort_scopes.add(scope)
+
             try:
                 yield
             finally:
                 self._abort_scopes.discard(scope)
+
         if scope.cancel_called:
             raise HubDisconnectedError(f"{self.id} disconnected")
 
     def _abort_all(self, reason: str) -> None:
         if self._abort_scopes:
             logger.info("aborting %d operations: %s", len(self._abort_scopes), reason)
+
         for scope in list(self._abort_scopes):
             scope.cancel()
 
@@ -493,6 +512,7 @@ class HubConnection:
         async with self._command_lock:
             if logger.isEnabledFor(TRACE):
                 logger.log(TRACE, "tx %s", data.hex(" "))
+
             await link.write_characteristic(
                 p.PYBRICKS_COMMAND_EVENT_UUID, data, response=True
             )
@@ -506,8 +526,11 @@ class HubConnection:
         Yields:
             Events, oldest first.
         """
+
         for event in subscriber.replay:
             yield event
+
         subscriber.replay.clear()
+
         async for event in subscriber.rx:
             yield event

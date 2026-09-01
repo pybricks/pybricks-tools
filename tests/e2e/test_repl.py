@@ -70,8 +70,10 @@ def hub() -> FakeHub:
 @pytest.fixture
 def endpoint(tmp_path: Path) -> Endpoint:
     unique = uuid.uuid4().hex[:12]
+
     if sys.platform == "win32":
         return Endpoint("pipe", f"pb-repl-{unique}")
+
     return Endpoint("unix", str(tmp_path / f"{unique}.sock"))
 
 
@@ -90,6 +92,7 @@ async def service(
     # does not rewrite the choice the person running the tests made.
     monkeypatch.setenv("PB_STATE_DIR", str(tmp_path / "state"))
     monkeypatch.setenv("PB_ENDPOINT", str(endpoint))
+
     async with service_module.run_service(
         endpoint, idle_timeout=0, transport=FakeHubTransport(hub)
     ):
@@ -116,6 +119,7 @@ class _Screen:
 
     async def wait(self) -> None:
         await self.go.wait()
+
         if not self.typed:
             # The script is finished. A real terminal would simply sit there
             # until a key was pressed, and this sits there until the session is
@@ -126,6 +130,7 @@ class _Screen:
     def read(self) -> bytes:
         if not self.go.is_set() or not self.typed:
             return b""
+
         return self.typed.pop(0)
 
     def write(self, data: bytes) -> None:
@@ -190,8 +195,10 @@ async def _run(
             screen.go.set()
         else:
             tg.start_soon(prelude, screen)
+
         with anyio.fail_after(20):
             code = await (command or repl_command.repl_cmd)()
+
         tg.cancel_scope.cancel()
 
     return code
@@ -207,6 +214,7 @@ async def _when(condition: Callable[[], bool]) -> None:
     Args:
         condition: What has to become true.
     """
+
     with anyio.fail_after(5):
         while not condition():  # noqa: ASYNC110 - see above
             await anyio.sleep(0.005)
@@ -471,6 +479,7 @@ async def test_input_is_cut_to_fit_a_hub_with_a_small_buffer(
 
     async def talk(screen: _Screen) -> None:
         screen.go.set()
+
         # Stands for the program reading its input as it arrives, which is
         # what makes room for the next piece.
         while True:

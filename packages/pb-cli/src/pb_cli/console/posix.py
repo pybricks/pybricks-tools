@@ -80,6 +80,7 @@ class _PosixConsole:
         Args:
             data: What to write.
         """
+
         while data:
             data = data[os.write(self._out, data) :]
 

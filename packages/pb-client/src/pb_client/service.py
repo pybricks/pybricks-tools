@@ -70,6 +70,7 @@ async def _devices(
     Yields:
         One device per advertisement.
     """
+
     async with payloads:
         async for _method, payload in payloads:
             yield DeviceInfo.from_wire(payload)
@@ -118,6 +119,7 @@ class _Notifications:
         Args:
             request: What arrived. Its id is unused: notifications have none.
         """
+
         # A copy, because delivering can close a stream and so change the set.
         for stream in list(self._listeners.get(request.method, ())):
             try:
@@ -177,6 +179,7 @@ class Service:
         Raises:
             ServiceTooOld: If the service did not advertise it.
         """
+
         if capability not in self.capabilities:
             raise ServiceTooOld(feature)
 
@@ -212,8 +215,10 @@ class Service:
             The hubs seen.
         """
         params: dict[str, Any] = {"timeout_s": seconds}
+
         if name:
             params["name"] = name
+
         result = await self._peer.call("hub.scan", params)
         return [DeviceInfo.from_wire(item) for item in result.get("devices", [])]
 
@@ -248,10 +253,12 @@ class Service:
             RuntimeError: If this connection has no notification router, which
                 would leave the iterator silently empty.
         """
+
         if self._notifications is None:
             raise RuntimeError("this connection does not receive notifications")
 
         params: dict[str, Any] = {"timeout_s": seconds}
+
         if name:
             params["name"] = name
 
@@ -273,6 +280,7 @@ class Service:
         async with anyio.create_task_group() as tg:
             tg.start_soon(scan_until_done)
             devices = _devices(receiver)
+
             try:
                 # Closed before the task group is cancelled, so a caller that
                 # stops after the first hub leaves no generator suspended
@@ -300,10 +308,13 @@ class Service:
             The connected hub.
         """
         params: dict[str, Any] = {}
+
         if hub_id:
             params["id"] = hub_id
+
         if name:
             params["name"] = name
+
         return HubInfo.from_wire(await self._peer.call("hub.connect", params))
 
     async def disconnect_hub(self, hub_id: str | None = None) -> None:
@@ -380,6 +391,7 @@ class Service:
         chosen = result.get("chosen")
         if not isinstance(chosen, str) or not chosen:
             return Choice(name=None, connected=False)
+
         connected = any(
             item.get("name") == chosen
             for item in result.get("hubs", [])
@@ -408,10 +420,13 @@ class Service:
             What was written and where.
         """
         params: dict[str, Any] = {"mpy": encode_binary(program)}
+
         if hub_id:
             params["id"] = hub_id
+
         if slot is not None:
             params["slot"] = slot
+
         result = await self._peer.call("program.download", params)
         return Downloaded.from_wire(result)
 
@@ -438,10 +453,13 @@ class Service:
             Why the run ended: ``started``, ``stopped`` or ``disconnected``.
         """
         params: dict[str, Any] = {"mpy": encode_binary(program), "wait": wait}
+
         if hub_id:
             params["id"] = hub_id
+
         if slot is not None:
             params["slot"] = slot
+
         result = await self._peer.call("program.run", params)
         return str(result.get("reason", "stopped"))
 
@@ -464,10 +482,13 @@ class Service:
             or ``"disconnected"``.
         """
         params: dict[str, Any] = {"wait": wait}
+
         if hub_id:
             params["id"] = hub_id
+
         if slot is not None:
             params["slot"] = slot
+
         result = await self._peer.call("program.start", params)
         return str(result.get("reason", "started"))
 
@@ -505,8 +526,10 @@ class Service:
         """
         self._require(STDIO_CAPABILITY, "send input to a hub")
         params: dict[str, Any] = {"data": encode_binary(data)}
+
         if hub_id:
             params["id"] = hub_id
+
         await self._peer.call("hub.stdin", params)
 
     @asynccontextmanager
@@ -539,10 +562,12 @@ class Service:
                 would leave the iterator silently empty.
         """
         self._require(STDIO_CAPABILITY, "carry a hub's input and output")
+
         if self._notifications is None:
             raise RuntimeError("this connection does not receive notifications")
 
         params: dict[str, Any] = {"replay_bytes": replay_bytes}
+
         if hub_id:
             params["id"] = hub_id
 
@@ -554,6 +579,7 @@ class Service:
         sender, receiver = anyio.create_memory_object_stream[
             tuple[str, dict[str, Any]]
         ](1024)
+
         for name in (HUB_STDOUT, HUB_STATUS, HUB_STATE):
             self._notifications.add(name, sender)
 
@@ -568,6 +594,7 @@ class Service:
         async with anyio.create_task_group() as tg:
             tg.start_soon(attached_until_done)
             stream = stdio.events(receiver)
+
             try:
                 # Closed before the group is cancelled, so a caller that stops
                 # early leaves no generator suspended mid-iteration.
@@ -576,6 +603,7 @@ class Service:
             finally:
                 for name in (HUB_STDOUT, HUB_STATUS, HUB_STATE):
                     self._notifications.discard(name, sender)
+
                 tg.cancel_scope.cancel()
 
 
@@ -609,6 +637,7 @@ async def connect(
         # The router has to exist before the peer starts reading, so it is
         # made here and handed to both.
         notifications = _Notifications()
+
         async with connect_peer(stream, notifications.handle) as peer:
             # The handshake is mandatory and must come first: it authenticates
             # the connection and settles the protocol version, which matters

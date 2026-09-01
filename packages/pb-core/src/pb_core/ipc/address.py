@@ -56,22 +56,28 @@ class Endpoint:
         scheme, separator, rest = uri.partition("://")
         if not separator:
             raise EndpointError(f"endpoint is not a URI: {uri!r}")
+
         if scheme not in ("unix", "pipe", "tcp", "memory"):
             raise EndpointError(f"unknown endpoint scheme: {scheme!r}")
+
         if not rest:
             raise EndpointError(f"endpoint has no target: {uri!r}")
+
         if scheme == "tcp":
             host, colon, port = rest.rpartition(":")
             if not colon or not host:
                 raise EndpointError(f"tcp endpoint needs host:port: {uri!r}")
+
             try:
                 number = int(port)
             except ValueError:
                 raise EndpointError(
                     f"tcp endpoint port is not a number: {uri!r}"
                 ) from None
+
             if not 0 <= number <= 65535:
                 raise EndpointError(f"tcp endpoint port out of range: {uri!r}")
+
         return cls(scheme, rest)
 
     @property
@@ -81,8 +87,10 @@ class Endpoint:
         Raises:
             ValueError: If this is not a TCP endpoint.
         """
+
         if self.scheme != "tcp":
             raise EndpointError(f"not a tcp endpoint: {self}")
+
         host, _, port = self.target.rpartition(":")
         return host, int(port)
 
@@ -93,8 +101,10 @@ class Endpoint:
         Non-loopback TCP carries the shared secret over a plaintext socket, so
         callers should require TLS or an SSH tunnel for it.
         """
+
         if self.scheme != "tcp":
             return True
+
         host, _ = self.tcp_address
         return host in ("127.0.0.1", "::1", "localhost")
 
@@ -109,10 +119,12 @@ def default() -> Endpoint:
     Windows uses a named pipe because asyncio cannot serve AF_UNIX sockets on
     the proactor event loop, which the service requires for other reasons.
     """
+
     if sys.platform == "win32":
         return Endpoint(
             "pipe", paths.windows_pipe_name().removeprefix(r"\.\pipe" + "\\")
         )
+
     return Endpoint("unix", str(paths.socket_path()))
 
 
@@ -128,9 +140,12 @@ def resolve(uri: str | None = None) -> Endpoint:
     Returns:
         The endpoint to connect to or listen on.
     """
+
     if uri:
         return Endpoint.parse(uri)
+
     from_env = os.environ.get(ENDPOINT_ENV_VAR)
     if from_env:
         return Endpoint.parse(from_env)
+
     return default()

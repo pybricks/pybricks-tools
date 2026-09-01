@@ -164,6 +164,7 @@ def _profile_version(text: str) -> tuple[int, ...] | None:
     Returns:
         Its parts, or ``None`` if it is not a version at all.
     """
+
     try:
         return tuple(int(part) for part in text.split("."))
     except ValueError:

@@ -100,8 +100,12 @@ with real close/EOF semantics.
 what comes after it by an empty line, because a block is a shape on the page and
 air around it makes where it begins and ends visible without counting
 indentation. The `else`, `elif`, `except` and `finally` clauses belong to the
-statement and stay with it. A block with nothing before it in its body, or
-nothing after it, has nothing to be separated from.
+statement and stay with it. A block that is the first thing in its body, or the
+last, has nothing to be separated from.
+
+A docstring counts as something before it, so a function whose body opens with a
+block gets a blank line between the two. That is why `D202` is switched off in
+the ruff configuration — pydocstyle forbids exactly that line.
 
 **Except an `if` that tests what the line above assigned**, which stays attached
 to it. Getting a value and checking it is one thought:

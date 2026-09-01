@@ -137,6 +137,7 @@ def find_imports(source: str, *, path: Path | None = None) -> tuple[str, ...]:
         RelativeImportError: If the script imports relative to its own package,
             which the hub refuses.
     """
+
     try:
         tree = ast.parse(source)
     except SyntaxError:
@@ -148,6 +149,7 @@ def find_imports(source: str, *, path: Path | None = None) -> tuple[str, ...]:
         return ()
 
     names: dict[str, None] = {}
+
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
@@ -155,8 +157,10 @@ def find_imports(source: str, *, path: Path | None = None) -> tuple[str, ...]:
         elif isinstance(node, ast.ImportFrom):
             if node.level:
                 raise RelativeImportError(node.lineno, path)
+
             if node.module is not None:
                 names[node.module] = None
+
     return tuple(names)
 
 
@@ -192,10 +196,12 @@ async def resolve(name: str, roots: Sequence[Path]) -> Path | None:
         The file, or ``None`` if there is none -- which means the module is
         expected to be part of the firmware.
     """
+
     for root in roots:
         for candidate in candidates(name, root):
             if await anyio.Path(candidate).is_file():
                 return candidate
+
     return None
 
 
@@ -240,15 +246,18 @@ def entry_name(entry: Path, roots: Sequence[Path]) -> str:
     where = canonical(entry)
     best = entry.stem
     parts = 0
+
     for root in roots:
         try:
             relative = where.relative_to(canonical(root))
         except ValueError:
             continue
+
         pieces = (*relative.parent.parts, relative.stem)
         if len(pieces) > parts:
             best = ".".join(pieces)
             parts = len(pieces)
+
     return best
 
 
@@ -289,23 +298,28 @@ async def discover(entry: Path, roots: Sequence[Path]) -> tuple[Module, ...]:
     seen_names = {found[0].name}
 
     pending = list(find_imports(await _read(entry), path=entry))
+
     while pending:
         name = pending.pop(0)
         if name in seen_names:
             continue
+
         seen_names.add(name)
 
         path = await resolve(name, roots)
         if path is None:
             logger.debug("%s is not a local module; assuming the hub has it", name)
             continue
+
         if canonical(path) in seen_paths:
             logger.debug("%s is the program itself; not packing it twice", name)
             continue
+
         seen_paths.add(canonical(path))
 
         precompiled = path.suffix == PRECOMPILED_SUFFIX
         found.append(Module(name, path, precompiled=precompiled))
+
         if not precompiled:
             # A compiled module cannot be read for its imports, so it is a
             # leaf: whatever it needs has to be packed by naming it somewhere

@@ -79,8 +79,10 @@ def test_relative_imports_are_refused(source: str) -> None:
 
 def test_a_refused_import_says_where_it_is() -> None:
     source = "import a\n\nfrom .helpers import spin\n"
+
     with pytest.raises(modules.RelativeImportError) as caught:
         modules.find_imports(source, path=Path("demo.py"))
+
     assert caught.value.lineno == 3
     assert "demo.py" in str(caught.value)
 
@@ -253,8 +255,10 @@ async def test_a_precompiled_module_is_a_leaf(tmp_path: Path) -> None:
 async def test_a_relative_import_in_a_module_is_refused(tmp_path: Path) -> None:
     entry = write(tmp_path / "demo.py", "import robot.motors\n")
     write(tmp_path / "robot" / "motors.py", "from . import wheels\n")
+
     with pytest.raises(modules.RelativeImportError) as caught:
         await modules.discover(entry, [tmp_path])
+
     assert caught.value.path == tmp_path / "robot" / "motors.py"
 
 

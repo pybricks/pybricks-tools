@@ -117,6 +117,7 @@ def configure_logging(verbose: Verbose | int = ()) -> None:
         level = logging.DEBUG
     else:
         level = TRACE
+
     setup_logging(
         level=level,
         style="rich" if sys.stderr.isatty() else "plain",

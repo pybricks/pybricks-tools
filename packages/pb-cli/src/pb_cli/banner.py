@@ -85,12 +85,16 @@ def describe_running(status: pb_client.Status | None) -> str:
     Returns:
         A short phrase for the status line.
     """
+
     if status is None:
         return "waiting for the hub"
+
     if status.repl_running:
         return "REPL"
+
     if status.program_running:
         return "program running"
+
     return "nothing running"
 
 
@@ -103,11 +107,14 @@ def worst_warning(status: pb_client.Status | None) -> str | None:
     Returns:
         The warning to show, or ``None`` if all is well.
     """
+
     if status is None:
         return None
+
     for flag, text in WARNINGS.items():
         if flag in status.names:
             return text
+
     return None
 
 
@@ -169,9 +176,11 @@ class Banner:
         # A fresh line first, so the row about to be reserved is not the one
         # the shell's prompt is sitting on.
         self._console.write(b"\r\n")
+
         if rows >= 2:
             self._write(_SET_MARGIN.format(bottom=rows - 1))
             self._write(_GOTO.format(row=rows - 1))
+
         self._active = True
         self.draw()
         return self
@@ -192,8 +201,10 @@ class Banner:
         self._active = False
         _columns, rows = self._size
         self._write(_RESET_MARGIN)
+
         if rows >= 1:
             self._write(_GOTO.format(row=rows) + _CLEAR_LINE)
+
         return False
 
     # ---------------------------------------------------------------- output
@@ -247,6 +258,7 @@ class Banner:
         resized, and a passing message reaching its end. Called on a timer, so
         it must be cheap and must not draw when nothing has changed.
         """
+
         if self._console.size() != self._size:
             self._resize()
         elif self._notice is not None and time.monotonic() >= self._notice_until:
@@ -258,8 +270,10 @@ class Banner:
         columns, rows = self._console.size()
         self._size = (columns, rows)
         self._drawn = None
+
         if rows >= 2:
             self._write(_SET_MARGIN.format(bottom=rows - 1))
+
         self.draw()
 
     # --------------------------------------------------------------- drawing
@@ -271,14 +285,18 @@ class Banner:
             The line, before it is fitted to the terminal's width.
         """
         parts = [self._hub.name]
+
         if self._hub.hub_type:
             parts.append(self._hub.hub_type)
+
         parts.append(describe_running(self._status))
         warning = worst_warning(self._status)
         if warning:
             parts.append(warning)
+
         if self._notice:
             parts.append(self._notice)
+
         left = _SEPARATOR.join(parts)
         right = f"{escape.describe()} h for help"
         columns, _rows = self._size
@@ -286,15 +304,19 @@ class Banner:
 
     def draw(self) -> None:
         """Put the status line on the screen, if it has changed."""
+
         if not self._active:
             return
+
         _columns, rows = self._size
         if rows < 2:
             # No room for a line of our own. The session still works.
             return
+
         text = self.compose()
         if text == self._drawn:
             return
+
         self._drawn = text
         self._write(
             _SAVE_CURSOR

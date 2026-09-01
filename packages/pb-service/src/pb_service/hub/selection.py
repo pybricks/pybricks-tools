@@ -71,6 +71,7 @@ class Selection:
 
     def _read(self) -> str | None:
         """Return the stored name, or ``None`` if there is not one to have."""
+
         try:
             stored = json.loads(self._path.read_text(encoding="utf-8"))
         except FileNotFoundError:
@@ -78,12 +79,14 @@ class Selection:
         except (OSError, ValueError):
             logger.warning("ignoring unreadable %s", self._path, exc_info=True)
             return None
+
         name = stored.get(_KEY) if isinstance(stored, dict) else None
         return name if isinstance(name, str) and name else None
 
     def _write(self) -> None:
         """Store the choice, or log why it could not be stored."""
         temporary = self._path.with_name(f"{self._path.name}.new")
+
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True)
             temporary.write_text(

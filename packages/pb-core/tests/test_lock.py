@@ -14,6 +14,7 @@ from pb_core.lock import AlreadyRunningError, single_instance
 
 def test_lock_is_exclusive_within_a_process(tmp_path: Path) -> None:
     lock = tmp_path / "pb-service.lock"
+
     with (
         single_instance(lock),
         pytest.raises(AlreadyRunningError),
@@ -24,8 +25,10 @@ def test_lock_is_exclusive_within_a_process(tmp_path: Path) -> None:
 
 def test_lock_is_released_on_exit(tmp_path: Path) -> None:
     lock = tmp_path / "pb-service.lock"
+
     with single_instance(lock):
         pass
+
     with single_instance(lock):
         pass  # must be reacquirable
 
@@ -35,6 +38,7 @@ def test_lock_records_the_holding_pid(tmp_path: Path) -> None:
     # it is held. That is exactly why byte 0 carries no information and the pid
     # starts at offset 1: diagnostics stay readable on every platform.
     lock = tmp_path / "pb-service.lock"
+
     with single_instance(lock), lock.open("r", encoding="ascii") as handle:
         handle.seek(1)
         assert handle.read().strip() == str(os.getpid())
@@ -55,10 +59,12 @@ def test_lock_excludes_another_process(tmp_path: Path) -> None:
         except AlreadyRunningError:
             print("refused")
     """)
+
     with single_instance(lock):
         result = subprocess.run(
             [sys.executable, "-c", script], capture_output=True, text=True, check=True
         )
+
     assert result.stdout.strip() == "refused"
 
 
@@ -73,5 +79,6 @@ def test_lock_is_freed_when_the_holder_dies(tmp_path: Path) -> None:
             pass
     """)
     subprocess.run([sys.executable, "-c", script], check=True, capture_output=True)
+
     with single_instance(lock):
         pass

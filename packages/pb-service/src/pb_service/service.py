@@ -92,6 +92,7 @@ class Service:
         Args:
             reason: Why, for logging and for the notification to clients.
         """
+
         if not self._shutdown.is_set():
             self.shutdown_reason = reason
             logger.info("shutdown requested: %s", reason)
@@ -108,15 +109,19 @@ class Service:
 
     async def _watchdog(self) -> None:
         """Exit once the service has been idle for long enough."""
+
         while True:
             await anyio.sleep(_TICK)
             # A hub that went away on its own should stop keeping us alive.
             self.hubs.forget_closed()
+
             if self.has_work:
                 self.mark_activity()
                 continue
+
             if self.idle_timeout <= 0:
                 continue
+
             if time.monotonic() - self._last_activity >= self.idle_timeout:
                 self.request_shutdown(f"idle for {self.idle_timeout:.0f}s")
                 return
@@ -176,6 +181,7 @@ async def run_service(
                         await serve_session(service, stream)
 
                     clients.start_soon(listener.serve, handle, clients)
+
                     try:
                         yield service
                     finally:
@@ -193,6 +199,7 @@ async def run_service(
                             for session in list(service.sessions):
                                 if session.peer is not None:
                                     await session.peer.drain()
+
                         # Stop accepting, then let existing clients unwind.
                         # Hubs are untouched until the manager's own scope
                         # exits, below.

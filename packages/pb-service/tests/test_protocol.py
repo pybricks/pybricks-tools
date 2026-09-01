@@ -190,6 +190,7 @@ def test_app_data_rejects_an_offset_that_does_not_fit() -> None:
 def test_app_data_and_stdin_are_refused_on_older_firmware() -> None:
     with pytest.raises(ValueError, match="app data"):
         p.encode_write_app_data(0, b"x", profile=V13)
+
     with pytest.raises(ValueError, match="stdin"):
         p.encode_write_stdin(b"x", profile=V12)
 

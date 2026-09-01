@@ -59,6 +59,7 @@ async def service_status(*, verbose: Verbose = (), start: bool = False) -> int:
 
 async def _service_status(start: bool) -> int:
     out, err = ui.console(), ui.console(err=True)
+
     try:
         async with pb_client.connect(autostart=start) as service:
             info = await service.info()
@@ -67,6 +68,7 @@ async def _service_status(start: bool) -> int:
         # answer it, so it is reported here rather than as an error.
         if errors.find(exc, pb_client.ServiceUnavailable) is None:
             raise
+
         err.print("[yellow]Not running.[/]")
         err.print("It starts by itself when needed, or run [bold]pb service start[/].")
         return errors.EXIT_NOTHING_CONNECTED
@@ -100,8 +102,10 @@ async def service_start(*, verbose: Verbose = ()) -> int:
 
 async def _service_start() -> int:
     err = ui.console(err=True)
+
     async with pb_client.connect(autostart=True) as service:
         info = await service.info()
+
     err.print(f"Running (pid {info.pid}).")
     return EXIT_OK
 
@@ -119,6 +123,7 @@ async def service_stop(*, verbose: Verbose = ()) -> int:
 
 async def _service_stop() -> int:
     err = ui.console(err=True)
+
     try:
         async with pb_client.connect(autostart=False) as service:
             await service.shutdown()
@@ -126,8 +131,10 @@ async def _service_stop() -> int:
         # Stopping something that is already stopped succeeded.
         if errors.find(exc, pb_client.ServiceUnavailable) is None:
             raise
+
         err.print("Not running.")
         return EXIT_OK
+
     err.print("Stopping.")
     return EXIT_OK
 
@@ -182,14 +189,17 @@ async def _service_log(lines: int, follow: bool) -> int:
         return EXIT_OK
 
     offset = _print_the_end(out, path, lines)
+
     if not follow:
         return EXIT_OK
 
     err.print(f"Watching [bold]{path}[/]. Ctrl-C to stop.")
+
     with contextlib.suppress(KeyboardInterrupt):
         # Caught rather than left to the top level: Ctrl-C is how this command
         # is meant to end, so it is not an interruption of anything.
         await _follow(out, path, offset)
+
     return EXIT_OK
 
 
@@ -206,16 +216,21 @@ def _print_the_end(out: Console, path: Path, lines: int) -> int:
     """
     end = path.stat().st_size
     start = max(0, end - TAIL_BYTES) if lines > 0 else 0
+
     with path.open("rb") as handle:
         handle.seek(start)
         block = handle.read()
+
     if start:
         # The seek lands in the middle of a line, and half a line is worse
         # than one line fewer.
         block = block.split(b"\n", 1)[-1]
+
     text = _decode(block).splitlines()
+
     for line in text[-lines:] if lines > 0 else text:
         ui.plain(out, line)
+
     return end
 
 
@@ -232,29 +247,36 @@ async def _follow(out: Console, path: Path, offset: int) -> None:
     # sleeping disk -- must not stall the event loop it is running in.
     watched = anyio.Path(path)
     pending = b""
+
     while True:
         await anyio.sleep(POLL_SECONDS)
+
         try:
             size = (await watched.stat()).st_size
         except FileNotFoundError:
             # Rotated away, and the replacement is not there yet.
             offset = 0
             continue
+
         if size < offset:
             # Rotated: what is here now is a new file, so a position from the
             # old one means nothing.
             offset = 0
             pending = b""
+
         if size == offset:
             continue
+
         async with await watched.open("rb") as handle:
             await handle.seek(offset)
             block = await handle.read()
+
         offset += len(block)
         pending += block
         # A line can arrive in two pieces, so hold back anything after the
         # last newline until the rest of it turns up.
         complete, _, pending = pending.rpartition(b"\n")
+
         for line in _decode(complete).splitlines():
             ui.plain(out, line)
 

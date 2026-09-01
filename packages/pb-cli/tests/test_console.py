@@ -256,6 +256,7 @@ def _assert_waiting_works(report: dict[str, object]) -> None:
     # Nothing was there to read, so the keystrokes were waited for rather than
     # found by looking again and again.
     assert int(str(report["waits"])) >= 1, "the probe never had to wait"
+
     # A wait with nothing to read ends when the caller stops waiting. If it
     # held on until a key was pressed, a session could not be left.
     for when in ("cancelled_wait_s", "next_wait_s"):
@@ -321,10 +322,12 @@ def _wait_for(fd: int, marker: bytes, seconds: float = 30.0) -> None:
 
     seen = b""
     deadline = time.monotonic() + seconds
+
     while marker not in seen and time.monotonic() < deadline:
         readable, _, _ = select.select([fd], [], [], 0.1)
         if readable:
             seen += os.read(fd, 4096)
+
     assert marker in seen, f"the probe never said it was ready: {seen!r}"
 
 
@@ -337,6 +340,7 @@ def test_a_real_pty_gives_back_what_was_typed(tmp_path: Path) -> None:
     probe = _probe(tmp_path, _POSIX_ARRANGE, "")
 
     controller, follower = pty.openpty()
+
     try:
         with subprocess.Popen(
             [sys.executable, str(probe), str(report_path)],

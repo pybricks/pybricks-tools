@@ -62,6 +62,7 @@ def pipe_path(endpoint: Endpoint) -> str:
     target = endpoint.target
     if target.startswith("\\\\"):
         return target
+
     return _PIPE_PREFIX + target
 
 
@@ -81,8 +82,10 @@ class _PipeStream(ByteStream):
             data = await self._reader.read(max_bytes)
         except OSError as exc:
             raise anyio.BrokenResourceError from exc
+
         if not data:
             raise anyio.EndOfStream
+
         return data
 
     @override
@@ -102,6 +105,7 @@ class _PipeStream(ByteStream):
     @override
     async def aclose(self) -> None:
         self._writer.close()
+
         # Shielded so teardown still completes when we are being cancelled, and
         # bounded so that a wedged peer cannot hang shutdown.
         with (
@@ -129,6 +133,7 @@ class _PipeListener(IpcListener):
     @override
     async def serve(self, handler: StreamHandler, task_group: TaskGroup) -> None:
         wrapped = owned(handler)
+
         async for stream in self._rx:
             task_group.start_soon(wrapped, stream)
 
@@ -138,11 +143,14 @@ class _PipeListener(IpcListener):
             close = getattr(server, "close", None)
             if callable(close):
                 close()
+
         self._tx.close()
+
         # Close anything accepted but never served, or it leaks on shutdown.
         with suppress(anyio.WouldBlock, anyio.EndOfStream, anyio.ClosedResourceError):
             while True:
                 await self._rx.receive_nowait().aclose()
+
         self._rx.close()
 
 
@@ -160,6 +168,7 @@ class WindowsPipeBackend(IpcBackend):
         path = pipe_path(endpoint)
         reader = asyncio.StreamReader(limit=_READ_LIMIT)
         protocol = asyncio.StreamReaderProtocol(reader)
+
         try:
             transport, _ = await loop.create_pipe_connection(lambda: protocol, path)
         except FileNotFoundError:
@@ -167,9 +176,11 @@ class WindowsPipeBackend(IpcBackend):
             # connect_pipe retries ERROR_PIPE_BUSY internally but raises this
             # immediately, so a readiness loop must retry on FileNotFoundError.
             raise ConnectionRefusedError(f"no service at {endpoint}") from None
+
         writer = asyncio.StreamWriter(transport, protocol, reader, loop)
         stream = _PipeStream(reader, writer)
         logger.debug("pipe: connected to %s", endpoint)
+
         try:
             yield stream
         finally:
@@ -219,6 +230,7 @@ class WindowsPipeBackend(IpcBackend):
 
         logger.info("pipe: listening on %s", endpoint)
         listener = _PipeListener(list(servers), tx, rx)
+
         try:
             yield listener
         finally:

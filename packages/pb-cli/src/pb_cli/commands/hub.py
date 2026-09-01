@@ -110,6 +110,7 @@ async def _scan(seconds: float, name: str | None) -> int:
                 async for device in devices:
                     seen[device.id] = device
                     display.update(ui.scan_table(seen.values(), caption), refresh=True)
+
                 display.update(ui.scan_table(seen.values(), f"Found {len(seen)}."))
         else:
             # Piped: one line per hub, printed the moment it is first heard, so
@@ -122,10 +123,12 @@ async def _scan(seconds: float, name: str | None) -> int:
                         else device.name
                     )
                     ui.plain(out, line)
+
                 seen[device.id] = device
 
     if not seen:
         err.print("[yellow]No hubs found.[/] Is the hub switched on and in range?")
+
     return EXIT_OK
 
 
@@ -149,12 +152,14 @@ async def connect_cmd(
             Ctrl-C gives up without connecting to anything.
         verbose: Increase log detail.
     """
+
     if scan:
         # --scan wins over a named hub rather than being refused
         # alongside one. The name may have come from the environment or
         # from the project's pyproject.toml, and refusing a value the
         # user never typed would make --scan unusable inside a project.
         hub = None
+
     if scan and not keys.keys_available():
         # Better to say so than to sit waiting for a keystroke that cannot
         # arrive, which is what a piped or emulated terminal would do.
@@ -163,22 +168,26 @@ async def connect_cmd(
             "Name the hub with [bold]--hub[/] instead, or run "
             "[bold]pb scan[/] to see what is nearby.",
         )
+
     configure_logging(verbose)
     return await errors.run(_connect, hub, scan, hints=_CONNECT_HINTS)
 
 
 async def _connect(hub: str | None, scan: bool) -> int:
     err = ui.console(err=True)
+
     async with pb_client.connect() as service:
         if scan:
             # No time limit: the hub may still be in the next room. The scan
             # ends when the block does, whether the user chose or gave up.
             async with service.scanning(seconds=None) as devices:
                 device = await picker.choose_hub(err, devices, ui.chooser_table)
+
             if device is None:
                 # Deciding not to connect is what was asked for, not a failure.
                 err.print("No hub chosen.")
                 return EXIT_OK
+
             with ui.spinner(err, "Connecting..."):
                 info = await service.connect_hub(hub_id=device.id)
         else:
@@ -192,8 +201,10 @@ async def _connect(hub: str | None, scan: bool) -> int:
     # refused, but on a successful connection it is one more number to read
     # past.
     described = f"firmware {info.firmware}"
+
     if info.hub_type:
         described = f"{info.hub_type}, {described}"
+
     err.print(f"Connected to [bold]{info.name}[/] ({described}).")
     return EXIT_OK
 
@@ -212,6 +223,7 @@ async def disconnect_cmd(*, hub: str | None = None, verbose: Verbose = ()) -> in
 
 async def _disconnect(hub: str | None) -> int:
     err = ui.console(err=True)
+
     try:
         async with pb_client.connect(autostart=False) as service:
             await service.disconnect_hub(hub)
@@ -220,8 +232,10 @@ async def _disconnect(hub: str | None) -> int:
         # outcome the user asked for rather than a failure.
         if errors.find(exc, pb_client.ServiceUnavailable) is None:
             raise
+
         err.print("No hub is connected.")
         return EXIT_OK
+
     err.print("Disconnected.")
     return EXIT_OK
 
@@ -239,6 +253,7 @@ async def list_cmd(*, verbose: Verbose = ()) -> int:
 
 async def _list() -> int:
     out, err = ui.console(), ui.console(err=True)
+
     try:
         async with pb_client.connect(autostart=False) as service:
             hubs, acting = await service.list_hubs()
@@ -246,6 +261,7 @@ async def _list() -> int:
         # An empty list is a real answer to "what is connected?".
         if errors.find(exc, pb_client.ServiceUnavailable) is None:
             raise
+
         err.print("No hubs are connected.")
         return EXIT_OK
 
@@ -259,9 +275,12 @@ async def _list() -> int:
         for info in hubs:
             marker = "*" if info.id == acting else "-"
             fields = [marker, info.name, info.id, info.firmware]
+
             if not ui.SHOW_HUB_IDS:
                 del fields[2]
+
             ui.plain(out, "\t".join(fields))
+
     return EXIT_OK
 
 
@@ -289,18 +308,21 @@ async def use_cmd(
             connected, as long as there is only one.
         verbose: Increase log detail.
     """
+
     if clear:
         # --clear wins over a named hub, for the same reason --scan does
         # on connect: the name may have come from a project file rather
         # than from the person typing, and forgetting the chosen hub
         # would otherwise be impossible in a project directory.
         hub = None
+
     configure_logging(verbose)
     return await errors.run(_use, hub, clear)
 
 
 async def _use(hub: str | None, clear: bool) -> int:
     err = ui.console(err=True)
+
     async with pb_client.connect() as service:
         if clear:
             await service.use_hub(None)
@@ -316,6 +338,7 @@ async def _use(hub: str | None, clear: bool) -> int:
                 # answer the other question this command can answer: which hub
                 # is chosen already.
                 return await _say_which(service, err)
+
             hub = await _choose(service, err)
             if hub is None:
                 err.print("Nothing chosen.")
@@ -323,10 +346,12 @@ async def _use(hub: str | None, clear: bool) -> int:
 
         choice = await service.use_hub(hub)
         err.print(f"Now using [bold]{choice.name}[/].")
+
         if not choice.connected:
             # Worth saying, because nothing else will: commands go on using
             # the hub that is connected until this one is.
             err.print("It is not connected at the moment.")
+
     return EXIT_OK
 
 
@@ -346,6 +371,7 @@ async def _say_which(service: pb_client.Service, err: Console) -> int:
     if choice.name is None:
         err.print("No hub is chosen.")
         return EXIT_OK
+
     ui.plain(ui.console(), choice.name)
     return EXIT_OK
 
@@ -376,8 +402,10 @@ async def _choose(service: pb_client.Service, err: Console) -> str | None:
 
     async def offered() -> AsyncIterator[pb_client.DeviceInfo]:
         """Offer the connected hubs first, then whatever the radio hears."""
+
         for device in connected:
             yield device
+
         async for device in found:
             # A connected hub does not advertise, so this is belt and braces:
             # what it prevents is a hub arriving twice under two descriptions.
@@ -390,6 +418,7 @@ async def _choose(service: pb_client.Service, err: Console) -> str | None:
     # No time limit: the hub may still be in the next room.
     async with service.scanning(seconds=None) as found:
         device = await picker.choose_hub(err, offered(), render, verb="use it")
+
     return device.name if device is not None else None
 
 
@@ -411,24 +440,33 @@ async def status_cmd(
 
 async def _status(hub: str | None, full: bool) -> int:
     out = ui.console()
+
     async with pb_client.connect(autostart=False) as service:
         info = await service.hub_info(hub)
 
     rows = [("name", info.name)]
+
     if ui.SHOW_HUB_IDS:
         rows.append(("id", info.id))
+
     rows.append(("state", info.state))
+
     if info.hub_type:
         rows.append(("type", info.hub_type))
+
     rows.append(("firmware", info.firmware))
+
     if full:
         rows.append(("protocol", info.protocol))
+
         # Firmware older than the multi-slot support reports none, and a hub
         # with zero program slots would be a stranger thing to read than no
         # line at all.
         if info.num_slots:
             rows.append(("slots", str(info.num_slots)))
+
     rows.append(("program", "running" if info.program_running else "stopped"))
+
     if full:
         rows.append(("used by", str(info.subscribers)))
 
@@ -438,6 +476,7 @@ async def _status(hub: str | None, full: bool) -> int:
     warnings = ui.hub_warnings(info.status_names)
     if warnings:
         rows.append(("warnings", ", ".join(warnings)))
+
     if full and info.status_names:
         rows.append(("flags", ", ".join(info.status_names)))
 

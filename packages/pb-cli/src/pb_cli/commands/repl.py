@@ -78,9 +78,11 @@ async def _repl(hub: str | None, replay: int) -> int:
                 Whether an interpreter was started here, which is what decides
                 whether leaving should stop it again.
             """
+
             if joining:
                 announce("Joining the interpreter that is already running.")
                 return False
+
             await service.start_repl(hub)
             return True
 
@@ -123,8 +125,10 @@ def _refuse_if_busy(info: pb_client.HubInfo) -> int | None:
     Returns:
         The exit code to use, or ``None`` if there is nothing in the way.
     """
+
     if not info.program_running or _is_the_interpreter(info):
         return None
+
     return errors.render(
         ui.console(err=True),
         [
