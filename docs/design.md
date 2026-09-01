@@ -11,11 +11,11 @@ host is attached, so a hub with something connected to it never times out at
 all — which makes holding the connection the difference between a hub that is
 still there when you come back and one that is not.
 
-The other two reasons are ordinary by comparison. Connecting over Bluetooth is
-slow — seconds, not milliseconds — so a tool that connects afresh every time
-pays that on every run, which is exactly the thing you do most while writing a
-program. And a hub can only be held by one program at once, so a tool that takes
-it for the length of a command is a tool nothing else can share it with.
+Connecting over Bluetooth is also slow — seconds, not milliseconds — so a tool
+that connects afresh every time pays that on every run, which is exactly the
+thing you do most while writing a program. And a hub can only be held by one
+program at once, so a tool that takes it for the length of a command is a tool
+nothing else can share it with.
 
 So connection state lives in a background process, the `pb-service` command,
 which outlives any single command:
