@@ -16,4 +16,5 @@ Notable changes to `pybricks-service`. The format is based on
 - Scanning that reports each hub as it is heard, with type and signal strength.
 - Remembers the hub chosen with `pb use`, in the user's state directory.
 - A simulated hub, so the whole service can be exercised without a radio.
+- Input is retried at the size the hub advertised, never cut down to fit.
 - Starts at the filesystem root, holding no directory open behind it.

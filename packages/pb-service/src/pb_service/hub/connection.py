@@ -139,18 +139,6 @@ class HubConnection:
         self._abort_scopes: set[anyio.CancelScope] = set()
         self._scrollback = StdoutRing()
 
-        self.stdin_limit = 1
-        """How much input this hub will take in one write.
-
-        Set from the hub's capabilities once it is connected, and lowered if
-        the hub turns a write down for not fitting. Firmware that has grown its
-        input buffer accepts as much as the Bluetooth link allows, which is
-        what makes pasting a block of code into the interpreter quick; older
-        firmware holds as little as 21 bytes and refuses anything larger
-        outright. Since nothing on the wire says which, the first refusal is
-        what tells us, and it is remembered so it is only paid once.
-        """
-
         # Unbounded on purpose: see the module docstring. send_nowait on an
         # unbounded stream cannot raise, so the callback can never fail or
         # block, and a status report can never be silently lost.
@@ -193,9 +181,6 @@ class HubConnection:
             self._link = link
             info = await self._handshake(link)
             self.info = info
-            self.stdin_limit = max(
-                1, info.capabilities.max_write_size - p.WRITE_STDIN_HEADER_SIZE
-            )
             await link.start_notify(p.PYBRICKS_COMMAND_EVENT_UUID, self._on_notify)
 
             async with anyio.create_task_group() as tg:
@@ -453,6 +438,27 @@ class HubConnection:
     def subscriber_count(self) -> int:
         """How many clients are currently attached."""
         return len(self._subscribers)
+
+    @property
+    def stdin_limit(self) -> int:
+        """How much input this hub takes in one write.
+
+        What the hub said when it connected, and nothing else: a fact about the
+        link rather than something to be tuned. A refusal says only that
+        whatever is on the hub has not read its input yet -- see
+        :mod:`pb_service.methods.stdio` -- so there is nothing to learn from
+        one and nothing here to lower.
+
+        One before the handshake, which is the size a write would be cut into
+        if one could be attempted at all; nothing can be, since writing needs a
+        connected hub.
+        """
+        info = self.info
+
+        if info is None:
+            return 1
+
+        return max(1, info.capabilities.max_write_size - p.WRITE_STDIN_HEADER_SIZE)
 
     # ------------------------------------------------------------ cancellation
 
