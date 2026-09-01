@@ -227,3 +227,130 @@ def test_a_real_arrow_key_in_a_real_console(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr.decode()
     assert report.exists(), "the probe wrote no report"
     assert json.loads(report.read_text(encoding="utf-8")) == ["DOWN", "UP", "ENTER"]
+
+
+_TERMINAL_PROBE = """
+import json
+import sys
+import time
+from pathlib import Path
+
+import anyio
+
+from pb_cli import keys
+
+
+async def main():
+    seen = []
+    waits = []
+
+    with keys.reading_keys():
+        # Not a moment sooner. Until cbreak is on, the line discipline holds
+        # what is typed until Enter, so anything sent now would be answered by
+        # the terminal rather than by the code under test.
+        sys.stdout.write("the probe is reading\\r\\n")
+        sys.stdout.flush()
+
+        with anyio.fail_after(30):
+            while len(seen) < 3:
+                key = keys.poll_key()
+
+                if key is not None:
+                    seen.append(key.name)
+
+                    continue
+
+                began = time.monotonic()
+                await keys.wait_for_key()
+                waits.append(round(time.monotonic() - began, 4))
+
+    Path(sys.argv[1]).write_text(
+        json.dumps({"seen": seen, "waits": waits}), encoding="utf-8"
+    )
+
+
+anyio.run(main)
+"""
+
+TYPED = ("\x1b[B", "\x1b[A", "\r")
+"""Down, up, Enter: the three a chooser lives on.
+
+Each is written whole, because that is how a terminal sends one -- and one at
+a time with a gap, because that is how a person types. Both matter. A sequence
+arriving whole is what the reading has to cope with, and a gap between them is
+what makes a wait that does not wait visible.
+"""
+
+
+def _wait_for(fd: int, marker: bytes, seconds: float = 30.0) -> None:
+    """Read from a terminal until it says what we are waiting for.
+
+    Args:
+        fd: The controlling end of the pseudo-terminal.
+        marker: What the other end will write when it is ready.
+        seconds: How long to wait before giving up.
+
+    Raises:
+        AssertionError: If the marker never arrived.
+    """
+    import os
+    import select
+    import time
+
+    seen = b""
+    deadline = time.monotonic() + seconds
+
+    while marker not in seen and time.monotonic() < deadline:
+        readable, _, _ = select.select([fd], [], [], 0.1)
+
+        if readable:
+            seen += os.read(fd, 4096)
+
+    assert marker in seen, f"the probe never said it was ready: {seen!r}"
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="a POSIX pseudo-terminal")
+def test_a_real_arrow_key_in_a_real_terminal(tmp_path: Path) -> None:
+    # The POSIX counterpart of the test above, and it catches the same class
+    # of thing for a different reason. A terminal sends an arrow key's three
+    # bytes in one go, and reading them through sys.stdin drew all three into
+    # its buffer -- so select on the descriptor reported nothing waiting and
+    # every arrow key was read as a bare Escape, which is leave. The scripted
+    # tests could not see it: they feed one queue through a fake read, which
+    # assumes the very thing that was false.
+    import os
+    import pty
+    import time
+
+    probe = tmp_path / "probe.py"
+    probe.write_text(textwrap.dedent(_TERMINAL_PROBE), encoding="utf-8")
+    report_path = tmp_path / "keys.json"
+
+    controller, follower = pty.openpty()
+
+    try:
+        with subprocess.Popen(
+            [sys.executable, str(probe), str(report_path)],
+            stdin=follower,
+            stdout=follower,
+            stderr=subprocess.PIPE,
+        ) as process:
+            os.close(follower)
+            _wait_for(controller, b"the probe is reading")
+
+            for keystrokes in TYPED:
+                os.write(controller, keystrokes.encode())
+                time.sleep(0.3)
+
+            _stdout, stderr = process.communicate(timeout=60)
+            assert process.returncode == 0, stderr.decode()
+    finally:
+        os.close(controller)
+
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["seen"] == ["DOWN", "UP", "ENTER"]
+    # And the waiting is waiting rather than looking again in a moment: a
+    # third of a second passed between keys, and it was spent asleep.
+    waits = [float(wait) for wait in report["waits"]]
+    assert waits, "nothing ever waited"
+    assert max(waits) >= 0.2, f"a wait ended without a key: {waits}"

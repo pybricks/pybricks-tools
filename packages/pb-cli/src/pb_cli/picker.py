@@ -30,15 +30,7 @@ from pb_cli.keys import Key
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["POLL_SECONDS", "choose_hub"]
-
-POLL_SECONDS = 0.05
-"""How often to look for a keystroke.
-
-Fast enough that a keypress feels immediate and slow enough to be free. This is
-a poll rather than a blocking read because the display has to keep moving while
-nobody is typing.
-"""
+__all__ = ["choose_hub"]
 
 # The line under the list. What Enter does depends on who is asking --
 # connecting to a hub and choosing which one to work with are different
@@ -112,7 +104,12 @@ async def choose_hub(
                         selected = (selected + step) % len(order)
                         live.update(frame(), refresh=True)
                     elif key is None:
-                        await anyio.sleep(POLL_SECONDS)
+                        # Nothing typed, so wait for something to be. Waiting
+                        # rather than sleeping costs nothing here and is what
+                        # the house rule asks for; the list goes on filling
+                        # in either way, because the task above redraws it as
+                        # each hub is heard rather than on a timer.
+                        await keys.wait_for_key()
             except KeyboardInterrupt:
                 # Caught here rather than left to the top level, because the
                 # task group would wrap it and because giving up on finding a
