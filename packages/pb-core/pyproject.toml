@@ -3,15 +3,32 @@ name = "pybricks-core"
 version = "0.1.0"
 description = "Shared protocol, IPC transport and logging for the Pybricks tools"
 readme = "README.md"
-license = { text = "MIT" }
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [{ name = "The Pybricks Authors", email = "dev@pybricks.com" }]
 maintainers = [{ name = "David Lechner", email = "david@pybricks.com" }]
 requires-python = ">=3.11"
+keywords = ["pybricks", "lego", "micropython", "bluetooth", "robotics"]
+classifiers = [
+    "Intended Audience :: Developers",
+    "Intended Audience :: Education",
+    "Natural Language :: English",
+    "Operating System :: OS Independent",
+    "Topic :: Software Development :: Embedded Systems",
+    "Typing :: Typed",
+]
 dependencies = [
     "anyio>=4.14",
     "platformdirs>=4",
     "typing-extensions>=4.15",
 ]
+
+[project.urls]
+homepage = "https://pybricks.com"
+repository = "https://github.com/pybricks/pybricks-tools"
+"Changelog" = "https://github.com/pybricks/pybricks-tools/blob/main/packages/pb-core/CHANGELOG.md"
+"Support" = "https://github.com/pybricks/support/discussions"
+"Issues" = "https://github.com/pybricks/support/issues"
 
 [build-system]
 requires = ["uv_build>=0.11.8,<0.12.0"]
