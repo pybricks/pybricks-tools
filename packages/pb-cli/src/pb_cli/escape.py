@@ -23,14 +23,35 @@ use it for anything. Checked rather than assumed -- neither ``readline.c`` nor
 ``pyexec.c`` mentions ``0x1d`` at all. Sending the escape key to the hub is
 still possible, by pressing it twice, which is also telnet's convention.
 
+**Stopping has a second way in, because it is the one done in a hurry.**
+``Ctrl-] s`` is a modifier, a bracket and a remembered letter at the moment
+somebody wants their robot to stop, so :data:`STOP_KEY` -- Escape, pressed
+twice -- does the same thing. It is one key, it is on every keyboard, and a
+hand finds it without looking.
+
+Escape is also the first byte of every arrow key, and the hub's line editor
+needs those, so the two have to be told apart. **Two Escapes in a row are
+unambiguous in the byte stream**: a terminal's escape sequences are always
+Escape followed by an introducer -- ``[``, ``O`` and the like -- so no sequence
+can contain two Escapes running, and no timing window is needed to know which
+this is. That is the whole reason it is two presses rather than one; one press
+could only be told from an arrow key by how long nothing followed it, and a
+window is a thing that is wrong occasionally rather than never.
+
+The cost is that a lone Escape is held back until the next byte arrives, and
+that is imperceptible: the hub gets both together, and its line editor was
+waiting for the second byte anyway. What is left is Alt-Escape and the habit
+of pressing Escape twice in ``vi``, neither of which means anything at a
+MicroPython prompt, and both of which land on the safe side -- for a robot, an
+unasked-for stop is the better way to be wrong.
+
 The matching is a byte at a time and carries its state in the value it hands
-back, because the escape byte and the command byte can easily arrive in
-separate reads: on
-Windows the console hands over one key at a time, so a user typing at any
-ordinary speed splits the pair almost always. Assuming a whole sequence arrives
-in one read is the single most common bug in code like this, and a state
-machine of three states is both the fix and something that can be tested
-exhaustively without a terminal anywhere near it.
+back, because both pairs can easily arrive in separate reads: on Windows the
+console hands over one key at a time, so a user typing at any ordinary speed
+splits them almost always. Assuming a whole sequence arrives in one read is the
+single most common bug in code like this, and a state machine of three states
+-- nothing pending, a command awaited, an Escape held -- is both the fix and
+something that can be tested exhaustively without a terminal anywhere near it.
 """
 
 from __future__ import annotations
@@ -40,13 +61,28 @@ from dataclasses import dataclass, replace
 from enum import Enum
 from typing import Final
 
-__all__ = ["ESCAPE_KEY", "Action", "Filter", "describe", "help_lines"]
+__all__ = ["ESCAPE_KEY", "STOP_KEY", "Action", "Filter", "describe", "help_lines"]
 
 ESCAPE_KEY: Final = 0x1D
 """Ctrl-], the byte that means the next key is for ``pb``.
 
 Telnet's, and free: MicroPython gives it no meaning, so nothing is taken away
 from the hub by reserving it.
+"""
+
+STOP_KEY: Final = 0x1B
+"""Escape, which stops what is running on the hub when pressed twice.
+
+Not taken from the hub, because one press still reaches it -- held only until
+the key after it says whether it began a sequence. See the module docstring for
+why two presses can be recognised with no timing at all.
+"""
+
+_NAMES: Final[Mapping[int, str]] = {STOP_KEY: "Esc"}
+"""Keys with a name of their own, rather than the Ctrl-something they encode.
+
+Escape is Ctrl-[ as far as the byte is concerned, and nobody has called it that
+since terminals had a key marked Meta.
 """
 
 
@@ -88,20 +124,26 @@ command to do that the session does not already do on its own.
 """
 
 
-def help_lines(key: int = ESCAPE_KEY) -> list[tuple[str, str]]:
+def help_lines(
+    key: int = ESCAPE_KEY, stop_key: int = STOP_KEY
+) -> list[tuple[str, str]]:
     """List the escape commands, as a user would have to type them.
 
     Args:
         key: The escape byte in use.
+        stop_key: The byte that stops the hub when pressed twice.
 
     Returns:
         Each command's keystrokes and what it does, in the order to show them.
-
+        Stopping comes first, because it is the one somebody is reading this
+        list in a hurry to find.
     """
     name = describe(key)
+    stop = describe(stop_key)
     return [
+        (f"{stop} {stop}", "stop what is running, ending the session"),
         (f"{name} q", "leave the session"),
-        (f"{name} s", "stop what is running on the hub"),
+        (f"{name} s", f"the same as {stop} {stop}"),
         (f"{name} h", "show this help"),
         (f"{name} {name}", f"send {name} to the hub"),
     ]
@@ -114,8 +156,11 @@ def describe(key: int = ESCAPE_KEY) -> str:
         key: The byte.
 
     Returns:
-        Something like ``Ctrl-]``.
+        Something like ``Ctrl-]``, or the key's own name where it has one.
     """
+    named = _NAMES.get(key)
+    if named is not None:
+        return named
 
     if 0 < key < 0x20:
         return f"Ctrl-{chr(key + 0x40)}"
@@ -140,8 +185,21 @@ class Filter:
     key: int = ESCAPE_KEY
     """The byte that starts a command."""
 
+    stop_key: int = STOP_KEY
+    """The byte that stops the hub when it arrives twice running."""
+
     armed: bool = False
     """Whether the escape key has been seen and its command is awaited."""
+
+    held: bool = False
+    """Whether a :attr:`stop_key` is being held back to see what follows it.
+
+    One press belongs to the hub and two are the stop, and which it was is
+    known as soon as the next byte arrives -- so the first one waits rather
+    than being guessed at. Nothing is lost by waiting: the hub's line editor
+    reads an escape as the start of a sequence and is waiting for that same
+    byte itself.
+    """
 
     def feed(self, data: bytes) -> tuple[Filter, bytes, tuple[Action, ...]]:
         """Sort one read from the terminal.
@@ -155,6 +213,7 @@ class Filter:
             typed.
         """
         armed = self.armed
+        held = self.held
         for_hub = bytearray()
         actions: list[Action] = []
 
@@ -167,12 +226,33 @@ class Filter:
                     for_hub.append(byte)
                 else:
                     actions.append(COMMANDS.get(byte, Action.UNKNOWN))
-            elif byte == self.key:
+
+                continue
+
+            if held:
+                held = False
+
+                if byte == self.stop_key:
+                    actions.append(Action.STOP)
+
+                    continue
+
+                # Whatever this is, it is not a second press, so the one being
+                # held belonged to the hub -- and this byte is then read as if
+                # it had never been held at all, since it may perfectly well be
+                # the escape key starting a command of its own.
+                for_hub.append(self.stop_key)
+
+            if byte == self.key:
                 armed = True
+            elif byte == self.stop_key:
+                held = True
             else:
                 for_hub.append(byte)
 
         # Unchanged is the common case, and a value that did not change has no
         # reason to be a different object.
-        rest = self if armed == self.armed else replace(self, armed=armed)
-        return rest, bytes(for_hub), tuple(actions)
+        if armed == self.armed and held == self.held:
+            return self, bytes(for_hub), tuple(actions)
+
+        return replace(self, armed=armed, held=held), bytes(for_hub), tuple(actions)

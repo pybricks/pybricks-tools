@@ -298,7 +298,12 @@ class Banner:
             parts.append(self._notice)
 
         left = _SEPARATOR.join(parts)
-        right = f"{escape.describe()} h for help"
+        stop = escape.describe(escape.STOP_KEY)
+        # A panic key nobody knows about is not a panic key, so it is on the
+        # line for the whole session rather than only in the opening lines,
+        # which have scrolled away by the time anybody wants it. It goes with
+        # the help, and _Layout drops both together on a narrow terminal.
+        right = f"{stop} {stop} stops{_SEPARATOR}{escape.describe()} h for help"
         columns, _rows = self._size
         return _Layout(left, right).fit(columns)
 

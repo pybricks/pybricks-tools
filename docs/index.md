@@ -25,9 +25,11 @@ pb run demo.py      # compile the script, send it, and run it
 
 `pb run` stays with the program: what it prints appears as it prints it, and
 what you type goes to the hub, so `input()` works and ++ctrl+c++ interrupts.
-Press ++ctrl+"]"++ ++q++ to leave, or ++ctrl+"]"++ ++h++ for the rest. Down a
-pipe or in a build there is no terminal to do that with, so the output simply
-comes through on stdout.
+
+Press ++esc++ ++esc++ to stop the program — one key, twice, so it is there
+when a robot is heading for the edge of the table. Press ++ctrl+"]"++ ++q++ to
+leave, or ++ctrl+"]"++ ++h++ for the rest. Down a pipe or in a build there is
+no terminal to do that with, so the output simply comes through on stdout.
 
 `pb connect` only needs doing once. Later commands reuse the connection, so
 `pb run` is quick to repeat while you are working on a program.

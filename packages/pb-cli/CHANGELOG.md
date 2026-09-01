@@ -13,6 +13,7 @@ Notable changes to `pybricks-cli`, the `pb` command. The format is based on
 - A hub connected by one command is still connected for the next.
 - `pb run` and `pb start` stay with the program, showing output as it prints.
 - Every keystroke goes to the hub; `Ctrl-]` introduces the ones that do not.
+- Escape pressed twice stops what the hub is running, for stopping in a hurry.
 - `--wait` says how long to stay with a program and how much terminal to take.
 - Exit code 3 when a program crashes and 130 when it is interrupted.
 - `--slot` states where a program should land, and is refused if it cannot.
