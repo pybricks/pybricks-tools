@@ -4,10 +4,18 @@ This page is about the internals. Nothing here is needed to use the tools.
 
 ## Why a background service
 
-Connecting to a hub over Bluetooth is slow — seconds, not milliseconds. A tool
-that connects afresh on every invocation pays that cost every time you run a
-program, which is exactly the thing you do most while writing one. It also
-means only one thing can talk to the hub at a time.
+**A hub that nothing is connected to switches itself off.** Three minutes of it,
+and the hub powers down and has to be picked up and switched on again by hand.
+The firmware resets that timer on every pass of its idle loop for as long as a
+host is attached, so a hub with something connected to it never times out at
+all — which makes holding the connection the difference between a hub that is
+still there when you come back and one that is not.
+
+The other two reasons are ordinary by comparison. Connecting over Bluetooth is
+slow — seconds, not milliseconds — so a tool that connects afresh every time
+pays that on every run, which is exactly the thing you do most while writing a
+program. And a hub can only be held by one program at once, so a tool that takes
+it for the length of a command is a tool nothing else can share it with.
 
 So connection state lives in a background process, the `pb-service` command,
 which outlives any single command:

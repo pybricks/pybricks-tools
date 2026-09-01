@@ -31,7 +31,9 @@ when a robot is heading for the edge of the table. Press ++ctrl+"]"++ ++q++ to
 leave, or ++ctrl+"]"++ ++h++ for the rest.
 
 `pb connect` only needs doing once. Later commands reuse the connection, so
-`pb run` is quick to repeat while you are working on a program.
+`pb run` is quick to repeat while you are working on a program — and the hub
+stays awake, instead of switching itself off after a few minutes the way one
+with nothing connected to it does.
 
 ```bash
 pb run demo.py      # again, without reconnecting

@@ -38,7 +38,8 @@ for hue in range(0, 360, 2):
 
 **The hub stays connected after the command finishes.** So the second `pb run`
 starts instantly, and so does the hundredth — edit, run, edit, run, with no
-waiting for Bluetooth in between.
+waiting for Bluetooth in between. It also means the hub does not switch itself
+off while you are thinking, the way one nothing is connected to does.
 
 Once a program outgrows one command, put it in a file:
 
