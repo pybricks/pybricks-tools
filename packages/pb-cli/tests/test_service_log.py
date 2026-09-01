@@ -11,6 +11,7 @@ there, and keeping up with one that is still being written.
 from __future__ import annotations
 
 import io
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 import anyio
@@ -30,14 +31,90 @@ def anyio_backend() -> str:
 
 @pytest.fixture
 def log(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
-    """Point the command at a log file of the test's own, and hurry it along."""
+    """Point the command at a log file of the test's own."""
     path = tmp_path / "pb-service.log"
     monkeypatch.setattr(service, "log_file", lambda: path)
-    # A quarter of a second is right for a person watching and far too long to
-    # wait for repeatedly in a test. What is being tested is what the loop does
-    # each time round, not how often it goes round.
-    monkeypatch.setattr(service, "POLL_SECONDS", 0.02)
     return path
+
+
+SETTLED = 0.3
+"""How long to leave between writes that must be reported separately.
+
+Comfortably more than the watcher's debounce, so that two writes cannot be
+gathered into one report -- which would make the test pass without the code
+holding a part-line back, since it would never see one.
+"""
+
+PATIENCE = 20.0
+"""How long to wait for what was written to arrive.
+
+Generous, because it is not measuring anything: the test ends as soon as the
+lines turn up, and this only decides how long a broken one takes to fail.
+"""
+
+
+async def _followed(
+    log: Path, offset: int, write: Callable[[], Awaitable[None]], want: list[str]
+) -> list[str]:
+    """Follow the log while something writes to it, and say what was printed.
+
+    Args:
+        log: The file to follow.
+        offset: Where to start from.
+        write: Does the writing, once following has started.
+        want: The lines expected, which is what ends the wait.
+
+    Returns:
+        The lines that were printed.
+    """
+    arrived = anyio.Event()
+    buffer = _Expecting(want, arrived)
+    out = Console(file=buffer, highlight=False)
+
+    with anyio.move_on_after(PATIENCE):
+        async with anyio.create_task_group() as tg:
+            # A test may reach into the module it is testing.
+            tg.start_soon(
+                service._follow,  # pyright: ignore[reportPrivateUsage]
+                out,
+                log,
+                offset,
+            )
+            await write()
+            await arrived.wait()
+            tg.cancel_scope.cancel()
+
+    return buffer.getvalue().splitlines()
+
+
+class _Expecting(io.StringIO):
+    """Somewhere to print that says when what was expected has been printed.
+
+    Waiting on this rather than looking at it every so often, because a test
+    for code that waits should not itself poll -- and because a test that ends
+    the moment the lines arrive is both quicker and less arbitrary than one
+    that ends after a chosen number of periods.
+    """
+
+    def __init__(self, want: list[str], arrived: anyio.Event) -> None:
+        """Record what to wait for.
+
+        Args:
+            want: The lines that mean the test can stop.
+            arrived: Set once they have all been printed.
+        """
+        super().__init__()
+        self._want = want
+        self._arrived = arrived
+
+    def write(self, s: str, /) -> int:
+        """Take what was printed, and notice if it completes the set."""
+        written = super().write(s)
+
+        if self.getvalue().splitlines() == self._want:
+            self._arrived.set()
+
+        return written
 
 
 def _write(path: Path, text: str) -> None:
@@ -55,11 +132,6 @@ def _append(path: Path, text: str) -> None:
 def _size(path: Path) -> int:
     """How long the file is now."""
     return path.stat().st_size
-
-
-def _console() -> tuple[Console, io.StringIO]:
-    buffer = io.StringIO()
-    return Console(file=buffer, highlight=False), buffer
 
 
 async def test_the_last_lines_go_to_stdout(
@@ -114,26 +186,15 @@ async def test_only_the_end_of_a_large_log_is_read(
 
 async def test_following_prints_what_arrives(log: Path) -> None:
     _write(log, "before\n")
-    out, buffer = _console()
 
     async def append() -> None:
         for line in ("during\n", "after\n"):
-            await anyio.sleep(service.POLL_SECONDS)
+            await anyio.sleep(SETTLED)
             _append(log, line)
 
-        await anyio.sleep(service.POLL_SECONDS * 3)
+    printed = await _followed(log, _size(log), append, ["during", "after"])
 
-    with anyio.move_on_after(10):
-        async with anyio.create_task_group() as tg:
-            tg.start_soon(append)
-
-            with anyio.move_on_after(service.POLL_SECONDS * 12):
-                # A test may reach into the module it is testing.
-                await service._follow(out, log, _size(log))  # pyright: ignore[reportPrivateUsage]
-
-            tg.cancel_scope.cancel()
-
-    assert buffer.getvalue().splitlines() == ["during", "after"]
+    assert printed == ["during", "after"]
 
 
 async def test_following_survives_the_log_being_rotated(log: Path) -> None:
@@ -141,24 +202,15 @@ async def test_following_survives_the_log_being_rotated(log: Path) -> None:
     # have to notice, and above all should not sit silent afterwards because
     # the position they held is now past the end of a smaller file.
     _write(log, "".join(f"old {n}\n" for n in range(50)))
-    out, buffer = _console()
     start = _size(log)
 
     async def rotate() -> None:
-        await anyio.sleep(service.POLL_SECONDS)
+        await anyio.sleep(SETTLED)
         _write(log, "brand new\n")
-        await anyio.sleep(service.POLL_SECONDS * 3)
 
-    with anyio.move_on_after(10):
-        async with anyio.create_task_group() as tg:
-            tg.start_soon(rotate)
+    printed = await _followed(log, start, rotate, ["brand new"])
 
-            with anyio.move_on_after(service.POLL_SECONDS * 12):
-                await service._follow(out, log, start)  # pyright: ignore[reportPrivateUsage]
-
-            tg.cancel_scope.cancel()
-
-    assert buffer.getvalue().splitlines() == ["brand new"]
+    assert printed == ["brand new"]
 
 
 async def test_a_line_split_across_two_reads_is_printed_once(log: Path) -> None:
@@ -166,22 +218,12 @@ async def test_a_line_split_across_two_reads_is_printed_once(log: Path) -> None:
     # middle of one. Printing half of it and then the other half would make
     # the output unreadable exactly when somebody is reading it closely.
     _write(log, "")
-    out, buffer = _console()
 
     async def dribble() -> None:
         for piece in ("half a ", "line\n"):
-            await anyio.sleep(service.POLL_SECONDS * 2)
+            await anyio.sleep(SETTLED)
             _append(log, piece)
 
-        await anyio.sleep(service.POLL_SECONDS * 3)
+    printed = await _followed(log, 0, dribble, ["half a line"])
 
-    with anyio.move_on_after(10):
-        async with anyio.create_task_group() as tg:
-            tg.start_soon(dribble)
-
-            with anyio.move_on_after(service.POLL_SECONDS * 14):
-                await service._follow(out, log, 0)  # pyright: ignore[reportPrivateUsage]
-
-            tg.cancel_scope.cancel()
-
-    assert buffer.getvalue().splitlines() == ["half a line"]
+    assert printed == ["half a line"]

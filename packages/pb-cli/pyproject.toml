@@ -15,6 +15,7 @@ dependencies = [
     "cyclopts>=4.22",
     "rich>=13.7",
     "typing-extensions>=4.15",
+    "watchfiles>=1.2",
 ]
 
 [project.scripts]
