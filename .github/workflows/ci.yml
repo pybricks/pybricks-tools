@@ -35,13 +35,13 @@ jobs:
       - run: uv lock --check
 
   typecheck:
-    # Three OSes because the IPC and console backends are different code on
-    # each; a single OS only type-checks part of the tree.
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-24.04, macos-15, windows-2025]
-    runs-on: ${{ matrix.os }}
+    # One OS, because pythonPlatform is "All": pyright checks every platform's
+    # branch wherever it runs, so three runners did identical work and would
+    # have reported identical results. It used to be three because the default
+    # setting skips the other platforms' code as unreachable -- which also
+    # meant a mistake in the POSIX console could only be caught by a POSIX
+    # runner, so the matrix was buying less than it looked.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -138,5 +138,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
       - run: uv build --all-packages
+      # What PyPI will say about these before PyPI is the one saying it. The
+      # metadata is only rendered at upload, so without this a broken readme
+      # or an unrecognised classifier is found at the worst moment.
+      - run: uvx twine check --strict dist/*
       - uses: actions/upload-artifact@v4
         with: { name: dist, path: dist/ }
