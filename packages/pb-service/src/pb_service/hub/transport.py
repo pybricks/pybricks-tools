@@ -23,6 +23,7 @@ from typing import Final, Protocol, runtime_checkable
 from pb_service.hub import protocol as p
 
 __all__ = [
+    "RECONNECTING_TRANSPORTS",
     "TRANSPORT_PREFERENCE",
     "DeviceInfo",
     "HubCommandError",
@@ -32,6 +33,7 @@ __all__ = [
     "ScanFilter",
     "looks_like_id",
     "preference_rank",
+    "reconnects",
 ]
 
 ID_PREFIXES = ("ble:", "fake:", "usb:", "rfcomm:")
@@ -150,6 +152,35 @@ def preference_rank(transport: str) -> int:
         return TRANSPORT_PREFERENCE.index(transport)
     except ValueError:
         return len(TRANSPORT_PREFERENCE)
+
+
+RECONNECTING_TRANSPORTS: Final = frozenset({"usb"})
+"""Transports where losing a hub is worth waiting out rather than just reporting.
+
+A cable is pulled out by a person and put back by one, so a hub that reappears
+on the same port is the same hub being handed back to the same work -- which is
+why the service goes back to it without being asked. A radio is not like that.
+A hub coming into range again says nothing about whether anybody wants it, and
+connecting would stop it advertising to whoever actually does; a hub switched
+off and on is quite likely being handed to somebody else. The difference is
+about what the reappearance means rather than anything about the two protocols,
+so it is recorded here as a decision rather than derived from a capability.
+"""
+
+
+def reconnects(transport: str) -> bool:
+    """Say whether a hub lost on this transport should be waited for.
+
+    Args:
+        transport: A transport's scheme.
+
+    Returns:
+        True if the hub coming back is worth acting on. False for anything this
+        build has not thought about, which is the safe way round: not going back
+        to a hub is an inconvenience, whereas taking one that was not offered is
+        a hub quietly removed from whoever else was reaching for it.
+    """
+    return transport in RECONNECTING_TRANSPORTS
 
 
 @dataclass(frozen=True, slots=True)

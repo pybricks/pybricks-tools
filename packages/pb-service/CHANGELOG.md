@@ -18,3 +18,5 @@ Notable changes to `pybricks-service`. The format is based on
 - A simulated hub, so the whole service can be exercised without a radio.
 - Input is retried at the size the hub advertised, never cut down to fit.
 - Starts at the filesystem root, holding no directory open behind it.
+- USB, as a serial port, preferred over Bluetooth for a hub reachable both ways.
+- Goes back to a hub over USB when its cable is plugged in again.

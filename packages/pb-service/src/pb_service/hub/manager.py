@@ -20,8 +20,14 @@ import anyio
 from anyio.abc import TaskGroup, TaskStatus
 
 from pb_service.hub.connection import HubConnection, HubInfo
+from pb_service.hub.reconnect import wait_for_return
 from pb_service.hub.selection import Selection
-from pb_service.hub.transport import DeviceInfo, HubTransport, ScanFilter
+from pb_service.hub.transport import (
+    DeviceInfo,
+    HubTransport,
+    ScanFilter,
+    reconnects,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -286,6 +292,11 @@ class HubManager:
         something this task already knows, and knowing it is not the same as
         being asked about it four times a second.
 
+        The task outlives the connection by as long as it takes to get the hub
+        back, where that is worth doing -- see :meth:`_bring_back`. The registry
+        is dropped first either way, so nothing is ever told a hub is connected
+        while the service is waiting for it to reappear.
+
         Args:
             connection: The hub to hold open.
             task_status: Signalled with the hub's details once connected.
@@ -296,6 +307,47 @@ class HubManager:
 
         finally:
             self._forget(connection.id)
+
+        # Reached only when the connection ended by itself: an exception or a
+        # cancellation leaves through the `finally` and skips this, so a
+        # service shutting down never stops to wait for a cable.
+        if connection.lost and reconnects(connection.device.transport):
+            await self._bring_back(connection.device)
+
+    async def _bring_back(self, device: DeviceInfo) -> None:
+        """Wait for a hub to be reachable again, and go back to it.
+
+        Runs in the task that was holding the connection, so one hub is one
+        task for as long as the service means to keep it, and a shutdown
+        cancels the waiting along with everything else. Going back through
+        :meth:`connect` is what makes this safe against a user who reconnects
+        the hub by hand in the meantime: the per-hub lock is already there, and
+        an existing connection is returned rather than a second one made.
+
+        One attempt, and no retry loop. What was waited for was the hub being
+        reachable, so a failure after that is the handshake or the port rather
+        than the hub's absence, and going straight back to a search that would
+        succeed immediately is how a wait turns into a spin. ``pb connect``
+        remains for the user, and the log says what happened.
+
+        Args:
+            device: The hub that went away, as it was last seen.
+        """
+        found = await wait_for_return(self.transport, device)
+
+        if found is None:
+            return
+
+        try:
+            await self.connect(found)
+
+        except Exception:
+            # Deliberately broad, for the reason the composite transport's pump
+            # gives: this runs in the manager's own long-lived task group, so
+            # anything raised here would take the whole service down over one
+            # hub. The one thing it must not swallow it cannot, since anyio's
+            # cancellation is a BaseException and still unwinds.
+            logger.exception("could not go back to %s", device.id)
 
     def _forget(self, hub_id: str) -> None:
         """Take a hub out of the registry.

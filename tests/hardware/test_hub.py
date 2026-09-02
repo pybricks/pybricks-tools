@@ -215,12 +215,19 @@ async def test_a_program_that_ignores_input_does_not_slow_the_hub_afterwards(
             await service.write_stdin(PASTE, hub_id=hub)
 
     refused_for = time.monotonic() - began
-    # Otherwise the test proves nothing: the damage was done by a *sustained*
-    # refusal, and one that never happened cannot have provoked it.
-    assert refused_for > 2.0, (
-        f"the hub took the input after {refused_for:.1f} s, so nothing was "
-        f"refused for long enough to have provoked a measurement"
-    )
+
+    if refused_for <= 2.0:
+        # Not a failure. The damage this guards against was done by a
+        # *sustained* refusal, so a hub that never refused the input has
+        # nothing to have provoked it and nothing to measure the recovery
+        # from. An EV3 reached over USB is like that: it took the same
+        # four-hundred-byte write immediately, with the same program ignoring
+        # its input. The guard earns its keep on a City hub over Bluetooth,
+        # which is where it was checked by mutation.
+        pytest.skip(
+            f"this hub took the input after {refused_for:.1f} s, so no "
+            f"sustained refusal could be provoked to measure"
+        )
 
     await service.stop_program(hub_id=hub)
     await anyio.sleep(0.5)
