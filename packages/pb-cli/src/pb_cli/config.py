@@ -45,13 +45,17 @@ of blessed variables, and an environment variable is ephemeral -- it belongs to
 one shell and one moment -- so being generous costs little.
 """
 
-KNOWN_KEYS = frozenset({"hub"})
+KNOWN_KEYS = frozenset({"hub", "transport"})
 """What ``[tool.pb]`` is allowed to contain.
 
 Deliberately a short list rather than "any option this tool happens to have".
 The file is committed and read by everyone who clones the project, which makes
 it documented surface rather than a convenience, and surface should say what it
 covers. Adding a key here is how it grows.
+
+``transport`` earns its place for the same reason ``hub`` did: a project whose
+robot drives away from the desk wants Bluetooth every time, and saying so once
+in the file beats everyone who clones it remembering a flag.
 """
 
 
