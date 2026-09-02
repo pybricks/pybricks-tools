@@ -19,18 +19,41 @@ logger = logging.getLogger(__name__)
 __all__ = ["HUB_BACKEND_ENV_VAR", "get_hub_transport"]
 
 HUB_BACKEND_ENV_VAR = "PB_HUB_BACKEND"
-"""Selects the transport. ``ble`` by default, or ``fake`` for a simulated hub."""
+"""Selects the transport.
+
+Left alone, the service uses USB and Bluetooth together, which is what lets a
+hub be found whichever way it happens to be reachable. Set it to ``usb`` or
+``ble`` to use only one, or to ``fake`` for a simulated hub.
+"""
+
+
+def _usb() -> HubTransport:
+    from pb_service.hub.usb import UsbHubTransport
+
+    return UsbHubTransport()
+
+
+def _ble() -> HubTransport:
+    from pb_service.hub.ble import BleHubTransport
+
+    return BleHubTransport()
 
 
 def get_hub_transport() -> HubTransport:
     """Return the transport this service should use.
 
+    Every import here is inside the branch that needs it, so a service running
+    against the simulated backend loads neither the Bluetooth stack nor the
+    serial one, and a machine using only one of the real transports does not
+    pay for the other.
+
     Returns:
-        A Bluetooth transport, or a simulated one when
-        ``PB_HUB_BACKEND=fake``. The simulated backend is what lets the whole
-        service be exercised on a CI runner with no radio.
+        USB and Bluetooth combined, or whichever single transport
+        ``PB_HUB_BACKEND`` names. The simulated backend is what lets the whole
+        service be exercised on a CI runner with no radio and nothing plugged
+        in.
     """
-    backend = os.environ.get(HUB_BACKEND_ENV_VAR, "ble").lower()
+    backend = os.environ.get(HUB_BACKEND_ENV_VAR, "").lower()
 
     if backend == "fake":
         from pb_service.hub.fake import FakeHub, FakeHubTransport
@@ -41,6 +64,20 @@ def get_hub_transport() -> HubTransport:
             FakeHub(name="Spare Hub", address="66:77:88:99:AA:BB"),
         )
 
-    from pb_service.hub.ble import BleHubTransport
+    if backend == "usb":
+        return _usb()
 
-    return BleHubTransport()
+    if backend == "ble":
+        return _ble()
+
+    if backend:
+        logger.warning(
+            "unknown %s=%r; using every transport", HUB_BACKEND_ENV_VAR, backend
+        )
+
+    from pb_service.hub.combined import CombinedTransport
+
+    # USB first, because that is the preference order: it is quicker to find,
+    # quicker to use, and it can reach a hub that is running a program, which
+    # a Bluetooth scan cannot see at all.
+    return CombinedTransport(_usb(), _ble())
