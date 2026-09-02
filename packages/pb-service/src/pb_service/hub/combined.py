@@ -89,13 +89,27 @@ class CombinedTransport:
         Yields:
             Hubs as each transport reports them, in whatever order they arrive.
         """
+        wanted = [
+            child
+            for child in self._transports
+            if scan_filter.transport in (None, child.scheme)
+        ]
+
+        if not wanted:
+            # Asking for a transport this service does not have is not an error
+            # -- it is a search that finds nothing, which is what the caller
+            # will say to the user anyway. Before the streams exist, so that
+            # leaving here leaves nothing behind.
+            logger.info("no %s transport here to scan on", scan_filter.transport)
+            return
+
         # No buffer: a hub is handed straight to the caller rather than piling
         # up behind one that has stopped reading, which for a scan would mean
         # showing stale news.
         send, receive = anyio.create_memory_object_stream[DeviceInfo](0)
 
         async with anyio.create_task_group() as tg, receive:
-            for child in self._transports:
+            for child in wanted:
                 tg.start_soon(self._pump, child, scan_filter, send.clone())
 
             # The original is closed now that every child has its own clone, so

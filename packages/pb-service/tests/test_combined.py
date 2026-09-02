@@ -224,3 +224,37 @@ def test_open_returns_a_context_manager() -> None:
     transport = CombinedTransport(_Stub("usb", "Bumblebee"))
 
     assert isinstance(transport.open("usb:Bumblebee"), AbstractAsyncContextManager)
+
+
+# ------------------------------------------------------- asking for one only
+
+
+async def test_asking_for_one_transport_does_not_start_the_others() -> None:
+    # Not merely a filter on the results: a scan for USB must not start the
+    # radio, which costs time and takes the adapter for as long as it runs.
+    usb, ble = _Stub("usb", "Bumblebee"), _Stub("ble", "Rover")
+    transport = CombinedTransport(usb, ble)
+
+    found: list[DeviceInfo] = []
+
+    async with aclosing(transport.discover(ScanFilter(transport="usb"))) as stream:
+        async for device in stream:
+            found.append(device)
+            break
+
+    assert [device.id for device in found] == ["usb:Bumblebee"]
+    assert ble.closed is False, "the Bluetooth transport was started anyway"
+
+
+async def test_asking_for_a_transport_this_service_lacks_finds_nothing() -> None:
+    # A search with no result rather than an error: it reads to the user as the
+    # hub not being there, which is the same thing they would be told anyway.
+    transport = CombinedTransport(_Stub("ble", "Rover"))
+
+    found: list[DeviceInfo] = []
+
+    async with aclosing(transport.discover(ScanFilter(transport="usb"))) as stream:
+        async for device in stream:
+            found.append(device)
+
+    assert found == []
