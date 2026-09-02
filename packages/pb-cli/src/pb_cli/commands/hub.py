@@ -47,18 +47,46 @@ Catching the error's own type is not enough: anything raised inside an
 so the type to catch is not the type that was raised.
 """
 
-_CONNECT_HINTS: Final[Mapping[int, str]] = {
-    ErrorCode.HUB_NOT_FOUND: (
+_NOT_FOUND_HINTS: Final[Mapping[str | None, str]] = {
+    None: (
         "Switch the hub on and press its button so that its light flashes. "
         "If it is new, is the Pybricks firmware installed?"
     ),
+    "usb": (
+        "Switch the hub on and plug it in. Not every hub has a USB port: the "
+        "City, Technic and Move hubs are Bluetooth only."
+    ),
+    "ble": (
+        "Switch the hub on and press its button so that its light flashes. A "
+        "hub that is already connected, or running a program, does not "
+        "advertise."
+    ),
 }
-"""What to suggest when it is a hub to connect to that could not be found.
+"""What to suggest when a hub to connect to could not be found.
+
+Keyed by the transport that was asked for, because the advice is different and
+the wrong half of it is worse than none: telling somebody to watch for a
+flashing light when they asked for a cable sends them to do something that
+cannot help, and this tool's rule is that a suggestion has to be one.
 
 Everywhere else, a missing hub means one that was expected to be connected
 already, and the suggestion is to run [bold]pb connect[/] -- which would be
 silly advice for [bold]pb connect[/] itself.
 """
+
+
+def _connect_hints(transport: str | None) -> Mapping[int, str]:
+    """Build the not-found advice for the transport that was asked for.
+
+    Args:
+        transport: What ``--transport`` said, or ``None`` for any.
+
+    Returns:
+        The hints to hand to the error renderer.
+    """
+    hint = _NOT_FOUND_HINTS.get(transport, _NOT_FOUND_HINTS[None])
+
+    return {ErrorCode.HUB_NOT_FOUND: hint}
 
 
 def _looks_like_id(value: str) -> bool:
@@ -77,6 +105,7 @@ async def scan_cmd(
     # scope, as the house rules require.
     timeout: float = 10.0,  # noqa: ASYNC109
     name: str | None = None,
+    transport: str | None = None,
     verbose: Verbose = (),
 ) -> int:
     """Look for Pybricks hubs that are switched on and in range.
@@ -88,20 +117,21 @@ async def scan_cmd(
     Args:
         timeout: How long to scan, in seconds.
         name: Only show hubs with this name.
+        transport: Only look on this transport, usb or ble. Both by default.
         verbose: Increase log detail.
     """
     configure_logging(verbose)
-    return await errors.run(_scan, timeout, name)
+    return await errors.run(_scan, timeout, name, transport)
 
 
-async def _scan(seconds: float, name: str | None) -> int:
+async def _scan(seconds: float, name: str | None, transport: str | None) -> int:
     out, err = ui.console(), ui.console(err=True)
     seen: dict[str, pb_client.DeviceInfo] = {}
     caption = f"Scanning for {seconds:.0f}s..."
 
     async with (
         pb_client.connect() as service,
-        service.scanning(seconds=seconds, name=name) as devices,
+        service.scanning(seconds=seconds, name=name, transport=transport) as devices,
     ):
         if out.is_terminal:
             # Redrawn in place as advertisements arrive, so a hub appears the
@@ -127,7 +157,10 @@ async def _scan(seconds: float, name: str | None) -> int:
                 seen[device.id] = device
 
     if not seen:
-        err.print("[yellow]No hubs found.[/] Is the hub switched on and in range?")
+        # "In range" is Bluetooth's word for it and means nothing to somebody
+        # who asked about a cable.
+        where = "plugged in" if transport == "usb" else "in range"
+        err.print(f"[yellow]No hubs found.[/] Is the hub switched on and {where}?")
 
     return EXIT_OK
 
@@ -137,6 +170,7 @@ async def connect_cmd(
     *,
     hub: str | None = None,
     scan: Annotated[bool, cyclopts.Parameter(name=["-s", "--scan"])] = False,
+    transport: str | None = None,
     verbose: Verbose = (),
 ) -> int:
     """Connect to a hub and keep it connected.
@@ -150,6 +184,8 @@ async def connect_cmd(
         scan: Watch for hubs and choose one from the list. There is no time
             limit, so the hub can be switched on whenever you like, and
             Ctrl-C gives up without connecting to anything.
+        transport: Reach the hub this way, usb or ble. By default whichever
+            works, preferring USB where a hub is reachable both ways.
         verbose: Increase log detail.
     """
 
@@ -170,17 +206,19 @@ async def connect_cmd(
         )
 
     configure_logging(verbose)
-    return await errors.run(_connect, hub, scan, hints=_CONNECT_HINTS)
+    return await errors.run(
+        _connect, hub, scan, transport, hints=_connect_hints(transport)
+    )
 
 
-async def _connect(hub: str | None, scan: bool) -> int:
+async def _connect(hub: str | None, scan: bool, transport: str | None) -> int:
     err = ui.console(err=True)
 
     async with pb_client.connect() as service:
         if scan:
             # No time limit: the hub may still be in the next room. The scan
             # ends when the block does, whether the user chose or gave up.
-            async with service.scanning(seconds=None) as devices:
+            async with service.scanning(seconds=None, transport=transport) as devices:
                 device = await picker.choose_hub(err, devices, ui.chooser_table)
 
             if device is None:
@@ -190,11 +228,14 @@ async def _connect(hub: str | None, scan: bool) -> int:
 
             with ui.spinner(err, "Connecting..."):
                 info = await service.connect_hub(hub_id=device.id)
+                # No transport here: choosing a row from the list has already
+                # chosen the route, since each row is one.
         else:
             with ui.spinner(err, "Connecting..."):
                 info = await service.connect_hub(
                     hub_id=hub if hub and _looks_like_id(hub) else None,
                     name=hub if hub and not _looks_like_id(hub) else None,
+                    transport=transport,
                 )
 
     # The protocol version belongs to pb status: it explains why a command was
