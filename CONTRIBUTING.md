@@ -96,6 +96,36 @@ are enforced by ruff and by tests.
    `@asynccontextmanager`, since that gives the caller a close point they cannot
    forget.
 
+9. **An async generator that owns a task group must catch `GeneratorExit`.**
+   Closing a generator throws `GeneratorExit` in at the `yield`. It is a
+   `BaseException` and it is *not* a cancellation, so a task group's `__aexit__`
+   collects it and re-raises it wrapped in an `ExceptionGroup` — which reaches
+   the caller as an unrelated crash a long way from the `break` that caused it.
+   This is not hypothetical: it took the service down mid-scan, because every
+   caller of `discover` stops early.
+
+   ```python
+   async with anyio.create_task_group() as tg, receive:
+       tg.start_soon(pump, ...)
+
+       try:
+           async for item in receive:
+               yield item
+       except GeneratorExit:
+           tg.cancel_scope.cancel()
+           return          # so __aexit__ sees no exception at all
+   ```
+
+   Measured, because the obvious alternatives look right and are not: cancelling
+   the scope in a `finally` does not help, since the exception still arrives at
+   `__aexit__`; nor does entering and exiting the group by hand. The cancel also
+   has to come *before* the receiving end closes, or the tasks are woken by a
+   broken stream rather than by a cancellation and raise on the way out.
+
+   Better still, do not put a task group in a generator. Rule 2's
+   `@asynccontextmanager` yielding an `AsyncIterator` has no such problem, and
+   is the shape to use for anything new that needs both.
+
 ### The two sanctioned exceptions
 
 Both are confined to a single documented module, and nowhere else may take a
@@ -230,10 +260,20 @@ else. Measured, not assumed.
 
 [final]: https://typing.python.org/en/latest/spec/qualifiers.html
 
-**Avoid multiple inheritance.** Inheritance itself is fine, and so is an `ABC`
-where an `ABC` fits — `pb_core.ipc` has two, deliberately, next to the
-`Protocol`s used elsewhere. Where behaviour needs sharing, prefer composition,
-a protocol, or a function that takes what it needs.
+**Prefer composition over inheritance.** Where behaviour or state needs sharing,
+the first thing to reach for is an object that holds another object, a
+`Protocol` describing what is needed, or a function that takes what it works on
+— not a base class. `CombinedTransport` is the shape to copy: it behaves like
+several transports by *holding* them in a tuple and delegating, so nothing above
+it knows there is more than one. Multiple inheritance in particular appears
+nowhere in this repository and should not start.
+
+An `ABC` is still fine where an `ABC` fits — `pb_core.ipc` has two,
+deliberately, next to the `Protocol`s used elsewhere — so this is not a licence
+to refactor working code. And naming a `Protocol` as a base class is a statement
+of intent rather than reuse, which is why `_BleLink(HubLink)` reads the way it
+does; a `Protocol` is checked structurally wherever the value is used either
+way.
 
 **What a function did is best said by returning it.** A callback that reaches
 into a shared object to record what it has done is harder to follow than one
