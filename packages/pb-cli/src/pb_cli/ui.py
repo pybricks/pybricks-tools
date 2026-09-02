@@ -308,6 +308,29 @@ def rows(out: Console, pairs: list[tuple[str, str]]) -> None:
             plain(out, f"{key}\t{value}")
 
 
+def signal_cell(device: pb_client.DeviceInfo, connected: Collection[str] = ()) -> str:
+    """Say how well a hub can be reached, in Rich markup.
+
+    Args:
+        device: The hub.
+        connected: The ids of hubs the service is holding open.
+
+    Returns:
+        A meter for a hub that was heard over Bluetooth, and a word for the two
+        cases where a meter would be a lie. A connected hub is not advertising,
+        so there is no signal to draw; a hub on a cable has no signal at all,
+        and drawing an empty meter for one would read as a hub that can barely
+        be heard when it is in fact the best-connected hub on the list.
+    """
+    if device.id in connected:
+        return "[green]connected[/]"
+
+    if device.transport == "usb":
+        return "[green]USB[/]"
+
+    return signal_bars(device.rssi)
+
+
 def scan_table(
     devices: Iterable[pb_client.DeviceInfo],
     caption: str = "",
@@ -349,12 +372,12 @@ def scan_table(
     table.add_column("Signal", justify="right")
 
     for index, device in enumerate(devices):
-        strength = (
-            "[green]connected[/]"
-            if device.id in connected
-            else signal_bars(device.rssi)
-        )
-        row = [device.name, device.hub_type or "", device.id, strength]
+        row = [
+            device.name,
+            device.hub_type or "",
+            device.id,
+            signal_cell(device, connected),
+        ]
 
         if not SHOW_HUB_IDS:
             del row[2]
