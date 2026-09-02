@@ -22,6 +22,7 @@ HUB = pb_client.HubInfo(
     firmware="4.1.0b3",
     protocol="1.6.0",
     address="00:00:00:00:00:01",
+    transport="fake",
     num_slots=0,
     max_program_size=16224,
     subscribers=1,

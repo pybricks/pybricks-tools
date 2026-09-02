@@ -136,6 +136,20 @@ async def test_status_names_the_kind_of_hub(
     assert "type\tPrime hub" in _out(capsys)
 
 
+async def test_status_says_how_the_hub_is_reached(
+    service: FakeHub, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Which transport a hub is on decides how quick a command is, and over USB
+    # whether the hub is still advertising for anything else to find it. The
+    # simulated transport says so too, rather than leaving the line out and
+    # making this the one case where the answer is missing.
+    await hub_commands.connect_cmd(hub=HUB_NAME)
+    capsys.readouterr()
+    await hub_commands.status_cmd()
+
+    assert "connection\tsimulated" in _out(capsys)
+
+
 async def test_use_remembers_a_hub_by_name(
     service: FakeHub, capsys: pytest.CaptureFixture[str]
 ) -> None:

@@ -184,6 +184,14 @@ class HubInfo:
     firmware: str
     protocol: str
     address: str
+    transport: str
+    """How the hub is reached, such as ``"ble"`` or ``"usb"``.
+
+    The service's own word for it rather than anything to show a user, since a
+    hub can be reachable more than one way and which one is in use decides how
+    quick it is and whether the hub is still advertising.
+    """
+
     num_slots: int
     max_program_size: int
     subscribers: int
@@ -238,6 +246,7 @@ class HubInfo:
             firmware=str(payload.get("firmware", "")),
             protocol=str(payload.get("protocol", "")),
             address=str(payload.get("address", "")),
+            transport=str(payload.get("transport", "")),
             num_slots=int(payload.get("num_slots", 0)),
             max_program_size=int(payload.get("max_program_size", 0)),
             subscribers=int(payload.get("subscribers", 0)),
