@@ -113,6 +113,21 @@ USB is a plain serial port, so it needs no driver: Windows' own `usbser.sys`,
 which is why a hub held that way does not appear in a scan — the same as one
 held over Bluetooth.
 
+**A cable pulled out is waited for.** If a hub the service was holding over USB
+loses its cable, plugging it back in connects it again, with no second
+`pb connect`. Putting a cable back is a deliberate act by somebody who wants to
+carry on, which is what makes it safe to act on; a hub coming back into radio
+range says nothing of the sort, and taking it could be taking it from whoever
+else was reaching for it, so Bluetooth is only ever reported as gone. Nothing
+bounds the wait, because the service's own idle shutdown already does: a hub
+that is not connected does not hold the service open, so a hub that was
+unplugged and carried away is waited for only as long as the service has some
+other reason to be running.
+
+The connection is what comes back, not the session. Whatever was attached is
+told the hub went away, as it is today, and a program or an interpreter that
+was running is the hub's business rather than something to restore.
+
 A simulated hub implements the same seam. It is what lets the whole service be
 tested on a machine with no Bluetooth adapter and nothing plugged in, including
 cases that are otherwise hard to reach: a hub that refuses a command, or

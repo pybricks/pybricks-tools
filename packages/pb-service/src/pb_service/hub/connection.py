@@ -132,6 +132,14 @@ class HubConnection:
         the user guessing. Only the log had this before.
         """
 
+        self._lost = False
+        """Whether the hub went away rather than being let go of.
+
+        Kept as a flag because it cannot be worked out afterwards: a hub that
+        was disconnected and a hub that vanished both leave ``run`` by the same
+        path, and only the two people who ask for it know which happened.
+        """
+
         self._closed = anyio.Event()
         self._subscribers: dict[str, Subscriber] = {}
         self._sub_ids = itertools.count(1)
@@ -250,6 +258,15 @@ class HubConnection:
         """Wait until this connection has finished shutting down."""
         await self._closed.wait()
 
+    @property
+    def lost(self) -> bool:
+        """True if the hub went away rather than being disconnected.
+
+        What it is for is deciding whether to go back to the hub afterwards,
+        which is only ever right for a hub nobody let go of.
+        """
+        return self._lost
+
     def close(self, reason: str = "requested") -> None:
         """Ask the connection to shut down.
 
@@ -295,6 +312,13 @@ class HubConnection:
 
         Also invoked from outside any task, so it does the same minimal thing.
         """
+        # Only a report that arrives first means the hub went away. A transport
+        # may say the link has gone on the way out of one it was asked to
+        # close -- the simulated one does -- and that is the sound of this
+        # connection ending rather than of somebody pulling a cable out.
+        if not self._closing.is_set():
+            self._lost = True
+
         self._reason = "the hub stopped answering"
 
         with suppress(anyio.ClosedResourceError, anyio.BrokenResourceError):
