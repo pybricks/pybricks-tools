@@ -35,6 +35,17 @@ first if you want the list.
 | Key | Meaning |
 | --- | --- |
 | `hub` | The name of the hub this project's commands act on |
+| `transport` | How to reach it — `usb` or `ble` |
+
+`transport` is for a project whose robot drives away from the desk: pin it to
+`ble` once and nobody has to remember a flag. Left out, `pb` uses whichever
+transport works and prefers USB where a hub is reachable both ways.
+
+```toml
+[tool.pb]
+hub = "Rover"
+transport = "ble"
+```
 
 That is the whole list at the moment, and an unknown key is refused by name
 rather than ignored:
@@ -42,7 +53,7 @@ rather than ignored:
 ```console
 $ pb list
 [tool.pb] does not understand hubb.
-Check /home/you/robot/pyproject.toml. [tool.pb] understands hub.
+Check /home/you/robot/pyproject.toml. [tool.pb] understands hub, transport.
 ```
 
 Being strict here is deliberate, and it is the one place `pb` is stricter than
