@@ -451,6 +451,14 @@ async def _status(hub: str | None, full: bool) -> int:
 
     rows.append(("state", info.state))
 
+    # Which way the hub is reached, because it decides how quick a command is
+    # and, over USB, whether the hub is still advertising for anything else to
+    # find. Left out entirely when the service did not say, rather than shown
+    # blank.
+    connection = ui.transport_name(info.transport)
+    if connection:
+        rows.append(("connection", connection))
+
     if info.hub_type:
         rows.append(("type", info.hub_type))
 

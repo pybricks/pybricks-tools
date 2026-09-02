@@ -146,6 +146,7 @@ def hub(protocol: str) -> HubInfo:
         firmware="4.1.0",
         protocol=protocol,
         address="",
+        transport="ble",
         num_slots=1,
         max_program_size=100_000,
         subscribers=0,

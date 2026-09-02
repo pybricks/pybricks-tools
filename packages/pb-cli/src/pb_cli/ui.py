@@ -26,6 +26,7 @@ from __future__ import annotations
 import contextlib
 from collections.abc import Collection, Generator, Iterable, Mapping
 from contextlib import AbstractContextManager
+from typing import Final
 
 from rich.console import Console, RenderableType
 from rich.live import Live
@@ -92,7 +93,7 @@ room at four bars and one through a wall at two. Anything at or below the first
 floor still gets one bar rather than none: it was heard, so it is there.
 """
 
-HUB_WARNINGS: Mapping[str, str] = {
+HUB_WARNINGS: Final[Mapping[str, str]] = {
     "BATTERY_LOW_VOLTAGE_WARNING": "battery low",
     "BATTERY_LOW_VOLTAGE_SHUTDOWN": "battery empty, the hub is switching off",
     "BATTERY_HIGH_CURRENT": "drawing too much current",
@@ -183,6 +184,36 @@ def usage(message: str, hint: str | None = None) -> int:
         The process exit code.
     """
     return errors.render(console(err=True), [errors.Problem(message, hint)])
+
+
+_TRANSPORT_NAMES: Final[Mapping[str, str]] = {
+    "ble": "Bluetooth",
+    "usb": "USB",
+    "fake": "simulated",
+}
+"""What to call each way of reaching a hub.
+
+The service's words are ``ble`` and ``usb``, which are the right names on the
+wire and the wrong ones on a screen: nobody calls it BLE except us.
+"""
+
+
+def transport_name(transport: str) -> str | None:
+    """Say how a hub is reached, in a user's words.
+
+    Args:
+        transport: What the service reported.
+
+    Returns:
+        The wording, or ``None`` if the service said nothing -- which is what an
+        older service looks like, and is a reason to leave the line out rather
+        than to show an empty one. An unrecognised transport is passed through
+        as it came, since a name we do not have is still better than no answer.
+    """
+    if not transport:
+        return None
+
+    return _TRANSPORT_NAMES.get(transport, transport)
 
 
 def hub_warnings(status_names: Iterable[str]) -> list[str]:

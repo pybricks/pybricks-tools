@@ -57,6 +57,7 @@ def _hub(name: str = "Pybricks Hub", subscribers: int = 1) -> pb_client.HubInfo:
         firmware="4.0.1",
         protocol="1.5.0",
         address="00:11:22:33:44:55",
+        transport="fake",
         num_slots=20,
         max_program_size=10000,
         subscribers=subscribers,
@@ -187,3 +188,32 @@ def test_a_version_in_a_message_is_drawn_in_one_piece(err: bool) -> None:
     ]
     assert [segment.text for segment in drawn] == [sentence]
     assert not any(segment.style for segment in drawn)
+
+
+# --------------------------------------------------------------- transports
+
+
+@pytest.mark.parametrize(
+    ("transport", "expected"),
+    [
+        # "BLE" is our word, not a user's; nobody with a hub on a desk calls
+        # the radio that.
+        ("ble", "Bluetooth"),
+        ("usb", "USB"),
+        ("fake", "simulated"),
+    ],
+)
+def test_a_transport_is_named_in_a_users_words(transport: str, expected: str) -> None:
+    assert ui.transport_name(transport) == expected
+
+
+def test_a_transport_the_service_did_not_report_names_nothing() -> None:
+    # An older service says nothing, and a blank line beside "connection" would
+    # read as a fault rather than as an absence, so the caller leaves it out.
+    assert ui.transport_name("") is None
+
+
+def test_an_unrecognised_transport_is_passed_through() -> None:
+    # RFCOMM is planned and not built. A name we do not have yet is still a
+    # better answer than none, and it cannot be wrong the way a guess could.
+    assert ui.transport_name("rfcomm") == "rfcomm"
