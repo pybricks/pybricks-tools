@@ -24,6 +24,10 @@ can sit in your shell profile without upsetting `pb check`, which has no hub.
 project file says, which makes it the right way to point one shell, or one CI
 job, at a different hub without editing anything.
 
+`PB_TRANSPORT` is the other one: `usb` or `ble`, for a shell that should always
+reach the hub the same way. Left alone, `pb` uses whichever transport works and
+prefers USB where a hub is reachable both ways.
+
 !!! note "Flags take a word, and only once"
     An option that is just a flag needs a value here: `PB_FOLLOW=true`, not an
     empty string. `PB_VERBOSE=1` gives you what `-v` gives you, and there is no
@@ -41,7 +45,7 @@ not need any of them.
 | `PB_RUNTIME_DIR` | Moves the service's socket, lock and shared secret together, so a sandbox can have its own without touching yours. |
 | `PB_STATE_DIR` | Moves what the service remembers between runs, which today is the hub chosen with `pb use`. |
 | `PB_SERVICE_CMD` | What to run when a command has to start the service. |
-| `PB_HUB_BACKEND` | `fake` replaces Bluetooth with a simulated hub, so the whole tool can be exercised on a machine with no radio. The service says so in its log when this is on. |
+| `PB_HUB_BACKEND` | Which transports the service uses at all: `usb`, `ble`, or `fake` for a simulated hub, so the whole tool can be exercised on a machine with no radio and nothing plugged in. Both real transports by default. Not the same as `PB_TRANSPORT`, which chooses between the transports the service has. The service says so in its log when the simulated hub is on. |
 
 On Linux the usual `XDG_RUNTIME_DIR` and `XDG_STATE_HOME` are honoured, and
 everything written goes where the XDG Base Directory specification says it

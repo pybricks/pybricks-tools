@@ -94,12 +94,26 @@ the hub, and so cannot stall a robot.
 
 ## Transports
 
-Bluetooth is one way to reach a hub, behind a seam that USB and RFCOMM will
-reuse. The seam speaks in terms of reading and writing characteristics, because
-that is the Pybricks protocol's own vocabulary — the USB interface deliberately
-mirrors the same characteristics.
+A hub can be reached over Bluetooth or, on the larger hubs, over USB. Both sit
+behind one seam, which speaks in terms of reading and writing characteristics
+because that is the Pybricks protocol's own vocabulary — the USB interface
+deliberately mirrors the same characteristics, so the handshake gathers the same
+facts either way and nothing above the seam knows which answered.
+
+The service holds both at once and prefers USB, because a cable is quicker to
+find, quicker to use, and can reach a hub that Bluetooth cannot see at all: a
+hub running a program stops advertising, while its USB port is there throughout.
+`--transport` overrides that. A transport that cannot work on a machine — no
+Bluetooth adapter, no permission on a serial port — is reported and stepped
+over rather than stopping the others, so a computer with no radio still finds
+the hub plugged into it.
+
+USB is a plain serial port, so it needs no driver: Windows' own `usbser.sys`,
+`/dev/ttyACM*` on Linux. Connecting over it also takes the hub off the air,
+which is why a hub held that way does not appear in a scan — the same as one
+held over Bluetooth.
 
 A simulated hub implements the same seam. It is what lets the whole service be
-tested on a machine with no Bluetooth adapter, including cases that are
-otherwise hard to reach: a hub that refuses a command, or disconnects halfway
-through a download.
+tested on a machine with no Bluetooth adapter and nothing plugged in, including
+cases that are otherwise hard to reach: a hub that refuses a command, or
+disconnects halfway through a download.

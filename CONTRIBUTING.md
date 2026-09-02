@@ -113,7 +113,7 @@ are enforced by ruff and by tests.
                yield item
        except GeneratorExit:
            tg.cancel_scope.cancel()
-           return          # so __aexit__ sees no exception at all
+           return  # so __aexit__ sees no exception at all
    ```
 
    Measured, because the obvious alternatives look right and are not: cancelling
@@ -125,6 +125,25 @@ are enforced by ruff and by tests.
    Better still, do not put a task group in a generator. Rule 2's
    `@asynccontextmanager` yielding an `AsyncIterator` has no such problem, and
    is the shape to use for anything new that needs both.
+
+10. **A cancel scope that bounds a generator goes *outside* the block that
+    closes it.** Same family, opposite end. To put a deadline on how long a scan
+    runs, the scope wraps the `async with aclosing(...)`:
+
+    ```python
+    with anyio.move_on_after(seconds) as looking:  # outside
+        async with aclosing(manager.discover(f)) as stream:
+            async for device in stream:
+                ...
+                looking.deadline = ...  # fine to adjust
+    ```
+
+    Open the scope *inside* that block instead and cancelling it unwinds into
+    the generator's own scopes, which anyio reports as `Attempted to exit a
+    cancel scope that isn't the current tasks's current cancel scope` — from a
+    frame that names neither the generator nor the scope. Adjusting the outer
+    scope's `deadline` from inside the loop is the way to shorten a wait
+    part-way through, and needs no scope of its own.
 
 ### The two sanctioned exceptions
 
