@@ -20,3 +20,4 @@ Notable changes to `pybricks-service`. The format is based on
 - Starts at the filesystem root, holding no directory open behind it.
 - USB, as a serial port, preferred over Bluetooth for a hub reachable both ways.
 - Goes back to a hub over USB when its cable is plugged in again.
+- A simulated serial port, so the USB link is covered without a hub attached.

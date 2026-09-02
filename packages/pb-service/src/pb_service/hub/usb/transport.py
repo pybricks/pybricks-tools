@@ -25,12 +25,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import AsyncGenerator, Callable, Iterable
+from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager, suppress
 from typing import Final, final
 
 import anyio
-import serialx
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 
 from pb_service.hub import protocol as p
@@ -42,27 +41,20 @@ from pb_service.hub.transport import (
     ScanFilter,
 )
 from pb_service.hub.usb import cobs, wire
+from pb_service.hub.usb.port import (
+    PortInfo,
+    PortLister,
+    PortOpener,
+    SerialPort,
+    list_hub_ports,
+    open_hub_port,
+)
 
 logger = logging.getLogger(__name__)
 
 __all__ = ["UsbHubTransport", "device_id_for"]
 
 SCHEME: Final = "usb"
-
-LEGO_VENDOR_ID: Final = 0x0694
-"""The USB vendor id every LEGO hub enumerates with."""
-
-PYBRICKS_PRODUCT_MARK: Final = "Pybricks"
-"""What the firmware appends to its USB product string.
-
-An Inventor hub reports ``LEGO Technic Large Hub + Pybricks`` and an EV3 reports
-``LEGO MINDSTORMS EV3 + Pybricks``, so a hub running LEGO's own firmware is
-distinguishable before anything is opened -- where the operating system reports
-the string at all, which Windows does not do through the serial port itself.
-"""
-
-BAUD_RATE: Final = 115200
-"""Meaningless to a CDC device, which ignores it, but the API wants a number."""
 
 REPLY_PATIENCE_SECONDS: Final = 5.0
 """How long any one request waits before the hub is treated as unresponsive."""
@@ -87,7 +79,7 @@ _PENDING_REPLIES: Final = 8
 """Frames the reader may hold for a requester before dropping the oldest news."""
 
 
-def device_id_for(port: serialx.SerialPortInfo) -> str:
+def device_id_for(port: PortInfo) -> str:
     """Return the service-facing id for a port.
 
     Args:
@@ -103,18 +95,6 @@ def device_id_for(port: serialx.SerialPortInfo) -> str:
     return f"{SCHEME}:{port.serial_number or port.device}"
 
 
-def _candidates() -> Iterable[serialx.SerialPortInfo]:
-    """Yield the serial ports that might be hubs.
-
-    Returns:
-        Every port enumerating with LEGO's vendor id. The product string is not
-        filtered on, because Windows reports the serial port's own description
-        there rather than the device's, so requiring the Pybricks mark would
-        hide every hub on the primary development platform.
-    """
-    return (port for port in serialx.list_serial_ports() if port.vid == LEGO_VENDOR_ID)
-
-
 @final
 class _UsbLink(HubLink):
     """An open connection to one hub over its serial port.
@@ -126,7 +106,7 @@ class _UsbLink(HubLink):
     it is the one that was asked for.
     """
 
-    def __init__(self, serial: serialx.AsyncSerial, device_id: str) -> None:
+    def __init__(self, serial: SerialPort, device_id: str) -> None:
         self._serial = serial
         self._device_id = device_id
         self._lock = anyio.Lock()
@@ -154,7 +134,7 @@ class _UsbLink(HubLink):
 
             with anyio.fail_after(REPLY_PATIENCE_SECONDS):
                 while True:
-                    frame = await self._replies_out.receive()
+                    frame = await self._next_reply()
 
                     if frame.type != wire.InMessage.READ_REPLY:
                         continue
@@ -205,7 +185,7 @@ class _UsbLink(HubLink):
             The firmware's status code, zero for success.
         """
         while True:
-            frame = await self._replies_out.receive()
+            frame = await self._next_reply()
 
             if frame.type != wire.InMessage.RESPONSE:
                 continue
@@ -214,6 +194,24 @@ class _UsbLink(HubLink):
 
             if answer is not None and answer.tag == tag:
                 return answer.status
+
+    async def _next_reply(self) -> cobs.Frame:
+        """Take the next frame addressed to whichever request is waiting.
+
+        Returns:
+            The frame.
+
+        Raises:
+            ConnectionError: If the link ended while waiting. The stream closing
+                under a request is how a hub going away arrives here, and
+                reporting it as a disconnect is what makes it the same failure a
+                write reports rather than an anyio internal nobody handles.
+        """
+        try:
+            return await self._replies_out.receive()
+        except (anyio.EndOfStream, anyio.ClosedResourceError) as exc:
+            self._connected = False
+            raise ConnectionError(f"the hub on {self._device_id} went away") from exc
 
     async def _write(self, framed: bytes) -> None:
         """Send one framed message, reporting a dead link as a disconnect."""
@@ -232,7 +230,7 @@ class _UsbLink(HubLink):
         while True:
             try:
                 self._replies_out.receive_nowait()
-            except (anyio.WouldBlock, anyio.EndOfStream):
+            except (anyio.WouldBlock, anyio.EndOfStream, anyio.ClosedResourceError):
                 return
 
     async def run(self, on_lost: Callable[[str], None] | None) -> None:
@@ -282,7 +280,12 @@ class _UsbLink(HubLink):
                 on_lost(self._device_id)
         finally:
             self._connected = False
+            # Both ends: closing only the sending one leaves the receiving one
+            # to be collected instead, which the suite reports as a
+            # ResourceWarning, and a port opened and closed many times in a run
+            # should accumulate nothing at all.
             self._replies_in.close()
+            self._replies_out.close()
 
 
 def _rejection(status: int) -> HubCommandError:
@@ -306,8 +309,25 @@ def _rejection(status: int) -> HubCommandError:
 class UsbHubTransport:
     """Finds hubs on the serial ports and opens connections to them."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        list_ports: PortLister = list_hub_ports,
+        open_port: PortOpener = open_hub_port,
+    ) -> None:
+        """Create a transport.
+
+        Both arguments default to the real serial ports, so nothing that only
+        wants hubs has to know they exist. They are arguments because a hub on a
+        real cable cannot be asked to refuse a command or to vanish halfway
+        through one, and those are the paths worth testing.
+
+        Args:
+            list_ports: Where the ports that might be hubs come from.
+            open_port: How one of them is opened.
+        """
         self.on_disconnect: Callable[[str], None] | None = None
+        self._list_ports = list_ports
+        self._open_port = open_port
         self._named: dict[str, DeviceInfo] = {}
 
     @property
@@ -327,7 +347,7 @@ class UsbHubTransport:
             caller sees it as present rather than only once.
         """
         while True:
-            for port in _candidates():
+            for port in self._list_ports():
                 device_id = device_id_for(port)
 
                 if device_id in scan_filter.exclude:
@@ -350,9 +370,7 @@ class UsbHubTransport:
 
             await anyio.sleep(POLL_SECONDS)
 
-    async def _probe(
-        self, port: serialx.SerialPortInfo, device_id: str
-    ) -> DeviceInfo | None:
+    async def _probe(self, port: PortInfo, device_id: str) -> DeviceInfo | None:
         """Ask a hub what it is called, without becoming its host.
 
         Args:
@@ -372,10 +390,7 @@ class UsbHubTransport:
 
         try:
             with anyio.fail_after(PROBE_PATIENCE_SECONDS):
-                async with serialx.AsyncSerial(
-                    port.device, baudrate=BAUD_RATE
-                ) as serial:
-                    await serial.set_modem_pins(dtr=serialx.PinState.HIGH)
+                async with self._open_port(port.device) as serial:
                     link = _UsbLink(serial, device_id)
 
                     async with anyio.create_task_group() as tg:
@@ -419,14 +434,14 @@ class UsbHubTransport:
             The open link, which disconnects on exit.
         """
         port = next(
-            (port for port in _candidates() if device_id_for(port) == device_id), None
+            (port for port in self._list_ports() if device_id_for(port) == device_id),
+            None,
         )
 
         if port is None:
             raise ConnectionError(f"no hub is plugged in as {device_id}")
 
-        async with serialx.AsyncSerial(port.device, baudrate=BAUD_RATE) as serial:
-            await serial.set_modem_pins(dtr=serialx.PinState.HIGH)
+        async with self._open_port(port.device) as serial:
             link = _UsbLink(serial, device_id)
 
             async with anyio.create_task_group() as tg:
