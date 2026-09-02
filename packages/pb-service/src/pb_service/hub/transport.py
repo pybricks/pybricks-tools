@@ -18,11 +18,12 @@ from __future__ import annotations
 from collections.abc import AsyncGenerator, Callable
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
-from typing import Protocol, runtime_checkable
+from typing import Final, Protocol, runtime_checkable
 
 from pb_service.hub import protocol as p
 
 __all__ = [
+    "TRANSPORT_PREFERENCE",
     "DeviceInfo",
     "HubCommandError",
     "HubLink",
@@ -30,6 +31,7 @@ __all__ = [
     "NotificationHandler",
     "ScanFilter",
     "looks_like_id",
+    "preference_rank",
 ]
 
 ID_PREFIXES = ("ble:", "fake:", "usb:", "rfcomm:")
@@ -118,6 +120,38 @@ class DeviceInfo:
     """
 
 
+TRANSPORT_PREFERENCE: Final = ("usb", "ble", "fake")
+"""How transports rank when a hub is reachable more than one way, best first.
+
+USB comes first on three counts, each measured rather than argued: enumerating
+serial ports answers in milliseconds where a Bluetooth scan has to wait to hear
+something; a bulk endpoint has no connection interval to wait for; and a hub
+running a program does not advertise, so USB can reach one that a Bluetooth scan
+cannot see at all.
+
+The order here is the one :func:`~pb_service.backend.get_hub_transport` builds
+its transports in, and a test holds the two together.
+"""
+
+
+def preference_rank(transport: str) -> int:
+    """Rank a transport, lower being preferred.
+
+    Args:
+        transport: A transport's scheme.
+
+    Returns:
+        Its position in :data:`TRANSPORT_PREFERENCE`, or a rank worse than any
+        of them for one this build has never heard of. An unknown transport
+        losing every tie is the safe way round: it can still be used, just not
+        chosen over something known.
+    """
+    try:
+        return TRANSPORT_PREFERENCE.index(transport)
+    except ValueError:
+        return len(TRANSPORT_PREFERENCE)
+
+
 @dataclass(frozen=True, slots=True)
 class ScanFilter:
     """Which hubs a scan should report."""
@@ -127,6 +161,14 @@ class ScanFilter:
 
     exclude: frozenset[str] = field(default_factory=frozenset[str])
     """Ids to skip, typically ones already connected."""
+
+    transport: str | None = None
+    """Only look on this transport, or on every one when ``None``.
+
+    Carried in the filter rather than applied to the results so that asking for
+    USB does not start the radio: a transport that cannot match is never
+    started at all.
+    """
 
 
 @runtime_checkable

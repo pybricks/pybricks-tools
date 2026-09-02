@@ -48,36 +48,40 @@ def get_hub_transport() -> HubTransport:
     pay for the other.
 
     Returns:
-        USB and Bluetooth combined, or whichever single transport
-        ``PB_HUB_BACKEND`` names. The simulated backend is what lets the whole
-        service be exercised on a CI runner with no radio and nothing plugged
-        in.
+        Always a :class:`~pb_service.hub.combined.CombinedTransport`, holding
+        USB and Bluetooth or whichever single transport ``PB_HUB_BACKEND``
+        names. Always, even for one transport, so that choosing between
+        transports and honouring a request for a particular one are implemented
+        in exactly one place rather than once per backend. The simulated backend
+        is what lets the whole service be exercised on a CI runner with no radio
+        and nothing plugged in.
     """
+    from pb_service.hub.combined import CombinedTransport
+
     backend = os.environ.get(HUB_BACKEND_ENV_VAR, "").lower()
 
     if backend == "fake":
         from pb_service.hub.fake import FakeHub, FakeHubTransport
 
         logger.warning("using the simulated hub backend; no real hub will be found")
-        return FakeHubTransport(
-            FakeHub(name="Pybricks Hub", address="00:11:22:33:44:55"),
-            FakeHub(name="Spare Hub", address="66:77:88:99:AA:BB"),
+        return CombinedTransport(
+            FakeHubTransport(
+                FakeHub(name="Pybricks Hub", address="00:11:22:33:44:55"),
+                FakeHub(name="Spare Hub", address="66:77:88:99:AA:BB"),
+            )
         )
 
     if backend == "usb":
-        return _usb()
+        return CombinedTransport(_usb())
 
     if backend == "ble":
-        return _ble()
+        return CombinedTransport(_ble())
 
     if backend:
         logger.warning(
             "unknown %s=%r; using every transport", HUB_BACKEND_ENV_VAR, backend
         )
 
-    from pb_service.hub.combined import CombinedTransport
-
-    # USB first, because that is the preference order: it is quicker to find,
-    # quicker to use, and it can reach a hub that is running a program, which
-    # a Bluetooth scan cannot see at all.
+    # In TRANSPORT_PREFERENCE order, which is what makes USB the one chosen when
+    # a hub is reachable both ways. A test holds the two together.
     return CombinedTransport(_usb(), _ble())

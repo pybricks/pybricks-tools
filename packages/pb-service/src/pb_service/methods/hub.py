@@ -22,7 +22,12 @@ from pb_service.hub.manager import (
     HubManager,
     HubNotFoundError,
 )
-from pb_service.hub.transport import DeviceInfo, ScanFilter, looks_like_id
+from pb_service.hub.transport import (
+    DeviceInfo,
+    ScanFilter,
+    looks_like_id,
+    preference_rank,
+)
 from pb_service.methods import method
 from pb_service.session import Session
 
@@ -55,6 +60,36 @@ def _device_json(device: DeviceInfo) -> dict[str, Any]:
         "transport": device.transport,
         "type": device.hub_type,
     }
+
+
+PREFERENCE_SECONDS = 0.5
+"""How long a hub found on one transport waits for a better route to appear.
+
+A hub can be reachable more than one way, and which way it is reached decides
+how quick everything afterwards will be -- so taking whichever route answered
+first would make that a race rather than a decision. It is a short wait and it
+is only ever paid when the route that answered is not already the preferred one,
+which in practice means only when Bluetooth answered before USB: enumerating
+serial ports is quick enough that USB usually wins outright.
+"""
+
+
+def _transport(params: dict[str, Any]) -> str | None:
+    """Read which transport a request asked for.
+
+    Args:
+        params: The request parameters.
+
+    Returns:
+        The transport's scheme, or ``None`` to use every transport the service
+        has. Not validated against the transports that exist: a request for one
+        this service was not built with finds nothing, which is a search with no
+        result rather than a malformed request, and reads to the user as the hub
+        not being there.
+    """
+    transport = params.get("transport")
+
+    return str(transport).lower() if transport else None
 
 
 def _scan_seconds(params: dict[str, Any]) -> float | None:
@@ -184,6 +219,10 @@ def _hub_json(connection: HubConnection) -> dict[str, Any]:
         ),
         "name": "Only report hubs with this name.",
         "include_connected": "Also report hubs that are already connected.",
+        "transport": (
+            "Only look on this transport, such as usb or ble. Omit to look on "
+            "every one the service has, which is the usual thing to do."
+        ),
     },
     returns="The hubs seen, deduplicated by id.",
 )
@@ -199,7 +238,11 @@ async def hub_scan(session: Session, params: dict[str, Any]) -> dict[str, Any]:
     if not params.get("include_connected"):
         exclude = frozenset(c.id for c in manager.connected)
 
-    scan_filter = ScanFilter(name=str(name) if name else None, exclude=exclude)
+    scan_filter = ScanFilter(
+        name=str(name) if name else None,
+        exclude=exclude,
+        transport=_transport(params),
+    )
     found: dict[str, DeviceInfo] = {}
 
     # A cancel scope rather than a timeout argument, which also means that
@@ -227,6 +270,10 @@ async def hub_scan(session: Session, params: dict[str, Any]) -> dict[str, Any]:
         "id": "The hub's id, from hub.scan.",
         "name": "Connect to the first hub with this name instead.",
         "exclusive": "Fail if the hub is already connected.",
+        "transport": (
+            "Reach the hub this way, such as usb or ble. Omit to use whichever "
+            "is available, preferring USB where a hub is reachable both ways."
+        ),
     },
     returns="The connected hub's details.",
 )
@@ -249,17 +296,40 @@ async def hub_connect(session: Session, params: dict[str, Any]) -> dict[str, Any
         # would be told to check that their hub is switched on.
         return _hub_json(manager.get(None))
 
-    scan_filter = ScanFilter(name=str(wanted_name) if wanted_name else None)
+    scan_filter = ScanFilter(
+        name=str(wanted_name) if wanted_name else None,
+        transport=_transport(params),
+    )
     device: DeviceInfo | None = None
 
-    with anyio.move_on_after(float(params.get("timeout_s") or DEFAULT_SCAN_SECONDS)):
+    # The scope is entered outside the aclosing block, and the loop below sets
+    # its deadline rather than opening a scope of its own. A cancel scope that
+    # bounds iteration of a generator has to sit outside the block that closes
+    # it: put it inside and cancelling it unwinds into the generator's own
+    # scopes, which anyio reports as exiting a cancel scope that is not the
+    # current one -- measured, as a service that died whenever USB was in play.
+    with anyio.move_on_after(
+        float(params.get("timeout_s") or DEFAULT_SCAN_SECONDS)
+    ) as looking:
         async with aclosing(manager.discover(scan_filter)) as stream:
             async for candidate in stream:
                 if wanted_id and candidate.id != wanted_id:
                     continue
 
-                device = candidate
-                break
+                if device is None or preference_rank(
+                    candidate.transport
+                ) < preference_rank(device.transport):
+                    device = candidate
+
+                if preference_rank(device.transport) == 0:
+                    # Nothing can beat it, so do not wait out the grace.
+                    break
+
+                # Something matched, so stop waiting for a hub and start
+                # waiting for a better route to the one already found.
+                looking.deadline = min(
+                    looking.deadline, anyio.current_time() + PREFERENCE_SECONDS
+                )
 
     if device is None:
         # Just the fact. What to do about it depends on what the caller was
