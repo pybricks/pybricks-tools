@@ -200,7 +200,11 @@ class Service:
         await self._peer.call("service.shutdown")
 
     async def scan(
-        self, *, seconds: float | None = 10.0, name: str | None = None
+        self,
+        *,
+        seconds: float | None = 10.0,
+        name: str | None = None,
+        transport: str | None = None,
     ) -> list[DeviceInfo]:
         """Look for hubs that are advertising.
 
@@ -210,6 +214,8 @@ class Service:
                 than the call; wrap the call in a cancel scope to bound the
                 wait.
             name: Only report hubs with this name.
+            transport: Only look on this transport, such as ``"usb"`` or
+                ``"ble"``. Left out, every transport the service has is used.
 
         Returns:
             The hubs seen.
@@ -219,12 +225,19 @@ class Service:
         if name:
             params["name"] = name
 
+        if transport:
+            params["transport"] = transport
+
         result = await self._peer.call("hub.scan", params)
         return [DeviceInfo.from_wire(item) for item in result.get("devices", [])]
 
     @asynccontextmanager
     async def scanning(
-        self, *, seconds: float | None = 10.0, name: str | None = None
+        self,
+        *,
+        seconds: float | None = 10.0,
+        name: str | None = None,
+        transport: str | None = None,
     ) -> AsyncGenerator[AsyncIterator[DeviceInfo], None]:
         """Scan, reporting each hub as it is seen rather than at the end.
 
@@ -244,6 +257,8 @@ class Service:
                 reading the results, since a deadline on a person only ever
                 expires at the worst moment.
             name: Only report hubs with this name.
+            transport: Only look on this transport, such as ``"usb"`` or
+                ``"ble"``. Left out, every transport the service has is used.
 
         Yields:
             An iterator over the hubs seen, ending when the scan does -- which,
@@ -261,6 +276,9 @@ class Service:
 
         if name:
             params["name"] = name
+
+        if transport:
+            params["transport"] = transport
 
         # Bounded, and generously: an advertisement every few milliseconds from
         # several hubs still leaves room for a consumer redrawing a table.
@@ -294,7 +312,11 @@ class Service:
                 tg.cancel_scope.cancel()
 
     async def connect_hub(
-        self, *, hub_id: str | None = None, name: str | None = None
+        self,
+        *,
+        hub_id: str | None = None,
+        name: str | None = None,
+        transport: str | None = None,
     ) -> HubInfo:
         """Connect to a hub and leave it connected.
 
@@ -303,6 +325,9 @@ class Service:
         Args:
             hub_id: The hub's id, from [scan][pb_client.service.Service.scan].
             name: Connect to the first hub with this name instead.
+            transport: Reach the hub this way, such as ``"usb"`` or ``"ble"``.
+                Left out, the service uses whichever it can, preferring USB
+                where a hub is reachable both ways.
 
         Returns:
             The connected hub.
@@ -314,6 +339,9 @@ class Service:
 
         if name:
             params["name"] = name
+
+        if transport:
+            params["transport"] = transport
 
         return HubInfo.from_wire(await self._peer.call("hub.connect", params))
 
