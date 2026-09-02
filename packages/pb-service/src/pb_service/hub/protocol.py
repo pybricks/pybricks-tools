@@ -540,6 +540,14 @@ class HubType(IntEnum):
     TECHNIC_SMALL_HUB = 0x83
     """SPIKE Essential."""
     TECHNIC_MOVE_HUB = 0x84
+    NXT = 0xE1
+    """MINDSTORMS NXT."""
+    EV3 = 0xE2
+    """MINDSTORMS EV3.
+
+    Reached over USB rather than Bluetooth, which is why this was missed until
+    a real EV3 running Pybricks reported a product id nothing here knew.
+    """
 
 
 class VendorIdSource(IntEnum):
@@ -565,6 +573,10 @@ _HUB_TYPE_NAMES: Final[Mapping[tuple[int, int | None], str]] = {
     # the two need telling apart when installing firmware, not here.
     (HubType.TECHNIC_LARGE_HUB, 2): "Prime hub",
     (HubType.TECHNIC_SMALL_HUB, 0): "Essential hub",
+    # The two MINDSTORMS bricks, which are "bricks" rather than "hubs" in
+    # LEGO's own vocabulary and in the firmware's comments.
+    (HubType.NXT, None): "NXT brick",
+    (HubType.EV3, None): "EV3 brick",
 }
 """What to call each hub, following Pybricks Code so that the two agree.
 

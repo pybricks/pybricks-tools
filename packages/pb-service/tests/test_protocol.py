@@ -336,12 +336,26 @@ def _pnp(product: int, version: int = 0, *, vendor: int | None = None) -> p.PnpI
         # look at and had no name at all until this entry existed.
         (p.HubType.TECHNIC_LARGE_HUB, 2, "Prime hub"),
         (p.HubType.TECHNIC_SMALL_HUB, 0, "Essential hub"),
+        # The MINDSTORMS bricks, which are reached over USB rather than
+        # Bluetooth and so were missing until a real EV3 was plugged in.
+        (p.HubType.NXT, 0, "NXT brick"),
+        (p.HubType.EV3, 0, "EV3 brick"),
     ],
 )
 def test_hub_type_names_follow_pybricks_code(
     product: int, version: int, expected: str
 ) -> None:
     assert p.hub_type_name(_pnp(product, version)) == expected
+
+
+def test_an_ev3_reports_the_pnp_id_a_real_one_sent() -> None:
+    # Captured from an EV3 running Pybricks v4.1.0b3 over USB. It named no hub
+    # type at all before HubType.EV3 existed, which is what a user would have
+    # seen as a blank column in pb scan.
+    pnp = p.unpack_pnp_id(bytes.fromhex("01 97 03 e2 00 00 00"))
+
+    assert pnp.product_id == p.HubType.EV3
+    assert p.hub_type_name(pnp) == "EV3 brick"
 
 
 def test_an_unknown_variant_of_a_known_hub_is_not_guessed_at() -> None:
