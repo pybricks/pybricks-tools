@@ -8,11 +8,17 @@ computer — from the command line, or from your own Python code.
 
 ## Install
 
+The recommended way is with [uv](https://docs.astral.sh/uv/). If you do not
+have it,
+[uv's installation page](https://docs.astral.sh/uv/getting-started/installation/)
+has the ways to get it.
+
 ```bash
 uv tool install pybricks-cli
 ```
 
-That gives you the `pb` command.
+That gives you the `pb` command. It is an ordinary Python package, so pipx or
+`pip install` into a virtual environment work too.
 
 ## Run a program
 
@@ -145,7 +151,9 @@ Switch the hub on and press its button so that its light flashes.
 ```
 
 If you ever see a traceback instead, that is a bug in `pb` rather than something
-you did — please report it, including the traceback and what you were doing.
+you did — please report it at
+[pybricks/support](https://github.com/pybricks/support/issues), including the
+traceback and what you were doing.
 
 ## Where to next
 
@@ -156,3 +164,15 @@ you did — please report it, including the traceback and what you were doing.
   why the tools are split the way they are.
 - [Contributing](contributing.md) — getting set up, and the rules the code
   follows.
+
+## Source code
+
+The source is on GitHub at
+[pybricks/pybricks-tools](https://github.com/pybricks/pybricks-tools), under the
+MIT licence.
+
+Bugs and questions go to [pybricks/support](https://github.com/pybricks/support),
+which is where they are collected for every Pybricks project —
+[ask a question](https://github.com/pybricks/support/discussions) in its
+discussions, or [report a bug](https://github.com/pybricks/support/issues) in
+its issues.

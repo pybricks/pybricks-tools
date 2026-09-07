@@ -13,6 +13,8 @@
   <img src="docs/assets/pb.svg" alt="A terminal choosing a hub from a list and running a program on it" width="720">
 </p>
 
+Install it with [uv](https://docs.astral.sh/uv/getting-started/installation/):
+
 ```bash
 uv tool install pybricks-cli
 ```
