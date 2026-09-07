@@ -38,6 +38,20 @@ three bytes of the escape sequence rather than a key code. Ctrl-C is the one
 that proves the process is not about to be interrupted by its own input.
 """
 
+WAITING = b"about to wait for a key"
+"""What the probe writes when it has found nothing to read and is about to wait.
+
+The POSIX test types only once it has seen this. Without it, whether the probe
+ever had to wait was a race: the parent typed as soon as the probe said it had
+entered raw mode, so on a fast machine all five bytes were already in the
+pseudo-terminal by the time the probe first looked, "waits" was never
+recorded, and the report had no such key. It won that race on a developer
+machine and lost it on CI, where every POSIX runner failed with a KeyError.
+
+The Windows test has never needed one because it arranges the same thing a
+different way: it types from a timer, 0.3s after the probe starts reading.
+"""
+
 _PROBE = """
 import json
 import sys
@@ -49,6 +63,7 @@ from pb_cli import console
 
 REPORT = sys.argv[1]
 WANT = {want!r}
+WAITING = {waiting!r}
 report = {{}}
 
 {arrange}
@@ -63,6 +78,13 @@ async def collect(term, until):
             if chunk:
                 got += chunk
                 continue
+            if "waits" not in report and sys.platform != "win32":
+                # There is genuinely nothing to read, so this is the wait the
+                # test is about. Saying so before blocking is what lets the
+                # POSIX test hold off typing until now. Not on Windows: the
+                # console answers a write of its own with bytes on the input
+                # side, which arrive as though they had been typed.
+                term.write(WAITING)
             report["waits"] = report.get("waits", 0) + 1
             await term.wait()
     return got
@@ -241,7 +263,10 @@ def _mode():
 def _probe(tmp_path: Path, arrange: str, type_keys: str) -> Path:
     """Write the probe program that will run against a real terminal."""
     source = _PROBE.format(
-        want=TYPED, arrange=textwrap.dedent(arrange), type_keys=type_keys
+        want=TYPED,
+        waiting=WAITING,
+        arrange=textwrap.dedent(arrange),
+        type_keys=type_keys,
     )
     path = tmp_path / "console_probe.py"
     path.write_text(source, encoding="utf-8")
@@ -356,12 +381,19 @@ def test_a_real_pty_gives_back_what_was_typed(tmp_path: Path) -> None:
             stderr=subprocess.PIPE,
         ) as process:
             os.close(follower)
-            # Not a moment sooner: until the probe has entered raw mode the
-            # line discipline is still buffering whole lines and turning
-            # Ctrl-C into a signal, so anything typed now would be answered by
-            # the terminal rather than by the code under test. The probe
-            # writing to the terminal is what says it is ready.
-            _wait_for(controller, b"written by the probe")
+            # Not a moment sooner, for two reasons. Until the probe has
+            # entered raw mode the line discipline is still buffering whole
+            # lines and turning Ctrl-C into a signal, so anything typed now
+            # would be answered by the terminal rather than by the code under
+            # test. And until it says it is about to wait, the keystrokes
+            # could be sitting there to be found rather than waited for,
+            # which is the path this test exists to cover.
+            #
+            # One _wait_for, not one per marker: it keeps what it reads to
+            # itself, so a second call can block forever on a marker the
+            # first one already swallowed. WAITING is written last, so
+            # waiting for it implies everything before it.
+            _wait_for(controller, WAITING)
             os.write(controller, TYPED.encode())
             _stdout, stderr = process.communicate(timeout=60)
             assert process.returncode == 0, stderr.decode()

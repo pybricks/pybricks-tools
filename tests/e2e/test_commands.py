@@ -55,18 +55,22 @@ def hub() -> FakeHub:
 
 
 @pytest.fixture
-def endpoint(tmp_path: Path) -> Endpoint:
+def endpoint(short_tmp_path: Path) -> Endpoint:
     unique = uuid.uuid4().hex[:12]
 
     if sys.platform == "win32":
         return Endpoint("pipe", f"pb-cmd-{unique}")
 
-    return Endpoint("unix", str(tmp_path / f"{unique}.sock"))
+    return Endpoint("unix", str(short_tmp_path / f"{unique}.sock"))
 
 
 @pytest.fixture
 async def service(
-    endpoint: Endpoint, hub: FakeHub, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    endpoint: Endpoint,
+    hub: FakeHub,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    short_tmp_path: Path,
 ) -> AsyncGenerator[FakeHub, None]:
     """Run a service the commands will find, without touching the real one.
 
@@ -74,7 +78,9 @@ async def service(
     them, so nothing here starts a loop of its own and there is no thread or
     blocking portal between the test and what it is testing.
     """
-    runtime = tmp_path / "runtime"
+    # Short, not tmp_path: the service's socket goes in here, and on macOS a
+    # path under tmp_path does not fit in sun_path. See short_tmp_path.
+    runtime = short_tmp_path / "runtime"
     # 0700, because the service refuses a runtime directory other users can
     # read -- its socket and its token live there. A test that made one the
     # usual way would be refused, but only on POSIX, where the check means
@@ -439,12 +445,15 @@ async def test_service_status_when_nothing_is_running(
     endpoint: Endpoint,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    short_tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     # No service fixture: nothing is listening. "It is not running" answers
     # the question rather than failing to answer it, so it says so plainly
     # and exits with the code that means nothing is connected.
-    runtime = tmp_path / "runtime"
+    # Short, not tmp_path: the service's socket goes in here, and on macOS a
+    # path under tmp_path does not fit in sun_path. See short_tmp_path.
+    runtime = short_tmp_path / "runtime"
     # 0700, because the service refuses a runtime directory other users can
     # read -- its socket and its token live there. A test that made one the
     # usual way would be refused, but only on POSIX, where the check means
@@ -466,11 +475,14 @@ async def test_stopping_a_service_that_is_not_running_succeeds(
     endpoint: Endpoint,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    short_tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     # Asking for something to be stopped when it already is got what was
     # wanted, so it is not an error.
-    runtime = tmp_path / "runtime"
+    # Short, not tmp_path: the service's socket goes in here, and on macOS a
+    # path under tmp_path does not fit in sun_path. See short_tmp_path.
+    runtime = short_tmp_path / "runtime"
     # 0700, because the service refuses a runtime directory other users can
     # read -- its socket and its token live there. A test that made one the
     # usual way would be refused, but only on POSIX, where the check means
@@ -490,10 +502,13 @@ async def test_disconnecting_when_no_service_is_running_succeeds(
     endpoint: Endpoint,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    short_tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     # Same reasoning: nothing is connected, which is the outcome asked for.
-    runtime = tmp_path / "runtime"
+    # Short, not tmp_path: the service's socket goes in here, and on macOS a
+    # path under tmp_path does not fit in sun_path. See short_tmp_path.
+    runtime = short_tmp_path / "runtime"
     # 0700, because the service refuses a runtime directory other users can
     # read -- its socket and its token live there. A test that made one the
     # usual way would be refused, but only on POSIX, where the check means
