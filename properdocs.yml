@@ -1,5 +1,6 @@
 site_name: Pybricks Tools
 site_description: A service, library and CLI for talking to Pybricks hubs
+site_url: https://pybricks.github.io/pybricks-tools/
 repo_url: https://github.com/pybricks/pybricks-tools
 edit_uri: edit/main/docs/
 
