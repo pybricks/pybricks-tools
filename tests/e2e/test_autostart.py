@@ -22,7 +22,6 @@ import anyio.to_thread
 import pytest
 
 import pb_client
-from pb_core import paths
 from pb_core.ipc import Endpoint
 
 pytestmark = pytest.mark.anyio
@@ -68,32 +67,6 @@ def _private_runtime(  # pyright: ignore[reportUnusedFunction]
     yield
 
 
-# DIAGNOSTIC: how much of the service log to show when a stop goes wrong.
-_LOG_TAIL = 4000
-
-
-def _show_service_log() -> None:
-    """Print the end of the service's log, for a failure that needs it.
-
-    DIAGNOSTIC, and temporary. The service is a separate process, so when its
-    shutdown reply goes missing there is nothing in the test's own output to
-    say why. The log is the only place that records whether the reply was
-    dropped before it was written or written and then lost, and pytest shows
-    captured output for a failing test.
-    """
-
-    path = paths.log_file()
-
-    if not path.exists():
-        print(f"--- no service log at {path} ---")
-        return
-
-    text = path.read_text(encoding="utf-8", errors="replace")
-    print(f"--- tail of {path} ---")
-    print(text[-_LOG_TAIL:])
-    print("--- end of service log ---")
-
-
 async def _stop(endpoint: Endpoint) -> None:
     """Stop the service if it is still running, so no test leaks a process."""
 
@@ -102,11 +75,6 @@ async def _stop(endpoint: Endpoint) -> None:
             await service.shutdown()
     except pb_client.ServiceUnavailable:
         pass
-    except BaseException:
-        # Not handling it -- the failure still stands, exactly as before. This
-        # only makes the service's side of it visible. DIAGNOSTIC.
-        _show_service_log()
-        raise
 
 
 async def test_client_starts_a_service_that_outlives_it(endpoint: Endpoint) -> None:
