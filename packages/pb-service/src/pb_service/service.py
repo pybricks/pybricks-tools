@@ -153,6 +153,20 @@ which has stopped reading cannot keep the service alive.
 """
 
 
+GOODBYE_SECONDS = 2.0
+"""How long a shutdown waits for clients to close, once they have been replied to.
+
+Writing the reply is not enough on Windows: closing a named pipe discards
+whatever the client has not read yet, so a service that replies and then closes
+can still leave the client believing the connection died. Waiting for the
+client to close instead means the reply has been read, because reading it is
+what makes a client close.
+
+Bounded for the same reason as :data:`DRAIN_SECONDS`: a client that never
+closes must not be able to keep the service alive.
+"""
+
+
 @asynccontextmanager
 async def run_service(
     endpoint: Endpoint,
@@ -213,6 +227,24 @@ async def run_service(
                             for session in list(service.sessions):
                                 if session.peer is not None:
                                     await session.peer.drain()
+
+                        # And then let the client be the one that closes. The
+                        # reply is written by now, but on Windows closing a
+                        # named pipe throws away anything unread, so cancelling
+                        # here lost the reply often enough to fail CI -- the
+                        # service having logged that it drained in a
+                        # millisecond, and the client having raised
+                        # PeerClosedError all the same. A client closes as soon
+                        # as it has its answer, so waiting for that is waiting
+                        # for the answer to have arrived.
+                        #
+                        # serve_session already waits on peer.wait_closed();
+                        # the only thing that stopped it finishing on its own
+                        # was the cancellation below.
+                        with anyio.move_on_after(GOODBYE_SECONDS, shield=True):
+                            for session in list(service.sessions):
+                                if session.peer is not None:
+                                    await session.peer.wait_closed()
 
                         # Stop accepting, then let existing clients unwind.
                         # Hubs are untouched until the manager's own scope
