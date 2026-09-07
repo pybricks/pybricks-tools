@@ -62,7 +62,10 @@ def test_lock_excludes_another_process(tmp_path: Path) -> None:
 
     with single_instance(lock):
         result = subprocess.run(
-            [sys.executable, "-c", script], capture_output=True, text=True, check=True
+            [sys.executable, "-c", script],
+            capture_output=True,
+            encoding="utf-8",
+            check=True,
         )
 
     assert result.stdout.strip() == "refused"

@@ -128,7 +128,7 @@ async def test_second_service_exits_rather_than_fighting(endpoint: Endpoint) -> 
             lambda: subprocess.run(
                 [sys.executable, "-m", "pb_service", "--endpoint", str(endpoint)],
                 capture_output=True,
-                text=True,
+                encoding="utf-8",
                 timeout=60,
                 check=False,
             )
@@ -143,6 +143,9 @@ def test_cli_does_not_import_bleak() -> None:
     # time on every invocation and break the layering.
     code = "import sys; import pb_cli.cli; print('bleak' in sys.modules, 'pb_service' in sys.modules)"
     result = subprocess.run(
-        [sys.executable, "-c", code], capture_output=True, text=True, check=True
+        [sys.executable, "-c", code],
+        capture_output=True,
+        encoding="utf-8",
+        check=True,
     )
     assert result.stdout.strip() == "False False"
