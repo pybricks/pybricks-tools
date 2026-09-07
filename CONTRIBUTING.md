@@ -15,9 +15,14 @@ The full gate, identical to CI:
 uv run ruff format --check .
 uv run ruff check .
 uv run pyright
-uv run pytest
+PYTHONDEVMODE=1 PYTHONWARNDEFAULTENCODING=1 uv run pytest
 uv run properdocs build --strict
 ```
+
+The two environment variables are not decoration: CI sets them for the test
+job, `filterwarnings = ["error"]` turns what they emit into failures, and
+`PYTHONWARNDEFAULTENCODING` catches nothing at all without them. A run without
+them passes tests that CI fails.
 
 ## Layout
 
@@ -251,6 +256,25 @@ a failed call returns a plausible zero and says nothing.
 
 **ctypes, not pywin32.** Importing `pythoncom` initialises COM as an apartment,
 which makes bleak hang; `bleak.backends.winrt.util.assert_mta` names it.
+
+## Text has an encoding, and we say which one
+
+**Every call that turns bytes into text names its encoding.** That means the
+`encoding=` argument to `open`, to `Path.read_text` and `write_text`, and to
+`subprocess.run` and `Popen` — and it is `"utf-8"` unless there is a reason for
+something else. Left out, Python uses the platform default, which is UTF-8 on
+Linux and macOS and the ANSI code page on Windows, so the same code reads the
+same file two different ways depending on where it runs.
+
+Prefer `encoding="utf-8"` to `text=True` when running a subprocess. `text=True`
+selects text mode and then falls back to the default encoding for it; passing
+an encoding selects text mode as well, so it says the same thing and one more
+useful thing.
+
+`PYTHONWARNDEFAULTENCODING` is what finds the omissions, which is why the local
+gate above sets it. The warning points at the stdlib frame that consulted the
+default rather than at the call that failed to specify one, so read up the
+traceback for our own file.
 
 ## Values, not things that get edited
 
