@@ -209,27 +209,10 @@ async def run_service(
                         # may already be cancelled, and bounded, because a
                         # client that has stopped reading must not be able to
                         # keep the service from exiting.
-                        # DIAGNOSTIC: how long the drain took, and whether it
-                        # ran out of time. Remove with the warning in
-                        # JsonRpcPeer._try_send once the cause is known.
-                        started = time.perf_counter()
-
-                        with anyio.move_on_after(
-                            DRAIN_SECONDS, shield=True
-                        ) as draining:
+                        with anyio.move_on_after(DRAIN_SECONDS, shield=True):
                             for session in list(service.sessions):
                                 if session.peer is not None:
                                     await session.peer.drain()
-
-                        if draining.cancelled_caught:
-                            logger.warning(
-                                "drain abandoned after %.3fs, replies may be lost",
-                                time.perf_counter() - started,
-                            )
-                        else:
-                            logger.info(
-                                "drained in %.3fs", time.perf_counter() - started
-                            )
 
                         # Stop accepting, then let existing clients unwind.
                         # Hubs are untouched until the manager's own scope
