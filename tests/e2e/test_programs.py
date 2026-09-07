@@ -38,9 +38,11 @@ def anyio_backend() -> str:
 
 @pytest.fixture(autouse=True)
 def _private_runtime(  # pyright: ignore[reportUnusedFunction]
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, short_tmp_path: Path
 ) -> Iterator[None]:
-    runtime = tmp_path / "runtime"
+    # Short, not tmp_path: the service's socket goes in here, and on macOS a
+    # path under tmp_path does not fit in sun_path. See short_tmp_path.
+    runtime = short_tmp_path / "runtime"
     # 0700, because the service refuses a runtime directory other users can
     # read -- its socket and its token live there. A test that made one the
     # usual way would be refused, but only on POSIX, where the check means
@@ -59,11 +61,12 @@ def hub() -> FakeHub:
     return FakeHub(name=HUB_NAME, address="00:11:22:33:44:55")
 
 
-def _endpoint(tmp_path: Path) -> Endpoint:
+def _endpoint(directory: Path) -> Endpoint:
     """A socket or pipe of this test's own.
 
     Args:
-        tmp_path: Somewhere to put a socket, on the platforms that need one.
+        directory: Somewhere to put a socket, on the platforms that need one.
+            It has to be a short path: see ``short_tmp_path``.
 
     Returns:
         Where a service for one test should listen.
@@ -73,12 +76,14 @@ def _endpoint(tmp_path: Path) -> Endpoint:
     if sys.platform == "win32":
         return Endpoint("pipe", f"pb-prog-{unique}")
 
-    return Endpoint("unix", str(tmp_path / f"{unique}.sock"))
+    return Endpoint("unix", str(directory / f"{unique}.sock"))
 
 
 @pytest.fixture
-async def connected(tmp_path: Path, hub: FakeHub) -> AsyncGenerator[Endpoint, None]:
-    endpoint = _endpoint(tmp_path)
+async def connected(
+    short_tmp_path: Path, hub: FakeHub
+) -> AsyncGenerator[Endpoint, None]:
+    endpoint = _endpoint(short_tmp_path)
 
     async with service_module.run_service(
         endpoint, idle_timeout=0, transport=FakeHubTransport(hub)

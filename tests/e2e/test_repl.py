@@ -69,20 +69,26 @@ def hub() -> FakeHub:
 
 
 @pytest.fixture
-def endpoint(tmp_path: Path) -> Endpoint:
+def endpoint(short_tmp_path: Path) -> Endpoint:
     unique = uuid.uuid4().hex[:12]
 
     if sys.platform == "win32":
         return Endpoint("pipe", f"pb-repl-{unique}")
 
-    return Endpoint("unix", str(tmp_path / f"{unique}.sock"))
+    return Endpoint("unix", str(short_tmp_path / f"{unique}.sock"))
 
 
 @pytest.fixture
 async def service(
-    endpoint: Endpoint, hub: FakeHub, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    endpoint: Endpoint,
+    hub: FakeHub,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    short_tmp_path: Path,
 ) -> AsyncGenerator[FakeHub, None]:
-    runtime = tmp_path / "runtime"
+    # Short, not tmp_path: the service's socket goes in here, and on macOS a
+    # path under tmp_path does not fit in sun_path. See short_tmp_path.
+    runtime = short_tmp_path / "runtime"
     # 0700, because the service refuses a runtime directory other users can
     # read -- its socket and its token live there. A test that made one the
     # usual way would be refused, but only on POSIX, where the check means
