@@ -236,13 +236,14 @@ async def test_a_download_goes_to_the_slot_the_hub_has_selected(
 
 async def test_a_single_slot_hub_says_so_rather_than_naming_a_slot(
     tmp_path: Path,
+    short_tmp_path: Path,
 ) -> None:
     # How many slots a hub has is read once, when it is connected to, so this
     # one has to be a single-slot hub from the start -- which is what a City,
     # Technic or Move hub is.
     hub = FakeHub(name=HUB_NAME, address="00:11:22:33:44:55", num_slots=1)
     program = await pb_client.compile_script(_script(tmp_path, "print('hi')\n"))
-    endpoint = _endpoint(tmp_path)
+    endpoint = _endpoint(short_tmp_path)
 
     async with (
         service_module.run_service(
@@ -277,15 +278,10 @@ async def test_download_clears_the_metadata_first(
 
 
 async def test_a_program_that_is_too_large_is_refused(
-    tmp_path: Path, hub: FakeHub
+    tmp_path: Path, short_tmp_path: Path, hub: FakeHub
 ) -> None:
     hub.max_program_size = 32
-    unique = uuid.uuid4().hex[:12]
-    endpoint = (
-        Endpoint("pipe", f"pb-big-{unique}")
-        if sys.platform == "win32"
-        else Endpoint("unix", str(tmp_path / f"{unique}.sock"))
-    )
+    endpoint = _endpoint(short_tmp_path)
 
     async with (
         service_module.run_service(
@@ -307,15 +303,10 @@ async def test_a_program_that_is_too_large_is_refused(
 
 
 async def test_download_is_chunked_to_the_hub_limit(
-    tmp_path: Path, hub: FakeHub
+    tmp_path: Path, short_tmp_path: Path, hub: FakeHub
 ) -> None:
     hub.max_write_size = 20
-    unique = uuid.uuid4().hex[:12]
-    endpoint = (
-        Endpoint("pipe", f"pb-chunk-{unique}")
-        if sys.platform == "win32"
-        else Endpoint("unix", str(tmp_path / f"{unique}.sock"))
-    )
+    endpoint = _endpoint(short_tmp_path)
 
     async with (
         service_module.run_service(
@@ -401,16 +392,12 @@ async def test_start_uses_the_requested_slot(
 
 async def test_starting_a_slot_on_old_firmware_is_refused(
     tmp_path: Path,
+    short_tmp_path: Path,
 ) -> None:
     # Silently running a different program than the one asked for would be
     # worse than failing.
     hub = FakeHub(name=HUB_NAME, address="00:11:22:33:44:55", profile=(1, 3, 0))
-    unique = uuid.uuid4().hex[:12]
-    endpoint = (
-        Endpoint("pipe", f"pb-old-{unique}")
-        if sys.platform == "win32"
-        else Endpoint("unix", str(tmp_path / f"{unique}.sock"))
-    )
+    endpoint = _endpoint(short_tmp_path)
 
     async with (
         service_module.run_service(
