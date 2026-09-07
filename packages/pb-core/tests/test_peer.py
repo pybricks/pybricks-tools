@@ -214,3 +214,32 @@ async def test_no_tasks_outlive_the_connection() -> None:
         await anyio.lowlevel.checkpoint()
 
     assert len(asyncio.all_tasks()) == before
+
+
+async def test_a_drain_waits_for_a_reply_that_does_not_exist_yet() -> None:
+    # The shape of a shutdown. The handler is itself what sets the teardown
+    # going, so a drain can begin while the response to the very request that
+    # asked for it has not reached the outbox. Draining only what was already
+    # queued discarded that reply and told the caller the connection died --
+    # which is what "PeerClosedError from service.shutdown" was.
+    tearing_down = anyio.Event()
+
+    async def handler(request: jsonrpc.Request) -> Any:
+        tearing_down.set()
+        # Let the drain actually run before this returns. Without it the test
+        # would pass on scheduling luck rather than on the peer being right.
+        await anyio.lowlevel.checkpoint()
+        return {"stopping": True}
+
+    async with _connected(handler) as (client, server):
+
+        async def drain_on_request() -> None:
+            await tearing_down.wait()
+            await server.drain()
+
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(drain_on_request)
+
+            # Bounded, so that a lost reply is a failure rather than a hang.
+            with anyio.fail_after(10):
+                assert await client.call("service.shutdown") == {"stopping": True}

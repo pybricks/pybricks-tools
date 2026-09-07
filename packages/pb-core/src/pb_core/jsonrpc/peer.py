@@ -108,6 +108,22 @@ class JsonRpcPeer:
         self._drained = anyio.Event()
         """Set once the writer has stopped, whether drained or cancelled."""
 
+        self._serving = 0
+        """How many inbound requests are still owed a response.
+
+        Counted from picking a request up to handing its response to the
+        outbox, which is strictly later than its handler returning -- and that
+        gap is the whole reason this exists. See :meth:`drain`.
+        """
+
+        self._answered = anyio.Event()
+        """Set while nothing is owed.
+
+        Replaced rather than cleared when a request arrives, because an anyio
+        event cannot be un-set; a waiter therefore re-reads it each time round.
+        """
+        self._answered.set()
+
         self.dropped_notifications = 0
         """Notifications discarded because this peer was not keeping up."""
 
@@ -208,16 +224,31 @@ class JsonRpcPeer:
         await self._closed.wait()
 
     async def drain(self) -> None:
-        """Send everything already queued, and refuse anything more.
+        """Answer what is still owed, send it, and refuse anything more.
 
         For the one message that must not be lost to a teardown: the reply to
         the request that asked for the teardown. Cancelling the writer instead
         drops it, and the caller is left believing its request went unanswered
         when in fact it was obeyed.
 
+        Waiting only for the outbox was not enough, and the request that asks
+        for a teardown is exactly the case it missed. Its handler sets the
+        shutdown going, so by the time anything calls this the handler may have
+        returned without its response having reached the outbox yet -- closing
+        the outbox then discards a reply that was never queued to begin with,
+        and ``_try_send`` swallows the resulting ``ClosedResourceError`` as a
+        debug line. Every POSIX and ARM64 runner saw it as
+        ``PeerClosedError`` from ``service.shutdown``.
+
         Waits for the writer to finish, so callers should bound it -- a peer
         that has stopped reading must not be able to hold this open.
         """
+
+        # Blocks on an event per turn rather than spinning; re-read because a
+        # request arriving replaces it.
+        while self._serving:
+            await self._answered.wait()
+
         self._outbox_tx.close()
         await self._drained.wait()
 
@@ -322,6 +353,20 @@ class JsonRpcPeer:
             logger.exception("notification handler failed: %s", notification.method)
 
     async def _run_request(self, request: Request) -> None:
+        self._serving += 1
+
+        if self._serving == 1:
+            self._answered = anyio.Event()
+
+        try:
+            await self._answer(request)
+        finally:
+            self._serving -= 1
+
+            if self._serving == 0:
+                self._answered.set()
+
+    async def _answer(self, request: Request) -> None:
         if self._handler is None:
             await self._try_send(
                 error_response(
