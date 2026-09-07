@@ -406,7 +406,16 @@ class JsonRpcPeer:
         try:
             await self._outbox_tx.send(message)
         except (anyio.ClosedResourceError, anyio.BrokenResourceError):
-            logger.debug("dropping outbound message: connection closed")
+            # DIAGNOSTIC: warning rather than debug while the lost shutdown
+            # reply is being chased. This line is what tells the two candidate
+            # causes apart -- if it appears, the reply never reached the
+            # outbox; if it does not, the reply was written and then lost when
+            # the pipe closed. Put back to debug once that is known.
+            logger.warning(
+                "dropping outbound message: connection closed (%s id=%r)",
+                type(message).__name__,
+                getattr(message, "id", None),
+            )
 
 
 @asynccontextmanager
