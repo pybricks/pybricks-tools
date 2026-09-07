@@ -123,15 +123,6 @@ jobs:
       # weaker number a single-runner report is measured against.
       - run: uv run coverage report --fail-under=85
 
-  docs:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
-        with: { enable-cache: true }
-      - run: uv sync --all-packages --all-groups
-      - run: uv run properdocs build --strict
-
   build:
     runs-on: ubuntu-24.04
     steps:

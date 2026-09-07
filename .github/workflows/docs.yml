@@ -1,0 +1,67 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 The Pybricks Authors
+
+name: Docs
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  # A superseded deploy is worth cancelling, but only one deploy may be in
+  # flight at a time, so pushes to main queue rather than race.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Read-only by default. The deploy job asks for what it needs and nothing else
+# has any write access at all.
+permissions:
+  contents: read
+
+env:
+  UV_FROZEN: "1"
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Nothing here pushes anything, so the checkout token is not wanted
+          # in the runner's git config where a build script could reach it.
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v6
+        with: { enable-cache: true }
+      # --all-groups rather than --group docs: the API reference is generated
+      # by mkdocstrings importing the packages, so they and their runtime
+      # dependencies have to be installed for the build to resolve a symbol.
+      - run: uv sync --all-packages --all-groups
+      - run: uv run properdocs build --strict
+      # The artifact deploy serves what is uploaded verbatim -- no Jekyll pass,
+      # so no .nojekyll is needed to stop one.
+      - uses: actions/upload-pages-artifact@v5
+        with: { path: site }
+
+  deploy:
+    # Pull requests build the site to prove it still builds, and stop there:
+    # there is one live site and it follows main.
+    if: github.event_name != 'pull_request'
+    needs: build
+    permissions:
+      pages: write # publish the artifact
+      id-token: write # OIDC, which is how deploy-pages proves who it is
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-24.04
+    steps:
+      # Reads the repository's Pages settings. Its base_url output is not used
+      # -- properdocs.yml states site_url itself, because a build has to be
+      # able to produce the right canonical links and sitemap without asking
+      # GitHub. Setting `enablement: true` here would turn Pages on rather
+      # than requiring it to be on; left off deliberately, so that publishing
+      # a site is a decision taken in the settings rather than by a push.
+      - uses: actions/configure-pages@v6
+      - uses: actions/deploy-pages@v5
+        id: deployment
