@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 The Pybricks Authors
+
+version: 2
+
+updates:
+  # The workflows pin every action to a commit SHA, which is what makes a
+  # third-party action safe to run: a tag can be moved to point at different
+  # code, a SHA cannot. The cost is that a pin is invisible when it goes stale,
+  # so something has to move it -- that is this.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      # One pull request rather than nine. These are read together and the
+      # question asked of them is the same, so reviewing them together is less
+      # work and no less careful.
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: "ci"
+
+  # uv.lock, so the versions actually resolved are updated too. CI runs with
+  # UV_FROZEN=1 and a lock job, so a dependency only moves when the lock file
+  # says so -- which means nothing moves at all unless something bumps it.
+  - package-ecosystem: uv
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      python:
+        patterns: ["*"]
+    commit-message:
+      prefix: "repo"
