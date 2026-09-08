@@ -51,15 +51,21 @@ what ``hub.use`` and ``hub.list`` say.
 MIN_PROTOCOL_VERSION: Final = 3
 """The oldest client version this build still accepts.
 
-Equal to :data:`PROTOCOL_VERSION` while the project is unreleased, and moved
-with it, so that a mismatch is refused in either direction rather than only
-when the client is the newer of the two. There is no released version to stay
-compatible with yet, and during development the service routinely outlives
-several changes to the wire in a day.
+Equal to :data:`PROTOCOL_VERSION`, and moved with it, so that a mismatch is
+refused in either direction rather than only when the client is the newer of
+the two. During development the service routinely outlives several changes to
+the wire in a day.
 
-At the first release this stops following: it stays at the oldest version the
-build genuinely serves, and the gap between the two numbers becomes the
-compatibility promise.
+This follows :data:`PROTOCOL_VERSION` through the beta releases as well, which
+is a decision rather than an oversight: the wire is still expected to move, and
+while the two numbers are equal a mismatch is reported with a message naming
+which half is old, instead of a stale service being tolerated and then
+misbehaving.
+
+At the first **stable** release it stops following: it stays at the oldest
+version the build genuinely serves, and the gap between the two numbers becomes
+the compatibility promise. Raising it is then the deliberate act of dropping
+support for a released client.
 """
 
 HUB_FOUND: Final = "hub.found"
