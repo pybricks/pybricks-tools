@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import sys
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import TypeVar, TypeVarTuple, cast
@@ -57,6 +58,7 @@ __all__ = [
     "flatten",
     "render",
     "run",
+    "serial_port_advice",
 ]
 
 EXIT_OK = 0
@@ -112,6 +114,45 @@ older of the two -- but not always, and telling somebody to stop the
 service when their own pb is the old half sends them somewhere that
 cannot help.
 """
+
+
+def serial_port_advice(platform: str = sys.platform) -> str:
+    """Say how to get at a serial port that would not open.
+
+    The same refusal means quite different things on different systems, and the
+    difference is what decides the advice, so this is one suggestion per
+    platform rather than one covering every case at once.
+
+    Args:
+        platform: What to advise for. An argument, defaulted, so that the
+            wording a user on another platform will see can be read back here
+            rather than only on that platform.
+
+    Returns:
+        What to suggest.
+    """
+    if platform == "win32":
+        # Windows has no permissions to grant on a COM port: EACCES here is
+        # almost always another program holding it open.
+        return (
+            "Close anything else using the hub -- Pybricks Code, a serial "
+            "terminal -- and try again."
+        )
+
+    if platform == "darwin":
+        return "Unplug the hub and plug it in again, then try again."
+
+    # Linux, and near enough for the BSDs: the device node belongs to a group,
+    # and the fix is joining it. Stopping the service matters and is easy to
+    # miss -- a service already running keeps the groups it started with, so
+    # the hub stays out of reach until it is replaced, however many times the
+    # user logs out and back in.
+    return (
+        "Add yourself to the [bold]dialout[/] group with [bold]sudo usermod "
+        "-a -G dialout $USER[/], then log out and back in. If you have just "
+        "done that, run [bold]pb service stop[/] as well."
+    )
+
 
 _RULES: Mapping[int, _Rule] = {
     # Hubs. The service's own wording is specific -- "no connected hub named
@@ -169,6 +210,12 @@ _RULES: Mapping[int, _Rule] = {
     ),
     ErrorCode.SCAN_TIMEOUT: _Rule(
         "Switch the hub on and press its button so that its light flashes."
+    ),
+    # The service names the port and repeats what the operating system said,
+    # which is the half of this a user cannot guess; the suggestion is the
+    # other half, and it is the only one here that depends on the platform.
+    ErrorCode.SERIAL_PORT_UNAVAILABLE: _Rule(
+        serial_port_advice(), exit_code=EXIT_ERROR
     ),
     ErrorCode.REQUEST_CANCELLED: _Rule(exit_code=EXIT_ERROR, message="Cancelled."),
     ErrorCode.SERVICE_SHUTTING_DOWN: _Rule(

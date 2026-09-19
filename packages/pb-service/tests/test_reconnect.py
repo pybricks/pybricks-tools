@@ -24,7 +24,13 @@ from pb_service.hub.fake import FakeHub, FakeHubTransport
 from pb_service.hub.manager import HubManager, run_hub_manager
 from pb_service.hub.reconnect import wait_for_return
 from pb_service.hub.selection import Selection
-from pb_service.hub.transport import DeviceInfo, HubLink, ScanFilter, reconnects
+from pb_service.hub.transport import (
+    DeviceInfo,
+    HubLink,
+    ScanFilter,
+    UnavailableDevice,
+    reconnects,
+)
 
 pytestmark = pytest.mark.anyio
 
@@ -69,6 +75,11 @@ class _Cable:
     def _dropped(self, device_id: str) -> None:
         if self.on_disconnect is not None:
             self.on_disconnect(device_id)
+
+    @property
+    def unavailable(self) -> tuple[UnavailableDevice, ...]:
+        """Delegated: an unplugged cable is not a port we were refused."""
+        return self._inner.unavailable
 
     @property
     def device(self) -> DeviceInfo:
@@ -261,6 +272,7 @@ async def test_a_search_that_ends_without_the_hub_gives_up() -> None:
     class _Once:
         scheme = "usb"
         on_disconnect: Callable[[str], None] | None = None
+        unavailable: tuple[UnavailableDevice, ...] = ()
 
         async def discover(
             self, scan_filter: ScanFilter

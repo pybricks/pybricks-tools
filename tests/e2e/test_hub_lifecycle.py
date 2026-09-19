@@ -24,17 +24,19 @@ import pb_service.methods.program  # pyright: ignore[reportUnusedImport]
 
 # Imported to register the RPC methods.
 import pb_service.methods.service  # pyright: ignore[reportUnusedImport]
-import pb_service.methods.stdio  # noqa: F401  # pyright: ignore[reportUnusedImport]
+import pb_service.methods.stdio  # pyright: ignore[reportUnusedImport]
 from pb_core.ipc import Endpoint
 from pb_core.jsonrpc import ErrorCode, JsonRpcError
 from pb_service import service as service_module
 from pb_service.hub import protocol as p
 from pb_service.hub.fake import FakeHub, FakeHubTransport
+from pb_service.hub.transport import UnavailableDevice
 
 pytestmark = pytest.mark.anyio
 
 FIRST = "Pybricks Hub"
 SECOND = "Spare Hub"
+PORT = "/dev/ttyACM0"
 
 
 @pytest.fixture(scope="session")
@@ -160,6 +162,77 @@ async def test_a_scan_that_reports_nothing_still_ends(service_at: Endpoint) -> N
         with anyio.fail_after(10):
             async with service.scanning(seconds=0.3, name="No Such Hub") as devices:
                 assert [device async for device in devices] == []
+
+
+@pytest.fixture
+async def out_of_reach_at(endpoint: Endpoint) -> AsyncGenerator[Endpoint, None]:
+    """A service whose only hub is behind a port it may not open.
+
+    What a Linux machine looks like when the user is not in the group that
+    owns the device node, and a Windows one when another program already has
+    the port: the hub enumerates, so the service knows it is there, and every
+    attempt to open it is refused.
+
+    Args:
+        endpoint: Where the service should listen.
+
+    Yields:
+        That endpoint, with the service running.
+    """
+    transport = FakeHubTransport()
+    transport.hubs = []
+    transport.unavailable = (UnavailableDevice(PORT, "Permission denied"),)
+
+    async with service_module.run_service(
+        endpoint, idle_timeout=0, transport=transport
+    ):
+        yield endpoint
+
+
+async def test_a_hub_that_would_not_open_is_not_reported_as_missing(
+    out_of_reach_at: Endpoint,
+) -> None:
+    # The failure this exists for. Told that no hub was found, somebody plugs
+    # the cable in again, tries another cable and switches the hub off and on,
+    # because all of those are what "not found" means; nothing about it points
+    # at the computer, which is where the problem is.
+    async with pb_client.connect(out_of_reach_at, autostart=False) as service:
+        with pytest.raises(JsonRpcError) as caught:
+            await service.scan(seconds=0.3)
+
+    assert caught.value.code == ErrorCode.SERIAL_PORT_UNAVAILABLE
+    assert PORT in str(caught.value), "the message does not say which port"
+
+
+async def test_connecting_says_the_same_thing(
+    out_of_reach_at: Endpoint, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Connecting is what a user actually types, and it scans first, so it
+    # reaches the same dead end by a different route.
+    monkeypatch.setattr(pb_service.methods.hub, "DEFAULT_SCAN_SECONDS", 0.3)
+
+    async with pb_client.connect(out_of_reach_at, autostart=False) as service:
+        with pytest.raises(JsonRpcError) as caught:
+            await service.connect_hub()
+
+    assert caught.value.code == ErrorCode.SERIAL_PORT_UNAVAILABLE
+
+
+async def test_a_scan_that_finds_a_hub_says_nothing_about_a_refused_port(
+    endpoint: Endpoint, hubs: list[FakeHub]
+) -> None:
+    # A port that will not open is only worth raising when it is the whole
+    # answer. Reachable hubs are the answer to the question that was asked.
+    transport = FakeHubTransport(*hubs)
+    transport.unavailable = (UnavailableDevice(PORT, "Permission denied"),)
+
+    async with (
+        service_module.run_service(endpoint, idle_timeout=0, transport=transport),
+        pb_client.connect(endpoint, autostart=False) as service,
+    ):
+        devices = await service.scan(seconds=0.3)
+
+    assert {device.name for device in devices} == {FIRST, SECOND}
 
 
 async def test_connect_and_describe(service_at: Endpoint) -> None:

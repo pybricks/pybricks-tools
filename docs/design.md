@@ -113,6 +113,15 @@ USB is a plain serial port, so it needs no driver: Windows' own `usbser.sys`,
 which is why a hub held that way does not appear in a scan — the same as one
 held over Bluetooth.
 
+**A port that will not open is not the same as no hub.** Stepping over a
+transport is right for one that cannot work at all; a single port that
+enumerates as a hub and then refuses to open is a different thing, and the
+difference is the whole answer: the hub is plugged in and the computer is what
+is in the way. A scan that found nothing else says so, with its own error code,
+naming the port and repeating what the operating system said. The advice is the
+client's, because the same refusal means a group to join on Linux and another
+program holding the port on Windows.
+
 **A cable pulled out is waited for.** If a hub the service was holding over USB
 loses its cable, plugging it back in connects it again, with no second
 `pb connect`. Putting a cable back is a deliberate act by somebody who wants to

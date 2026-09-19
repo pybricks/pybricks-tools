@@ -34,7 +34,13 @@ from typing import final
 import anyio
 from anyio.streams.memory import MemoryObjectSendStream
 
-from pb_service.hub.transport import DeviceInfo, HubLink, HubTransport, ScanFilter
+from pb_service.hub.transport import (
+    DeviceInfo,
+    HubLink,
+    HubTransport,
+    ScanFilter,
+    UnavailableDevice,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +70,7 @@ class CombinedTransport:
 
         self.on_disconnect: Callable[[str], None] | None = None
         self._transports = tuple(transports)
+        self._scanned: tuple[HubTransport, ...] = ()
 
         for child in self._transports:
             child.on_disconnect = self._lost
@@ -77,6 +84,19 @@ class CombinedTransport:
         protocol asks for it and because it is the honest answer.
         """
         return "+".join(child.scheme for child in self._transports)
+
+    @property
+    def unavailable(self) -> tuple[UnavailableDevice, ...]:
+        """Everything the last scan could see but could not open.
+
+        Gathered from the transports that scan actually ran, in the preference
+        order, so that whoever reports it names the most likely route to the
+        hub first. Asking for one transport does not start the others, and a
+        transport that was not started is still holding whatever it found last
+        time -- which has nothing to do with the search that just came up
+        empty.
+        """
+        return tuple(device for child in self._scanned for device in child.unavailable)
 
     async def discover(
         self, scan_filter: ScanFilter
@@ -94,6 +114,7 @@ class CombinedTransport:
             for child in self._transports
             if scan_filter.transport in (None, child.scheme)
         ]
+        self._scanned = tuple(wanted)
 
         if not wanted:
             # Asking for a transport this service does not have is not an error

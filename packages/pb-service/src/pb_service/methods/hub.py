@@ -51,6 +51,34 @@ STOP_BUILTIN_SECONDS = 2.0
 """How long disconnecting waits for a built-in program to stop first."""
 
 
+def _found_nothing(manager: HubManager) -> JsonRpcError:
+    """Say as precisely as the transports allow why nothing turned up.
+
+    A hub that is plugged in but whose port will not open is the opposite
+    problem from no hub at all -- the user needs to fix their computer, not go
+    and find their hub -- so it gets a code of its own rather than the wording
+    being bent to cover both.
+
+    Args:
+        manager: Whose transports did the looking.
+
+    Returns:
+        The error to raise. Factual either way: what to suggest depends on the
+        platform and on what the user was trying to do, and the service knows
+        neither.
+    """
+    unavailable = manager.transport.unavailable
+
+    if unavailable:
+        refused = ", ".join(f"{d.address} ({d.reason})" for d in unavailable)
+        return JsonRpcError(
+            ErrorCode.SERIAL_PORT_UNAVAILABLE,
+            f"found a hub but could not open its port: {refused}",
+        )
+
+    return JsonRpcError(ErrorCode.HUB_NOT_FOUND, "no hub found")
+
+
 def _device_json(device: DeviceInfo) -> dict[str, Any]:
     return {
         "id": device.id,
@@ -260,6 +288,12 @@ async def hub_scan(session: Session, params: dict[str, Any]) -> dict[str, Any]:
                 if session.peer is not None:
                     session.peer.notify(HUB_FOUND, _device_json(device))
 
+    # A scan that finds nothing is an ordinary answer and not an error, so it
+    # returns an empty list -- unless a hub was there and would not open, which
+    # scanning again will not fix and which the user can do something about.
+    if not found and manager.transport.unavailable:
+        raise _found_nothing(manager)
+
     return {"devices": [_device_json(device) for device in found.values()]}
 
 
@@ -332,9 +366,7 @@ async def hub_connect(session: Session, params: dict[str, Any]) -> dict[str, Any
                 )
 
     if device is None:
-        # Just the fact. What to do about it depends on what the caller was
-        # trying to do, so the advice belongs to the client, not here.
-        raise JsonRpcError(ErrorCode.HUB_NOT_FOUND, "no hub found")
+        raise _found_nothing(manager)
 
     try:
         with anyio.fail_after(CONNECT_SECONDS):

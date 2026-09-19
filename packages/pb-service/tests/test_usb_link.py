@@ -13,16 +13,25 @@ had no tests until there was a port that could be told to misbehave.
 
 from __future__ import annotations
 
+import errno
 import struct
 from collections.abc import AsyncGenerator
+from contextlib import aclosing, asynccontextmanager
 
 import anyio
 import pytest
 
 from pb_service.hub import protocol as p
-from pb_service.hub.transport import HubCommandError, HubLink, ScanFilter
+from pb_service.hub.transport import (
+    HubCommandError,
+    HubLink,
+    ScanFilter,
+    UnavailableDevice,
+)
+from pb_service.hub.usb import transport as usb_transport
 from pb_service.hub.usb import wire
 from pb_service.hub.usb.fake import FakeHubPort, lister, opener
+from pb_service.hub.usb.port import SerialPort
 from pb_service.hub.usb.transport import UsbHubTransport
 
 pytestmark = pytest.mark.anyio
@@ -339,3 +348,99 @@ async def test_two_hubs_are_told_apart_by_their_serial_numbers() -> None:
     finally:
         first.close()
         second.close()
+
+
+# ------------------------------------------------- a port that will not open
+
+
+@asynccontextmanager
+async def _refused(device: str) -> AsyncGenerator[SerialPort, None]:
+    """Refuse to open a port, the way the operating system refuses one.
+
+    Args:
+        device: The port being opened.
+
+    Yields:
+        Nothing, ever. ``PermissionError`` is what both platforms raise here:
+        on Linux when the user is not in the group owning the device node, and
+        on Windows when another program already has the port open.
+    """
+    raise PermissionError(errno.EACCES, "Permission denied", device)
+    yield  # pragma: no cover
+
+
+async def test_a_port_that_will_not_open_is_reported_rather_than_skipped() -> None:
+    # The whole point: a refused port and an empty machine looked identical
+    # from above, so somebody whose user was not in the right group was told
+    # their hub was not plugged in.
+    plugged = FakeHubPort()
+
+    try:
+        transport = UsbHubTransport(lister(plugged), _refused)
+
+        with anyio.move_on_after(0.5):
+            async with aclosing(transport.discover(ScanFilter())) as stream:
+                async for device in stream:
+                    raise AssertionError(f"offered {device.id}")
+
+        assert transport.unavailable == (
+            UnavailableDevice(plugged.info.device, "Permission denied"),
+        )
+    finally:
+        plugged.close()
+
+
+async def test_a_port_that_opens_but_says_nothing_is_not_called_unavailable() -> None:
+    # The distinction the error rests on. A port that opens and then answers
+    # nothing is something else on the machine, or a hub somebody else has
+    # already taken; neither is a permission anyone can go and grant.
+    mute = FakeHubPort(answer_reads=False)
+
+    try:
+        transport = transport_for(mute)
+
+        with anyio.move_on_after(0.5):
+            async with aclosing(transport.discover(ScanFilter())) as stream:
+                async for device in stream:
+                    raise AssertionError(f"offered {device.id}")
+
+        assert transport.unavailable == ()
+    finally:
+        mute.close()
+
+
+async def test_a_port_that_opens_on_a_later_turn_stops_being_reported(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Rebuilt by each turn of the scan rather than added to, so that a
+    # permission granted while the service is running clears the complaint
+    # without anything having to notice that it has.
+    monkeypatch.setattr(usb_transport, "POLL_SECONDS", 0.01)
+    plugged = FakeHubPort()
+    working = opener(plugged)
+    refusals = 0
+
+    @asynccontextmanager
+    async def open_port(device: str) -> AsyncGenerator[SerialPort, None]:
+        nonlocal refusals
+
+        if refusals == 0:
+            refusals += 1
+            raise PermissionError(errno.EACCES, "Permission denied", device)
+
+        async with working(device) as port:
+            yield port
+
+    try:
+        transport = UsbHubTransport(lister(plugged), open_port)
+
+        with anyio.fail_after(5):
+            async with aclosing(transport.discover(ScanFilter())) as stream:
+                async for device in stream:
+                    assert device.name == "Bumblebee"
+                    break
+
+        assert refusals == 1, "the first turn was supposed to be refused"
+        assert transport.unavailable == ()
+    finally:
+        plugged.close()

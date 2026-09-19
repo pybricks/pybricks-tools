@@ -58,6 +58,14 @@ class ErrorCode(IntEnum):
     # Transport and lifecycle.
     BLUETOOTH_UNAVAILABLE = -32020
     SCAN_TIMEOUT = -32021
+    SERIAL_PORT_UNAVAILABLE = -32023
+    """A hub is plugged in, but its serial port could not be opened.
+
+    Distinct from :attr:`HUB_NOT_FOUND` because the two call for opposite
+    things: one says to go and find a hub, and this one says the hub is right
+    there and something about the computer is in the way. What that something
+    is depends on the platform, which is why the wording is left to the client.
+    """
     REQUEST_CANCELLED = -32030
 
 

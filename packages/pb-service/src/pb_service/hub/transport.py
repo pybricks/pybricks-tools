@@ -31,6 +31,7 @@ __all__ = [
     "HubTransport",
     "NotificationHandler",
     "ScanFilter",
+    "UnavailableDevice",
     "looks_like_id",
     "preference_rank",
     "reconnects",
@@ -119,6 +120,27 @@ class DeviceInfo:
     the scan response, so a scan can tell a Prime hub from a Move hub without
     touching either. ``None`` for a hub whose advertisement does not carry one,
     or one this build has no name for.
+    """
+
+
+@dataclass(frozen=True, slots=True)
+class UnavailableDevice:
+    """Something a transport can see but was not allowed to use.
+
+    A scan that finds nothing is ambiguous: there may be no hub, or there may
+    be one the computer will not let us near. Only the transport can tell the
+    two apart, and it cannot say so by raising -- one transport's problem must
+    not stop the others from answering -- so it says so by remembering.
+    """
+
+    address: str
+    """What could not be opened, such as ``/dev/ttyACM0`` or ``COM5``."""
+
+    reason: str
+    """The operating system's own words, kept rather than paraphrased.
+
+    They are the half of the message that says which of several quite different
+    problems this is, and the client turns the code into the advice.
     """
 
 
@@ -268,6 +290,21 @@ class HubTransport(Protocol):
     @property
     def scheme(self) -> str:
         """Identifier prefix for hubs on this transport, such as ``ble``."""
+        ...
+
+    @property
+    def unavailable(self) -> tuple[UnavailableDevice, ...]:
+        """What the last scan could see but could not open.
+
+        Empty for a transport that has nothing to report, which is the usual
+        answer and the only one some transports can give. It is read after a
+        scan rather than during one, because it answers a question that only
+        arises once the scan has come up empty: a hub that was found needs no
+        explaining.
+
+        Whatever is here is from the most recent scan. A port that has since
+        been unplugged, or that opened on a later pass, is gone from it.
+        """
         ...
 
     def discover(self, scan_filter: ScanFilter) -> AsyncGenerator[DeviceInfo, None]:

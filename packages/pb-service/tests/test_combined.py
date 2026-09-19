@@ -17,7 +17,12 @@ import anyio
 import pytest
 
 from pb_service.hub.combined import CombinedTransport
-from pb_service.hub.transport import DeviceInfo, HubLink, ScanFilter
+from pb_service.hub.transport import (
+    DeviceInfo,
+    HubLink,
+    ScanFilter,
+    UnavailableDevice,
+)
 
 pytestmark = pytest.mark.anyio
 
@@ -34,11 +39,18 @@ class _Stub:
     having the right members, which is all a Protocol asks for.
     """
 
-    def __init__(self, scheme: str, *names: str, fails: bool = False) -> None:
+    def __init__(
+        self,
+        scheme: str,
+        *names: str,
+        fails: bool = False,
+        unavailable: tuple[UnavailableDevice, ...] = (),
+    ) -> None:
         self.scheme = scheme
         self.on_disconnect: Callable[[str], None] | None = None
         self.opened: list[str] = []
         self.closed = False
+        self.unavailable = unavailable
 
         self._names = names
         self._fails = fails
@@ -258,3 +270,58 @@ async def test_asking_for_a_transport_this_service_lacks_finds_nothing() -> None
             found.append(device)
 
     assert found == []
+
+
+# ------------------------------------------- what could be seen but not used
+
+
+REFUSED = UnavailableDevice("/dev/ttyACM0", "Permission denied")
+
+
+async def _scan_finding_nothing(
+    transport: CombinedTransport, scan_filter: ScanFilter
+) -> None:
+    """Scan until it is plain that nothing is coming.
+
+    A stub with no hubs never ends of its own accord, exactly as a real scan
+    does not, so the deadline is what stops it -- and it sits outside the block
+    that closes the generator, because a scope cancelled inside one unwinds
+    into scopes that belong to the generator.
+
+    Args:
+        transport: The transport to scan with.
+        scan_filter: Which hubs to ask for.
+    """
+    with anyio.move_on_after(0.1):
+        async with aclosing(transport.discover(scan_filter)) as stream:
+            async for device in stream:
+                raise AssertionError(f"offered {device.id}")
+
+
+async def test_what_a_child_could_not_open_is_passed_on() -> None:
+    usb = _Stub("usb", unavailable=(REFUSED,))
+    transport = CombinedTransport(usb, _Stub("ble"))
+
+    await _scan_finding_nothing(transport, ScanFilter())
+
+    assert transport.unavailable == (REFUSED,)
+
+
+def test_nothing_is_reported_before_anything_has_scanned() -> None:
+    # Read after a scan, so whatever a transport is holding from an earlier one
+    # is not an answer to the search that just happened.
+    transport = CombinedTransport(_Stub("usb", unavailable=(REFUSED,)))
+
+    assert transport.unavailable == ()
+
+
+async def test_a_transport_the_scan_skipped_does_not_report() -> None:
+    # Asking for Bluetooth does not start USB, so a USB port that would not
+    # open has nothing to do with this scan coming up empty -- and saying that
+    # it has sends the user off to fix something that was never in the way.
+    usb = _Stub("usb", unavailable=(REFUSED,))
+    transport = CombinedTransport(usb, _Stub("ble"))
+
+    await _scan_finding_nothing(transport, ScanFilter(transport="ble"))
+
+    assert transport.unavailable == ()

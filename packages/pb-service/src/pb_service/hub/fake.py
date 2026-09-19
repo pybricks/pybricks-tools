@@ -29,6 +29,7 @@ from pb_service.hub.transport import (
     HubLink,
     NotificationHandler,
     ScanFilter,
+    UnavailableDevice,
 )
 
 logger = logging.getLogger(__name__)
@@ -384,6 +385,8 @@ class FakeHubTransport:
         self.on_disconnect: Callable[[str], None] | None = None
         """Set by whoever owns the connections, and called when a hub drops."""
 
+        self._unavailable: tuple[UnavailableDevice, ...] = ()
+
         for hub in self.hubs:
             hub.on_disconnect = self._dropped(hub)
 
@@ -407,6 +410,21 @@ class FakeHubTransport:
     def scheme(self) -> str:
         """Identifier prefix for simulated hubs."""
         return "fake"
+
+    @property
+    def unavailable(self) -> tuple[UnavailableDevice, ...]:
+        """Whatever a test has said is there but out of reach.
+
+        Empty unless something assigns to it, since a simulated hub has no
+        device node to be refused, and it is settable so that a test can put
+        the service in the state a locked-down serial port produces without
+        needing one.
+        """
+        return self._unavailable
+
+    @unavailable.setter
+    def unavailable(self, devices: tuple[UnavailableDevice, ...]) -> None:
+        self._unavailable = devices
 
     async def discover(
         self, scan_filter: ScanFilter

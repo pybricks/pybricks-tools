@@ -405,3 +405,38 @@ def test_the_version_headline_carries_no_markup() -> None:
     assert problems is not None
     (problem,) = problems
     assert "[" not in problem.message
+
+
+# --------------------------------------------------- a port that would not open
+
+
+def test_a_refused_serial_port_keeps_the_port_in_the_message() -> None:
+    # Which port it was is the half of this the user cannot work out, and the
+    # service is the only one that knows it, so its wording is kept.
+    exc = JsonRpcError(
+        ErrorCode.SERIAL_PORT_UNAVAILABLE,
+        "found a hub but could not open its port: /dev/ttyACM0 (Permission denied)",
+    )
+    problems = errors.explain(exc)
+
+    assert problems is not None
+    assert "/dev/ttyACM0" in problems[0].message
+    assert problems[0].hint
+
+
+@pytest.mark.parametrize(
+    ("platform", "expected"),
+    [
+        ("linux", "dialout"),
+        ("freebsd13", "dialout"),
+        ("win32", "Close anything else"),
+        ("darwin", "Unplug"),
+    ],
+)
+def test_the_advice_matches_what_the_refusal_means_there(
+    platform: str, expected: str
+) -> None:
+    # Windows has no group to join: a refused COM port there is one another
+    # program is holding, so advice about permissions would send a user
+    # looking for something their system does not have.
+    assert expected in errors.serial_port_advice(platform)

@@ -39,6 +39,7 @@ from pb_service.hub.transport import (
     HubLink,
     NotificationHandler,
     ScanFilter,
+    UnavailableDevice,
 )
 from pb_service.hub.usb import cobs, wire
 from pb_service.hub.usb.port import (
@@ -329,10 +330,23 @@ class UsbHubTransport:
         self._list_ports = list_ports
         self._open_port = open_port
         self._named: dict[str, DeviceInfo] = {}
+        self._unavailable: dict[str, str] = {}
 
     @property
     def scheme(self) -> str:
         return SCHEME
+
+    @property
+    def unavailable(self) -> tuple[UnavailableDevice, ...]:
+        """Ports enumerating as LEGO hubs that this computer would not open.
+
+        Rebuilt by each turn of the scan rather than accumulated, so a cable
+        moved to a port that does work stops being reported.
+        """
+        return tuple(
+            UnavailableDevice(address, reason)
+            for address, reason in self._unavailable.items()
+        )
 
     async def discover(
         self, scan_filter: ScanFilter
@@ -346,7 +360,14 @@ class UsbHubTransport:
             Each hub currently plugged in, re-reported on every turn so that a
             caller sees it as present rather than only once.
         """
+        complained: dict[str, str] = {}
+
         while True:
+            # Emptied at the start of every turn rather than added to, so that
+            # a port that has been unplugged, or that opens this time, stops
+            # being reported without anything having to notice that it has.
+            self._unavailable = {}
+
             for port in self._list_ports():
                 device_id = device_id_for(port)
 
@@ -356,21 +377,38 @@ class UsbHubTransport:
                 info = self._named.get(device_id)
 
                 if info is None:
-                    info = await self._probe(port, device_id)
+                    found = await self._probe(port, device_id)
 
-                    if info is None:
+                    if isinstance(found, UnavailableDevice):
+                        self._unavailable[found.address] = found.reason
                         continue
 
-                    self._named[device_id] = info
+                    if found is None:
+                        continue
+
+                    self._named[device_id] = found
+                    info = found
 
                 if scan_filter.name is not None and info.name != scan_filter.name:
                     continue
 
                 yield info
 
+            # Once per change rather than once per turn: a scan looks again
+            # every second, and a port that will not open will not open on any
+            # of them, which would be a log of the same line for as long as the
+            # scan ran.
+            if self._unavailable != complained:
+                complained = dict(self._unavailable)
+
+                for address, reason in complained.items():
+                    logger.warning("not allowed to open %s: %s", address, reason)
+
             await anyio.sleep(POLL_SECONDS)
 
-    async def _probe(self, port: PortInfo, device_id: str) -> DeviceInfo | None:
+    async def _probe(
+        self, port: PortInfo, device_id: str
+    ) -> DeviceInfo | UnavailableDevice | None:
         """Ask a hub what it is called, without becoming its host.
 
         Args:
@@ -378,10 +416,11 @@ class UsbHubTransport:
             device_id: The id it will be reported under.
 
         Returns:
-            What was learned, or ``None`` if the port could not be opened or did
-            not answer -- which is what a port belonging to something other than
-            a Pybricks hub looks like, and also what a hub already in use looks
-            like.
+            What was learned; an :class:`UnavailableDevice` if the computer
+            refused to open the port at all; or ``None`` if it opened and then
+            did not answer -- which is what a port belonging to something other
+            than a Pybricks hub looks like, and also what a hub already in use
+            looks like.
         """
         # Declared out here because a task group's exit may replace whatever its
         # body raised, so nothing assigned inside one is certain to exist after.
@@ -402,6 +441,17 @@ class UsbHubTransport:
                         raw_pnp = await link.read_characteristic(p.PNP_ID_UUID)
 
                         tg.cancel_scope.cancel()
+        except PermissionError as exc:
+            # Caught ahead of OSError, which it is a kind of, because it is the
+            # one failure here that says something about the computer rather
+            # than about the port: on Linux the user is not in the group that
+            # owns the device node, and on Windows another program already has
+            # the port open. Either way there is a hub on the end of it, so a
+            # scan that reports nothing owes the user this.
+            # strerror rather than str, which repeats the device name that the
+            # value already carries, and falling back to str for a library that
+            # raised one without an errno behind it.
+            return UnavailableDevice(port.device, exc.strerror or str(exc))
         except (OSError, ConnectionError, TimeoutError, ValueError) as exc:
             logger.debug("%s: not a hub we can talk to: %s", port.device, exc)
             return None

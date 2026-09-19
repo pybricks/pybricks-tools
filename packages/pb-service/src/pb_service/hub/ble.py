@@ -33,6 +33,7 @@ from pb_service.hub.transport import (
     HubLink,
     NotificationHandler,
     ScanFilter,
+    UnavailableDevice,
 )
 
 logger = logging.getLogger(__name__)
@@ -152,6 +153,18 @@ class BleHubTransport:
     def scheme(self) -> str:
         """Identifier prefix for Bluetooth hubs."""
         return SCHEME
+
+    @property
+    def unavailable(self) -> tuple[UnavailableDevice, ...]:
+        """Nothing: a radio that cannot be used fails outright.
+
+        An adapter that is missing, switched off or not permitted stops the
+        scan rather than hiding one hub among others, so it arrives as an
+        exception out of :meth:`discover` and there is nothing left to report
+        afterwards. Only a transport that enumerates devices one at a time, as
+        USB does, can see one device and be turned away from it.
+        """
+        return ()
 
     async def discover(
         self, scan_filter: ScanFilter
