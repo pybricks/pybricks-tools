@@ -11,6 +11,7 @@ operations rather than leaving them hanging.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import AsyncGenerator
 from contextlib import aclosing, suppress
 
@@ -201,6 +202,39 @@ async def test_channels_are_independent(
 
         assert isinstance(event, StatusEvent)
         assert event.report.program_running
+
+
+async def test_telemetry_is_declined_rather_than_unrecognised(
+    connected: tuple[HubConnection, FakeHub],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Telemetry arrived in profile v1.7.0 and nothing subscribes to it yet.
+    # What has to stay legible is the difference between an event this build
+    # declines to carry and one from a firmware newer than it: the second is
+    # worth a warning, and a hub streaming sensor data would drown it.
+    connection, hub = connected
+
+    with caplog.at_level(logging.WARNING, logger="pb_service.hub.connection"):
+        async with connection.subscribe(frozenset({Channel.STDOUT})) as subscriber:
+            hub.notify(bytes([p.Event.WRITE_TELEMETRY]) + b"\x01\x02")
+            hub.send_stdout(b"after telemetry\n")
+
+            # Events are decoded in the order they arrive, so receiving this
+            # proves the telemetry event ahead of it has been dealt with.
+            with anyio.fail_after(5):
+                event = await subscriber.rx.receive()
+
+            assert isinstance(event, StdoutEvent)
+            assert event.data == b"after telemetry\n"
+            assert not caplog.records
+
+            hub.notify(bytes([0x7F]))
+            hub.send_stdout(b"after the unknown one\n")
+
+            with anyio.fail_after(5):
+                await subscriber.rx.receive()
+
+    assert "0x7f" in caplog.text
 
 
 async def test_a_slow_client_loses_only_its_own_events(

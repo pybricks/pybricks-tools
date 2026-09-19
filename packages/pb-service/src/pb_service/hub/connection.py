@@ -360,6 +360,11 @@ class HubConnection:
             self._publish(StdoutEvent(seq, data))
         elif kind == p.Event.WRITE_APP_DATA:
             self._publish(AppDataEvent(next(self._seq), payload[1:]))
+        elif kind == p.Event.WRITE_TELEMETRY:
+            # Nothing subscribes to telemetry yet, and a hub sends it as fast
+            # as its sensors produce it, so it goes no further than a debug
+            # line. Warning once per event would bury everything else.
+            logger.debug("ignoring telemetry event of %d bytes", len(payload) - 1)
         else:
             # A newer hub may send events this build has never seen. Note it
             # and carry on rather than treating it as fatal.

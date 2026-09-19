@@ -44,6 +44,7 @@ def test_command_values_match_the_firmware_header() -> None:
     assert (p.Command.START_REPL, p.Command.WRITE_USER_PROGRAM_META) == (2, 3)
     assert (p.Command.WRITE_USER_RAM, p.Command.REBOOT_TO_UPDATE_MODE) == (4, 5)
     assert (p.Command.WRITE_STDIN, p.Command.WRITE_APP_DATA) == (6, 7)
+    assert p.Command.WRITE_TELEMETRY == 8
 
 
 def test_event_values_match_the_firmware_header() -> None:
@@ -52,6 +53,7 @@ def test_event_values_match_the_firmware_header() -> None:
         1,
         2,
     )
+    assert p.Event.WRITE_TELEMETRY == 3
 
 
 def test_status_flags_cover_every_documented_bit() -> None:
@@ -61,12 +63,24 @@ def test_status_flags_cover_every_documented_bit() -> None:
     assert p.StatusFlag.BATTERY_HIGH_TEMP_WARNING == 1 << 11
     assert p.StatusFlag.BLE_HOST_CONNECTED == 1 << 9
     assert p.StatusFlag.SHUTDOWN_REQUEST == 1 << 8
+    assert p.StatusFlag.USB_HOST_CONNECTED == 1 << 12
+    assert p.StatusFlag.FILE_IO_IN_PROGRESS == 1 << 13
 
 
 def test_user_program_ids() -> None:
     assert p.UserProgramId.LAST_SLOT == 127
     assert p.UserProgramId.REPL == 128
     assert p.UserProgramId.IMU_CALIBRATION == 130
+    assert p.UserProgramId.EV3_MOTOR_BUTTON_CONTROL == 133
+    assert p.UserProgramId.EV3_MOTOR_IR_CONTROL == 134
+    assert p.UserProgramId.EV3_PORT_VIEW == 135
+
+
+def test_profile_known_to_this_build() -> None:
+    # The firmware header declares v1.6.0 and Pybricks Code implements v1.7.0;
+    # this file is written against the later of the two.
+    assert p.MAX_KNOWN_PROFILE == (1, 7, 0)
+    assert p.MIN_SUPPORTED_PROFILE == (1, 2, 0)
 
 
 def test_hub_error_values() -> None:

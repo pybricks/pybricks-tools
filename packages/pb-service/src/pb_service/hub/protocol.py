@@ -92,7 +92,17 @@ v1.2.0 introduced the capabilities characteristic and RAM-based program
 download, so requiring it removes the entire legacy Nordic UART code path.
 """
 
-MAX_KNOWN_PROFILE: Final[Version] = (1, 5, 0)
+MAX_KNOWN_PROFILE: Final[Version] = (1, 7, 0)
+"""Newest profile this file has been written against.
+
+The firmware header declares v1.6.0, whose addition was a USB interface: the
+same commands and events inside a message envelope a byte stream needs, which
+belongs to :mod:`pb_service.hub.usb.wire` rather than here. v1.7.0 is the
+telemetry pair below, where the two upstreams disagree -- the firmware carries
+it as unreleased, Pybricks Code already calls it v1.7.0 -- and the higher
+number is the safer of the two to claim, since claiming it only ever admits
+knowing about values that do exist.
+"""
 
 _PROFILE_SLOT_ARGUMENT: Final[Version] = (1, 4, 0)
 """START_USER_PROGRAM began taking a program id in v1.4.0."""
@@ -149,6 +159,13 @@ class Command(IntEnum):
     REBOOT_TO_UPDATE_MODE = 5
     WRITE_STDIN = 6
     WRITE_APP_DATA = 7
+    WRITE_TELEMETRY = 8
+    """Since profile v1.7.0. Telemetry requests, such as changing a sensor mode.
+
+    The payload is one or more telemetry commands, whose format the firmware
+    keeps in its own ``telemetry.h`` and calls provisional. Nothing here sends
+    one; the value is named so that the command space is complete.
+    """
 
 
 class Event(IntEnum):
@@ -158,6 +175,14 @@ class Event(IntEnum):
     WRITE_STDOUT = 1
     WRITE_APP_DATA = 2
     """Data the program sends to an app, kept out of the user terminal."""
+
+    WRITE_TELEMETRY = 3
+    """Telemetry the hub streams to the host, since profile v1.7.0.
+
+    Named so that a connection can tell "an event we have chosen not to handle"
+    from "an event from a firmware newer than this build", which are the same
+    byte to anything that only knows the events it consumes.
+    """
 
 
 class StatusFlag(IntFlag):
@@ -175,6 +200,8 @@ class StatusFlag(IntFlag):
     BLE_HOST_CONNECTED = 1 << 9
     BATTERY_HIGH_TEMP_SHUTDOWN = 1 << 10
     BATTERY_HIGH_TEMP_WARNING = 1 << 11
+    USB_HOST_CONNECTED = 1 << 12
+    FILE_IO_IN_PROGRESS = 1 << 13
 
 
 NO_STATUS: Final = StatusFlag(0)
@@ -210,6 +237,10 @@ class UserProgramId(IntEnum):
     REPL = 128
     PORT_VIEW = 129
     IMU_CALIBRATION = 130
+    # 131 and 132 are unassigned, so the gap is the firmware's, not a typo.
+    EV3_MOTOR_BUTTON_CONTROL = 133
+    EV3_MOTOR_IR_CONTROL = 134
+    EV3_PORT_VIEW = 135
 
 
 class HubError(IntEnum):
