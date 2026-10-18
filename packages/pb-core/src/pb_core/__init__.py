@@ -8,6 +8,6 @@ the JSON-RPC wire protocol, the per-platform IPC transport, logging setup and
 platform paths. It deliberately depends on neither ``pb_service`` nor ``pb_client``.
 """
 
-__version__ = "0.1.0"
+__version__ = "1.0.0b1"
 
 __all__ = ["__version__"]

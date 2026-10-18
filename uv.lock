@@ -893,7 +893,7 @@ wheels = [
 
 [[package]]
 name = "pybricks-cli"
-version = "0.1.0"
+version = "1.0.0b1"
 source = { editable = "packages/pb-cli" }
 dependencies = [
     { name = "anyio" },
@@ -920,7 +920,7 @@ requires-dist = [
 
 [[package]]
 name = "pybricks-client"
-version = "0.1.0"
+version = "1.0.0b1"
 source = { editable = "packages/pb-client" }
 dependencies = [
     { name = "anyio" },
@@ -939,7 +939,7 @@ requires-dist = [
 
 [[package]]
 name = "pybricks-core"
-version = "0.1.0"
+version = "1.0.0b1"
 source = { editable = "packages/pb-core" }
 dependencies = [
     { name = "anyio" },
@@ -956,7 +956,7 @@ requires-dist = [
 
 [[package]]
 name = "pybricks-service"
-version = "0.1.0"
+version = "1.0.0b1"
 source = { editable = "packages/pb-service" }
 dependencies = [
     { name = "aio-rfcomm" },

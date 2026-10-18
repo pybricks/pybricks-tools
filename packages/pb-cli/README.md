@@ -20,4 +20,4 @@ starts instantly, and so does the hundredth.
 `pb repl` talks to the hub's interpreter a line at a time, and `pb run -c` runs
 a line or two of Python without a file. `pb --help` lists the rest.
 
-> **Status:** early development. Nothing is stable yet.
+> **Status:** beta. Commands and APIs may still change before 1.0.0.

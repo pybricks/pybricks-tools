@@ -23,4 +23,4 @@ everything it opens is closed for you when the `async with` block ends.
 **Looking for the command line?** That is `pybricks-cli`, which installs `pb`
 and uses this library underneath.
 
-> **Status:** early development. Nothing is stable yet.
+> **Status:** beta. Commands and APIs may still change before 1.0.0.

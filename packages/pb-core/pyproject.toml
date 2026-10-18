@@ -1,6 +1,6 @@
 [project]
 name = "pybricks-core"
-version = "0.1.0"
+version = "1.0.0b1"
 description = "Shared protocol, IPC transport and logging for the Pybricks tools"
 readme = "README.md"
 license = "MIT"
@@ -10,6 +10,7 @@ maintainers = [{ name = "David Lechner", email = "david@pybricks.com" }]
 requires-python = ">=3.11"
 keywords = ["pybricks", "lego", "micropython", "bluetooth", "robotics"]
 classifiers = [
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "Intended Audience :: Education",
     "Natural Language :: English",
