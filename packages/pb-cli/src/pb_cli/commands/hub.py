@@ -14,16 +14,19 @@ nothing is connected.
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncIterator, Mapping
+import sys
+from collections.abc import AsyncGenerator, AsyncIterator, Callable, Mapping
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import Annotated, Final
 
+import anyio
 import cyclopts
 from rich.console import Console, RenderableType
 
 import pb_client
 from pb_cli import errors, keys, picker, ui
 from pb_cli.app import HUB_COMMANDS, Verbose, app, configure_logging
-from pb_cli.errors import EXIT_OK
+from pb_cli.errors import EXIT_OK, PERMISSION_NAME
 from pb_core.jsonrpc import ErrorCode
 
 logger = logging.getLogger(__name__)
@@ -93,6 +96,63 @@ def _connect_hints(transport: str | None) -> Mapping[int, str]:
     return {ErrorCode.HUB_NOT_FOUND: hint}
 
 
+def _asked(platform: str = sys.platform) -> str:
+    """Say that the system is asking whether the service may use Bluetooth.
+
+    Args:
+        platform: What to say it for. Only macOS asks, today.
+
+    Returns:
+        The sentence, with markup.
+    """
+    who = "macOS" if platform == "darwin" else "The system"
+    return (
+        f"{who} is asking whether [bold]{PERMISSION_NAME}[/] may use "
+        "Bluetooth. Answer the dialog to carry on."
+    )
+
+
+@asynccontextmanager
+async def _telling_when_asked(
+    service: pb_client.Service, say: Callable[[bool], None]
+) -> AsyncGenerator[None, None]:
+    """Say when the system starts or stops asking for Bluetooth, while hubs are sought.
+
+    Open it before the scan or connection it is for, so that nothing it reports
+    is missed. The search itself carries on once the user answers, so this only
+    has to tell them to; what changes is whether they look for the dialog now
+    or are told to answer it once the search has given up.
+
+    Args:
+        service: Where the search runs.
+        say: Called with True when the system starts asking, and with False if
+            it stops before the search ends.
+
+    Yields:
+        Nothing. The block is the search.
+    """
+
+    async def follow(
+        changes: AsyncIterator[tuple[pb_client.UnusableAdapter, ...]],
+    ) -> None:
+        asked = False
+
+        async for unusable in changes:
+            now = any(adapter.awaiting_permission for adapter in unusable)
+
+            if now != asked:
+                asked = now
+                say(asked)
+
+    async with service.watching_adapters() as changes, anyio.create_task_group() as tg:
+        tg.start_soon(follow, changes)
+
+        try:
+            yield
+        finally:
+            tg.cancel_scope.cancel()
+
+
 def _looks_like_id(value: str) -> bool:
     """Whether a string is a hub id rather than a hub name."""
     return value.startswith(_ID_PREFIXES)
@@ -134,32 +194,55 @@ async def _scan(seconds: float, name: str | None, transport: str | None) -> int:
     seen: dict[str, pb_client.DeviceInfo] = {}
     caption = f"Scanning for {seconds:.0f}s..."
 
-    async with (
-        pb_client.connect() as service,
-        service.scanning(seconds=seconds, name=name, transport=transport) as devices,
-    ):
+    def scanning(
+        service: pb_client.Service,
+    ) -> AbstractAsyncContextManager[AsyncIterator[pb_client.DeviceInfo]]:
+        return service.scanning(seconds=seconds, name=name, transport=transport)
+
+    async with pb_client.connect() as service:
         if out.is_terminal:
             # Redrawn in place as advertisements arrive, so a hub appears the
             # moment it is heard and its signal moves as it is carried about.
             with ui.live(ui.scan_table((), caption), out) as display:
-                async for device in devices:
-                    seen[device.id] = device
+
+                def say(asked: bool) -> None:
+                    # In the caption, not printed: this display is on stdout,
+                    # and a line on stderr would land in the middle of it.
+                    nonlocal caption
+                    caption = _asked() if asked else f"Scanning for {seconds:.0f}s..."
                     display.update(ui.scan_table(seen.values(), caption), refresh=True)
+
+                async with (
+                    _telling_when_asked(service, say),
+                    scanning(service) as devices,
+                ):
+                    async for device in devices:
+                        seen[device.id] = device
+                        display.update(
+                            ui.scan_table(seen.values(), caption), refresh=True
+                        )
 
                 display.update(ui.scan_table(seen.values(), f"Found {len(seen)}."))
         else:
-            # Piped: one line per hub, printed the moment it is first heard, so
-            # that "pb scan | head -1" answers as soon as there is an answer.
-            async for device in devices:
-                if device.id not in seen:
-                    line = (
-                        f"{device.name}\t{device.id}"
-                        if ui.SHOW_HUB_IDS
-                        else device.name
-                    )
-                    ui.plain(out, line)
 
-                seen[device.id] = device
+            def tell(asked: bool) -> None:
+                if asked:
+                    err.print(_asked())
+
+            async with _telling_when_asked(service, tell), scanning(service) as devices:
+                # Piped: one line per hub, printed the moment it is first
+                # heard, so that "pb scan | head -1" answers as soon as there
+                # is an answer.
+                async for device in devices:
+                    if device.id not in seen:
+                        line = (
+                            f"{device.name}\t{device.id}"
+                            if ui.SHOW_HUB_IDS
+                            else device.name
+                        )
+                        ui.plain(out, line)
+
+                    seen[device.id] = device
 
     if not seen:
         if transport == "rfcomm":
@@ -225,11 +308,20 @@ async def connect_cmd(
 async def _connect(hub: str | None, scan: bool, transport: str | None) -> int:
     err = ui.console(err=True)
 
+    def tell(asked: bool) -> None:
+        # Printed above the spinner or the chooser, both of which are drawn
+        # on this console and so make room for it.
+        if asked:
+            err.print(_asked())
+
     async with pb_client.connect() as service:
         if scan:
             # No time limit: the hub may still be in the next room. The scan
             # ends when the block does, whether the user chose or gave up.
-            async with service.scanning(seconds=None, transport=transport) as devices:
+            async with (
+                _telling_when_asked(service, tell),
+                service.scanning(seconds=None, transport=transport) as devices,
+            ):
                 device = await picker.choose_hub(err, devices, ui.chooser_table)
 
             if device is None:
@@ -243,11 +335,12 @@ async def _connect(hub: str | None, scan: bool, transport: str | None) -> int:
                 # chosen the route, since each row is one.
         else:
             with ui.spinner(err, "Connecting..."):
-                info = await service.connect_hub(
-                    hub_id=hub if hub and _looks_like_id(hub) else None,
-                    name=hub if hub and not _looks_like_id(hub) else None,
-                    transport=transport,
-                )
+                async with _telling_when_asked(service, tell):
+                    info = await service.connect_hub(
+                        hub_id=hub if hub and _looks_like_id(hub) else None,
+                        name=hub if hub and not _looks_like_id(hub) else None,
+                        transport=transport,
+                    )
 
     # The protocol version belongs to pb status: it explains why a command was
     # refused, but on a successful connection it is one more number to read

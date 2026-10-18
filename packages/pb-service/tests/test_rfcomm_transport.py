@@ -14,8 +14,10 @@ from __future__ import annotations
 from collections.abc import Callable
 from contextlib import aclosing
 
+import aio_rfcomm
 import anyio
 import pytest
+from aio_rfcomm import UnavailableReason
 
 from pb_service.hub import protocol as p
 from pb_service.hub.rfcomm.fake import FakePairedHub, radio, switch
@@ -187,6 +189,61 @@ async def test_bluetooth_switched_off_and_on_mid_scan_is_noticed_at_once() -> No
         await until(lambda: seen)
         assert transport.unavailable == ()
 
+        tg.cancel_scope.cancel()
+
+
+@pytest.mark.parametrize(
+    ("reason", "word"),
+    [
+        (aio_rfcomm.Availability.SWITCHED_OFF, "switched_off"),
+        (aio_rfcomm.Availability.NOT_ALLOWED, "not_allowed"),
+        (aio_rfcomm.Availability.AWAITING_PERMISSION, "awaiting_permission"),
+        (aio_rfcomm.Availability.UNSUPPORTED, "unsupported"),
+    ],
+)
+async def test_why_bluetooth_cannot_be_used_is_said_in_a_word(
+    reason: UnavailableReason, word: str
+) -> None:
+    # The system's prose differs between platforms, so the client picks what
+    # to suggest by this instead.
+    transport = RfcommHubTransport(radio(unavailable="no", reason=reason))
+
+    assert await found(transport) == []
+    assert [u.availability for u in transport.unavailable] == [word]
+
+
+async def test_a_scan_carries_on_once_the_permission_dialog_is_answered() -> None:
+    # aio-rfcomm 1.1 on macOS: Bluetooth opens before the user has answered,
+    # and says so. The scan reports that until the answer comes, and then
+    # lists the hub without being asked again.
+    bluetooth = radio(
+        FakePairedHub(address=EV3),
+        unavailable="answer the permission dialog",
+        reason=aio_rfcomm.Availability.AWAITING_PERMISSION,
+    )
+    transport = RfcommHubTransport(bluetooth)
+    seen: list[DeviceInfo] = []
+
+    async def scan() -> None:
+        async with aclosing(transport.discover(ScanFilter())) as hubs:
+            async for hub in hubs:
+                seen.append(hub)
+
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(scan)
+
+        with anyio.fail_after(POLL_SECONDS / 4):
+            while not transport.unavailable:  # noqa: ASYNC110
+                await anyio.sleep(0.005)
+
+        assert transport.unavailable[0].awaiting_permission
+        switch(bluetooth, None)
+
+        with anyio.fail_after(POLL_SECONDS / 4):
+            while not seen:  # noqa: ASYNC110
+                await anyio.sleep(0.005)
+
+        assert [hub.address for hub in seen] == [EV3]
         tg.cancel_scope.cancel()
 
 

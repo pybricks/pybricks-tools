@@ -24,7 +24,12 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["HUB_BACKEND_ENV_VAR", "get_hub_transport", "open_hub_transport"]
+__all__ = [
+    "HUB_BACKEND_ENV_VAR",
+    "PERMISSION_NAME",
+    "get_hub_transport",
+    "open_hub_transport",
+]
 
 HUB_BACKEND_ENV_VAR = "PB_HUB_BACKEND"
 """Selects the transport.
@@ -32,6 +37,15 @@ HUB_BACKEND_ENV_VAR = "PB_HUB_BACKEND"
 Left alone, the service uses every transport together, which is what lets a hub
 be found whichever way it happens to be reachable. Set it to ``usb``, ``ble`` or
 ``rfcomm`` to use only one, or to ``fake`` for a simulated hub.
+"""
+
+
+PERMISSION_NAME = "Pybricks"
+"""What macOS calls this service when it asks about Bluetooth.
+
+Shown in the permission dialog and under Privacy & Security, and what the
+answer is remembered against, so changing it asks every user again. pb-cli
+repeats it in what it tells the user, and a test holds the two together.
 """
 
 
@@ -145,7 +159,7 @@ async def open_hub_transport() -> AsyncGenerator[HubTransport, None]:
     # so without this it is refused rather than asked. The answer is
     # remembered under the name, so changing it asks the user again.
     aio_rfcomm.macos.prompt_under_name(
-        name="Pybricks", reason="to connect to LEGO hubs over Bluetooth"
+        name=PERMISSION_NAME, reason="to connect to LEGO hubs over Bluetooth"
     )
 
     async with anyio.create_task_group() as tg:

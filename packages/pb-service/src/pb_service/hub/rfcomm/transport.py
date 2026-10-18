@@ -82,7 +82,7 @@ class RfcommHubTransport:
         """
         self._bluetooth = bluetooth
         self.on_disconnect: Callable[[str], None] | None = None
-        self._unavailable: dict[str, str] = {}
+        self._unavailable: tuple[UnavailableDevice, ...] = ()
         # The device as listed and the service it answered on, so that opening
         # it uses the one that found it rather than guessing.
         self._found: dict[str, tuple[aio_rfcomm.RfcommDeviceInfo, UUID]] = {}
@@ -99,10 +99,7 @@ class RfcommHubTransport:
         paired set cannot be read at all in either case, so the one entry here
         stands for the adapter.
         """
-        return tuple(
-            UnavailableDevice(address, reason, kind="adapter")
-            for address, reason in self._unavailable.items()
-        )
+        return self._unavailable
 
     async def discover(
         self, scan_filter: ScanFilter
@@ -124,11 +121,17 @@ class RfcommHubTransport:
         # whose error carries what the platform said, such as how to allow
         # this program.
         changes = self._bluetooth.watch_availability()
+        # Before waiting on anything: what the last scan found is no answer
+        # for this one, and opening Bluetooth the first time can take a while.
+        self._unavailable = ()
         # The state now, which the first pass is about to read anyway.
         await anext(changes)
 
         while True:
-            self._unavailable.clear()
+            # Replaced at the end of the pass rather than emptied at its start,
+            # so that someone watching it mid-pass -- a client being told a
+            # permission dialog is open -- does not see it flicker.
+            problems: tuple[UnavailableDevice, ...] = ()
 
             try:
                 seen: set[str] = set()
@@ -170,8 +173,20 @@ class RfcommHubTransport:
             except BluetoothUnavailableError as exc:
                 # The library's own words, kept rather than paraphrased: they
                 # are what tells "turn Bluetooth on" from "allow this program".
-                self._unavailable["bluetooth"] = str(exc)
+                # The reason as a word as well, which is what a client picks
+                # its advice by -- and on macOS what says a permission dialog
+                # is open, and that this pass is only waiting for an answer.
+                problems = (
+                    UnavailableDevice(
+                        "bluetooth",
+                        str(exc),
+                        kind="adapter",
+                        availability=exc.reason.name.lower(),
+                    ),
+                )
                 logger.debug("cannot read the paired set: %s", exc)
+
+            self._unavailable = problems
 
             with anyio.move_on_after(POLL_SECONDS):
                 await anext(changes)

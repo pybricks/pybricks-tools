@@ -21,15 +21,16 @@ import uuid
 from collections.abc import AsyncGenerator
 from pathlib import Path
 
+import aio_rfcomm
 import anyio
 import pytest
 
-import pb_service.methods.hub  # pyright: ignore[reportUnusedImport]
+import pb_service.methods.hub
 import pb_service.methods.program  # pyright: ignore[reportUnusedImport]
 
 # Imported to register the RPC methods.
 import pb_service.methods.service  # pyright: ignore[reportUnusedImport]
-import pb_service.methods.stdio  # noqa: F401  # pyright: ignore[reportUnusedImport]
+import pb_service.methods.stdio  # pyright: ignore[reportUnusedImport]
 from pb_cli import errors
 from pb_cli.commands import hub as hub_commands
 from pb_cli.commands import program as program_commands
@@ -38,6 +39,8 @@ from pb_core.ipc import Endpoint
 from pb_service import service as service_module
 from pb_service.hub import protocol as p
 from pb_service.hub.fake import FakeHub, FakeHubTransport
+from pb_service.hub.rfcomm.fake import FakePairedHub, radio, switch
+from pb_service.hub.rfcomm.transport import RfcommHubTransport
 
 pytestmark = pytest.mark.anyio
 
@@ -65,18 +68,16 @@ def endpoint(short_tmp_path: Path) -> Endpoint:
 
 
 @pytest.fixture
-async def service(
+def private(
     endpoint: Endpoint,
-    hub: FakeHub,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     short_tmp_path: Path,
-) -> AsyncGenerator[FakeHub, None]:
-    """Run a service the commands will find, without touching the real one.
+) -> Endpoint:
+    """Point the commands at a service of the test's own, not the real one.
 
-    In this very event loop. The commands are ``async def`` and cyclopts runs
-    them, so nothing here starts a loop of its own and there is no thread or
-    blocking portal between the test and what it is testing.
+    Returns:
+        Where that service should listen.
     """
     # Short, not tmp_path: the service's socket goes in here, and on macOS a
     # path under tmp_path does not fit in sun_path. See short_tmp_path.
@@ -94,9 +95,19 @@ async def service(
     # console script does, so this is what points them at the private service
     # rather than at whatever is running on the developer's machine.
     monkeypatch.setenv("PB_ENDPOINT", str(endpoint))
+    return endpoint
 
+
+@pytest.fixture
+async def service(private: Endpoint, hub: FakeHub) -> AsyncGenerator[FakeHub, None]:
+    """Run a service the commands will find, without touching the real one.
+
+    In this very event loop. The commands are ``async def`` and cyclopts runs
+    them, so nothing here starts a loop of its own and there is no thread or
+    blocking portal between the test and what it is testing.
+    """
     async with service_module.run_service(
-        endpoint, idle_timeout=0, transport=FakeHubTransport(hub)
+        private, idle_timeout=0, transport=FakeHubTransport(hub)
     ):
         yield hub
 
@@ -246,6 +257,98 @@ async def test_scan_says_so_when_it_hears_nothing(
     assert "No hubs found" in captured.err
     # An empty answer is still an empty answer, not a blank line.
     assert captured.out == ""
+
+
+@pytest.fixture
+async def asking(private: Endpoint) -> AsyncGenerator[aio_rfcomm.Bluetooth, None]:
+    """Run a service whose Bluetooth is waiting for the user's permission.
+
+    What the first use of Bluetooth Classic on a Mac looks like with
+    aio-rfcomm 1.1: the dialog is open and nothing can be listed until it is
+    answered.
+
+    Yields:
+        The radio, to answer with :func:`~pb_service.hub.rfcomm.fake.switch`.
+    """
+    bluetooth = radio(
+        FakePairedHub(name="Ostrich (MINDSTORMS EV3)"),
+        unavailable="macOS is asking whether this program may use Bluetooth",
+        reason=aio_rfcomm.Availability.AWAITING_PERMISSION,
+    )
+
+    async with service_module.run_service(
+        private, idle_timeout=0, transport=RfcommHubTransport(bluetooth)
+    ):
+        yield bluetooth
+
+
+async def _answer_later(bluetooth: aio_rfcomm.Bluetooth) -> None:
+    # Later than the command would otherwise have given up.
+    await anyio.sleep(1)
+    switch(bluetooth, None)
+
+
+async def test_scan_says_to_answer_the_dialog_and_then_lists_the_hub(
+    asking: aio_rfcomm.Bluetooth, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Not "is the hub paired?", which is what an empty listing used to say:
+    # it is, and nothing about pairing will help.
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(_answer_later, asking)
+        assert (
+            await hub_commands.scan_cmd(timeout=0.3, transport="rfcomm")
+            == errors.EXIT_OK
+        )
+
+    captured = capsys.readouterr()
+    # As one line, wherever rich wrapped it for the terminal width.
+    said = " ".join(captured.err.split())
+    assert "Answer the dialog" in said
+    assert "Pybricks" in said, "not the name the dialog shows"
+    assert captured.out.splitlines() == ["Ostrich"]
+
+
+async def test_connect_says_to_answer_the_dialog_and_then_connects(
+    asking: aio_rfcomm.Bluetooth,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(pb_service.methods.hub, "DEFAULT_SCAN_SECONDS", 0.3)
+
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(_answer_later, asking)
+        assert (
+            await hub_commands.connect_cmd(hub="Ostrich", transport="rfcomm")
+            == errors.EXIT_OK
+        )
+
+    captured = capsys.readouterr()
+    # As one line, wherever rich wrapped it for the terminal width.
+    said = " ".join(captured.err.split())
+    assert "Answer the dialog" in said
+    assert "Connected to" in said
+    assert "pair" not in said
+
+
+async def test_a_dialog_left_unanswered_is_what_the_failure_names(
+    asking: aio_rfcomm.Bluetooth,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(pb_service.methods.hub, "DEFAULT_SCAN_SECONDS", 0.2)
+    monkeypatch.setattr(pb_service.methods.hub, "PERMISSION_SECONDS", 0.2)
+
+    assert (
+        await hub_commands.connect_cmd(hub="Ostrich", transport="rfcomm")
+        == errors.EXIT_ERROR
+    )
+
+    captured = capsys.readouterr()
+    # As one line, wherever rich wrapped it for the terminal width.
+    said = " ".join(captured.err.split())
+    assert "may use Bluetooth, then try again" in said
+    assert "Switch Bluetooth on" not in said
+    assert "pair" not in said
 
 
 async def test_disconnect_then_nothing_is_connected(

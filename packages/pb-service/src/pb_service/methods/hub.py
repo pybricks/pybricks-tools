@@ -6,13 +6,14 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from contextlib import aclosing
 from typing import Any
 
 import anyio
 
 from pb_core.jsonrpc import ErrorCode, JsonRpcError
-from pb_core.protocol import HUB_FOUND
+from pb_core.protocol import HUB_ADAPTERS, HUB_FOUND
 from pb_service.errors import HUB_FAILURES, as_wire_error
 from pb_service.hub import protocol as p
 from pb_service.hub.connection import HubConnection, HubDisconnectedError
@@ -25,6 +26,7 @@ from pb_service.hub.manager import (
 from pb_service.hub.transport import (
     DeviceInfo,
     ScanFilter,
+    UnavailableDevice,
     looks_like_id,
     preference_rank,
 )
@@ -83,11 +85,99 @@ def _found_nothing(manager: HubManager) -> JsonRpcError:
 
     if adapters:
         reasons = ", ".join(d.reason for d in adapters)
+        # The reason as a word too, for the client to choose its advice by:
+        # the sentence is the system's and differs between platforms.
+        known = [d.availability for d in adapters if d.availability]
         return JsonRpcError(
-            ErrorCode.BLUETOOTH_UNAVAILABLE, f"Bluetooth cannot be used: {reasons}"
+            ErrorCode.BLUETOOTH_UNAVAILABLE,
+            f"Bluetooth cannot be used: {reasons}",
+            {"availability": known[0]} if known else None,
         )
 
     return JsonRpcError(ErrorCode.HUB_NOT_FOUND, "no hub found")
+
+
+PERMISSION_SECONDS = 120.0
+"""How much longer a search may run while the system asks for permission.
+
+On macOS the first use of Bluetooth Classic asks the user whether "Pybricks"
+may use it, and nothing can be found until they answer. Their time reading the
+dialog is not counted against the search's own limit -- a ten-second scan would
+otherwise run out while they read -- but not without end either: a Mac where
+nobody is there to answer leaves the question open for good.
+"""
+
+FOLLOW_SECONDS = 0.1
+"""How often a search looks at what its transports cannot use.
+
+A poll, because transports keep that as state rather than announcing it, and
+only for as long as one request is looking.
+"""
+
+
+def _adapters(manager: HubManager) -> tuple[UnavailableDevice, ...]:
+    return tuple(d for d in manager.transport.unavailable if d.kind == "adapter")
+
+
+async def _follow_adapters(
+    manager: HubManager,
+    session: Session,
+    looking: anyio.CancelScope,
+    waiting: Callable[[], bool],
+) -> None:
+    """Keep the caller told about unusable adapters while a search runs.
+
+    Only adapters, not refused ports. A port is a hub that was found, which
+    the result or the error at the end says. An adapter is what decides
+    whether anything can be found at all, and one of its states -- a
+    permission dialog that is open -- is something the user has to act on
+    now, while the search is still running.
+
+    Args:
+        manager: Whose transports are looking.
+        session: Who to tell, as :data:`~pb_core.protocol.HUB_ADAPTERS`.
+        looking: The search's deadline, held still while the system is asking
+            the user for permission, up to :data:`PERMISSION_SECONDS`.
+        waiting: Whether nothing has been found yet. Once something has, the
+            permission no longer holds the search open.
+    """
+    told: tuple[UnavailableDevice, ...] = ()
+    held = 0.0
+    then = anyio.current_time()
+
+    while True:
+        # Before the first look, so that the transports have started this
+        # search: until then they still hold what the last one found.
+        await anyio.sleep(FOLLOW_SECONDS)
+        now = anyio.current_time()
+        adapters = _adapters(manager)
+
+        if adapters != told:
+            told = adapters
+
+            if session.peer is not None:
+                session.peer.notify(
+                    HUB_ADAPTERS,
+                    {
+                        "unusable": [
+                            {
+                                "address": d.address,
+                                "reason": d.reason,
+                                "availability": d.availability,
+                            }
+                            for d in adapters
+                        ]
+                    },
+                )
+
+        asked = any(d.awaiting_permission for d in adapters)
+
+        if asked and waiting() and held < PERMISSION_SECONDS:
+            # The clock stands still while the user is being asked.
+            looking.deadline += now - then
+            held += now - then
+
+        then = now
 
 
 def _device_json(device: DeviceInfo) -> dict[str, Any]:
@@ -249,7 +339,10 @@ def _hub_json(connection: HubConnection) -> dict[str, Any]:
     "hub.scan",
     "Look for hubs that are advertising. Each advertisement is also sent to "
     "the caller as a hub.found notification while the scan runs, so a client "
-    "can show hubs as they appear instead of waiting for the whole scan.",
+    "can show hubs as they appear instead of waiting for the whole scan. A "
+    "Bluetooth adapter that cannot be used is reported as hub.adapters when "
+    "that changes; while the system asks the user for permission, the time "
+    "limit stands still.",
     params={
         "timeout_s": (
             "How long to look. Omit for 10 seconds; pass null to look until "
@@ -286,18 +379,25 @@ async def hub_scan(session: Session, params: dict[str, Any]) -> dict[str, Any]:
 
     # A cancel scope rather than a timeout argument, which also means that
     # whatever was seen before the deadline is still returned.
-    with anyio.move_on_after(seconds):
-        async with aclosing(manager.discover(scan_filter)) as stream:
-            async for device in stream:
-                found[device.id] = device
+    async with anyio.create_task_group() as tg:
+        with anyio.move_on_after(seconds) as looking:
+            tg.start_soon(
+                _follow_adapters, manager, session, looking, lambda: not found
+            )
 
-                # Every advertisement, not only the first from each hub: the
-                # signal strength is what changes between them, and watching
-                # it move is how someone finds out which hub is which. The
-                # result still carries the whole list, so a caller that
-                # ignores the notifications loses nothing.
-                if session.peer is not None:
-                    session.peer.notify(HUB_FOUND, _device_json(device))
+            async with aclosing(manager.discover(scan_filter)) as stream:
+                async for device in stream:
+                    found[device.id] = device
+
+                    # Every advertisement, not only the first from each hub:
+                    # the signal strength is what changes between them, and
+                    # watching it move is how someone finds out which hub is
+                    # which. The result still carries the whole list, so a
+                    # caller that ignores the notifications loses nothing.
+                    if session.peer is not None:
+                        session.peer.notify(HUB_FOUND, _device_json(device))
+
+        tg.cancel_scope.cancel()
 
     # A scan that finds nothing is an ordinary answer and not an error, so it
     # returns an empty list -- unless a hub was there and would not open, or
@@ -311,7 +411,8 @@ async def hub_scan(session: Session, params: dict[str, Any]) -> dict[str, Any]:
 
 @method(
     "hub.connect",
-    "Connect to a hub and keep it connected.",
+    "Connect to a hub and keep it connected. While looking for it, an "
+    "unusable Bluetooth adapter is reported as hub.adapters, as by hub.scan.",
     params={
         "id": "The hub's id, from hub.scan.",
         "name": "Connect to the first hub with this name instead.",
@@ -354,28 +455,35 @@ async def hub_connect(session: Session, params: dict[str, Any]) -> dict[str, Any
     # it: put it inside and cancelling it unwinds into the generator's own
     # scopes, which anyio reports as exiting a cancel scope that is not the
     # current one -- measured, as a service that died whenever USB was in play.
-    with anyio.move_on_after(
-        float(params.get("timeout_s") or DEFAULT_SCAN_SECONDS)
-    ) as looking:
-        async with aclosing(manager.discover(scan_filter)) as stream:
-            async for candidate in stream:
-                if wanted_id and candidate.id != wanted_id:
-                    continue
+    async with anyio.create_task_group() as tg:
+        with anyio.move_on_after(
+            float(params.get("timeout_s") or DEFAULT_SCAN_SECONDS)
+        ) as looking:
+            tg.start_soon(
+                _follow_adapters, manager, session, looking, lambda: device is None
+            )
 
-                if device is None or preference_rank(
-                    candidate.transport
-                ) < preference_rank(device.transport):
-                    device = candidate
+            async with aclosing(manager.discover(scan_filter)) as stream:
+                async for candidate in stream:
+                    if wanted_id and candidate.id != wanted_id:
+                        continue
 
-                if preference_rank(device.transport) == 0:
-                    # Nothing can beat it, so do not wait out the grace.
-                    break
+                    if device is None or preference_rank(
+                        candidate.transport
+                    ) < preference_rank(device.transport):
+                        device = candidate
 
-                # Something matched, so stop waiting for a hub and start
-                # waiting for a better route to the one already found.
-                looking.deadline = min(
-                    looking.deadline, anyio.current_time() + PREFERENCE_SECONDS
-                )
+                    if preference_rank(device.transport) == 0:
+                        # Nothing can beat it, so do not wait out the grace.
+                        break
+
+                    # Something matched, so stop waiting for a hub and start
+                    # waiting for a better route to the one already found.
+                    looking.deadline = min(
+                        looking.deadline, anyio.current_time() + PREFERENCE_SECONDS
+                    )
+
+        tg.cancel_scope.cancel()
 
     if device is None:
         raise _found_nothing(manager)

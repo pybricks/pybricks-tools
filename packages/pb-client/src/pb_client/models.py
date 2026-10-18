@@ -16,7 +16,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, cast
 
-__all__ = ["Choice", "DeviceInfo", "Downloaded", "HubInfo", "ServiceInfo"]
+__all__ = [
+    "Choice",
+    "DeviceInfo",
+    "Downloaded",
+    "HubInfo",
+    "ServiceInfo",
+    "UnusableAdapter",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,6 +94,48 @@ class DeviceInfo:
             hub_type=(
                 str(payload["type"]) if payload.get("type") is not None else None
             ),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class UnusableAdapter:
+    """A Bluetooth adapter a scan could not use, and why."""
+
+    address: str
+    """Which adapter. ``"bluetooth"`` where the system has only the one."""
+
+    reason: str
+    """The system's own words, which differ between platforms."""
+
+    availability: str | None = None
+    """Why, as one word to choose advice by, where the service knows it:
+    ``switched_off``, ``no_adapter``, ``not_allowed``,
+    ``awaiting_permission``, ``service_unavailable`` or ``unsupported``."""
+
+    @property
+    def awaiting_permission(self) -> bool:
+        """Whether the system is asking the user to let the service in.
+
+        On macOS, a dialog asking whether "Pybricks" may use Bluetooth. It
+        ends by itself when the user answers, and a scan carries on then.
+        """
+        return self.availability == "awaiting_permission"
+
+    @classmethod
+    def from_wire(cls, payload: dict[str, Any]) -> UnusableAdapter:
+        """Build from one entry of a ``hub.adapters`` notification.
+
+        Args:
+            payload: The entry.
+
+        Returns:
+            The parsed adapter.
+        """
+        availability = payload.get("availability")
+        return cls(
+            address=str(payload.get("address", "")),
+            reason=str(payload.get("reason", "")),
+            availability=str(availability) if availability else None,
         )
 
 

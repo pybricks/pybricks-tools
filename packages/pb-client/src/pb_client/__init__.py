@@ -34,6 +34,7 @@ from pb_client.models import (
     Downloaded,
     HubInfo,
     ServiceInfo,
+    UnusableAdapter,
 )
 from pb_client.service import Service, connect
 from pb_client.stdio import REPL_PROGRAM_ID, HubEvent, Output, State, Status
@@ -59,6 +60,7 @@ __all__ = [
     "ServiceUnavailable",
     "State",
     "Status",
+    "UnusableAdapter",
     "__version__",
     "compile_program",
     "compile_script",

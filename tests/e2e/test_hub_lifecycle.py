@@ -15,6 +15,7 @@ import uuid
 from collections.abc import AsyncGenerator, Iterator
 from pathlib import Path
 
+import aio_rfcomm
 import anyio
 import pytest
 
@@ -30,6 +31,8 @@ from pb_core.jsonrpc import ErrorCode, JsonRpcError
 from pb_service import service as service_module
 from pb_service.hub import protocol as p
 from pb_service.hub.fake import FakeHub, FakeHubTransport
+from pb_service.hub.rfcomm.fake import FakePairedHub, radio, switch
+from pb_service.hub.rfcomm.transport import RfcommHubTransport
 from pb_service.hub.transport import UnavailableDevice
 
 pytestmark = pytest.mark.anyio
@@ -37,6 +40,7 @@ pytestmark = pytest.mark.anyio
 FIRST = "Pybricks Hub"
 SECOND = "Spare Hub"
 PORT = "/dev/ttyACM0"
+EV3 = "00:16:53:4A:75:15"
 
 
 @pytest.fixture(scope="session")
@@ -180,7 +184,12 @@ async def bluetooth_off_at(endpoint: Endpoint) -> AsyncGenerator[Endpoint, None]
     transport = FakeHubTransport()
     transport.hubs = []
     transport.unavailable = (
-        UnavailableDevice("bluetooth", "Bluetooth is switched off", kind="adapter"),
+        UnavailableDevice(
+            "bluetooth",
+            "Bluetooth is switched off",
+            kind="adapter",
+            availability="switched_off",
+        ),
     )
 
     async with service_module.run_service(
@@ -200,6 +209,122 @@ async def test_bluetooth_that_cannot_be_used_is_not_reported_as_a_port(
 
     assert caught.value.code == ErrorCode.BLUETOOTH_UNAVAILABLE
     assert "switched off" in str(caught.value), "the system's words are lost"
+    # And in a word, which is what the client chooses its advice by.
+    assert caught.value.data == {"availability": "switched_off"}
+
+
+@pytest.fixture
+async def asking_at(
+    endpoint: Endpoint,
+) -> AsyncGenerator[tuple[Endpoint, aio_rfcomm.Bluetooth], None]:
+    """A service whose only hub is behind a permission dialog nobody has answered.
+
+    What aio-rfcomm 1.1 gives on a Mac the first time pb-service uses
+    Bluetooth Classic: it opens straight away and says it is waiting for the
+    user. The real RFCOMM transport, on the simulated radio, so that what the
+    user does -- answering -- is one call.
+
+    Args:
+        endpoint: Where the service should listen.
+
+    Yields:
+        That endpoint, with the service running, and the radio to answer with
+        :func:`~pb_service.hub.rfcomm.fake.switch`.
+    """
+    bluetooth = radio(
+        FakePairedHub(address=EV3),
+        unavailable="macOS is asking whether this program may use Bluetooth",
+        reason=aio_rfcomm.Availability.AWAITING_PERMISSION,
+    )
+
+    async with service_module.run_service(
+        endpoint, idle_timeout=0, transport=RfcommHubTransport(bluetooth)
+    ):
+        yield endpoint, bluetooth
+
+
+async def test_a_scan_waits_while_the_user_is_asked_and_then_carries_on(
+    asking_at: tuple[Endpoint, aio_rfcomm.Bluetooth],
+) -> None:
+    # Told at once, so that they look for the dialog; given the time to read
+    # it, rather than a scan that runs out meanwhile; and the hub listed once
+    # they have answered, without being asked to scan again.
+    endpoint, bluetooth = asking_at
+    found: list[pb_client.DeviceInfo] = []
+
+    async with (
+        pb_client.connect(endpoint, autostart=False) as service,
+        service.watching_adapters() as changes,
+        anyio.create_task_group() as tg,
+    ):
+
+        async def scan() -> None:
+            found.extend(await service.scan(seconds=0.3))
+
+        tg.start_soon(scan)
+
+        with anyio.fail_after(5):
+            (asked,) = await anext(changes)
+
+        assert asked.awaiting_permission
+        assert "asking" in asked.reason, "the system's words are lost"
+
+        # Well past the scan's own limit.
+        await anyio.sleep(1)
+        switch(bluetooth, None)
+
+        with anyio.fail_after(5):
+            assert await anext(changes) == ()
+
+    assert [device.address for device in found] == [EV3]
+
+
+async def test_connecting_carries_on_once_the_user_answers(
+    asking_at: tuple[Endpoint, aio_rfcomm.Bluetooth],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # pb connect is what somebody types the first time, so it is where the
+    # dialog first appears.
+    monkeypatch.setattr(pb_service.methods.hub, "DEFAULT_SCAN_SECONDS", 0.3)
+    endpoint, bluetooth = asking_at
+    connected: list[pb_client.HubInfo] = []
+
+    async with (
+        pb_client.connect(endpoint, autostart=False) as service,
+        service.watching_adapters() as changes,
+        anyio.create_task_group() as tg,
+    ):
+
+        async def connect() -> None:
+            connected.append(await service.connect_hub(transport="rfcomm"))
+
+        tg.start_soon(connect)
+
+        with anyio.fail_after(5):
+            (asked,) = await anext(changes)
+
+        assert asked.awaiting_permission
+        await anyio.sleep(1)
+        switch(bluetooth, None)
+
+    assert [hub.address for hub in connected] == [EV3]
+
+
+async def test_a_question_nobody_answers_is_not_waited_on_for_ever(
+    asking_at: tuple[Endpoint, aio_rfcomm.Bluetooth],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A Mac with nobody at it leaves the dialog open for good. The search
+    # gives up in the end, and says what it was waiting for.
+    monkeypatch.setattr(pb_service.methods.hub, "PERMISSION_SECONDS", 0.3)
+    endpoint, _ = asking_at
+
+    async with pb_client.connect(endpoint, autostart=False) as service:
+        with anyio.fail_after(5), pytest.raises(JsonRpcError) as caught:
+            await service.scan(seconds=0.2)
+
+    assert caught.value.code == ErrorCode.BLUETOOTH_UNAVAILABLE
+    assert caught.value.data == {"availability": "awaiting_permission"}
 
 
 @pytest.fixture
