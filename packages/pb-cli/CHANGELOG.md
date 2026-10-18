@@ -25,3 +25,4 @@ Notable changes to `pybricks-cli`, the `pb` command. The format is based on
 - Data on stdout and everything else on stderr, so every command can be piped.
 - One-line errors with a suggested fix; a traceback only when it is our bug.
 - An arrow-key picker wherever the tool would otherwise have to guess.
+- `--transport usb`, `ble` or `rfcomm`, the last for EV3 and NXT hubs.
