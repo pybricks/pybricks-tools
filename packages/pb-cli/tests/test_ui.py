@@ -114,6 +114,27 @@ def test_a_hub_that_does_not_say_what_it_is_still_gets_a_row() -> None:
     assert "Pybricks Hub" in console.export_text()
 
 
+def test_a_paired_hub_is_not_drawn_as_a_faint_one() -> None:
+    # Bluetooth Classic lists the paired set, so nothing was heard. An empty
+    # meter would read as a hub at the edge of range rather than as one that
+    # may simply be switched off.
+    paired = pb_client.DeviceInfo(
+        id="rfcomm:00:16:53:4A:75:15",
+        name="Ostrich",
+        address="00:16:53:4A:75:15",
+        rssi=None,
+        transport="rfcomm",
+        hub_type="EV3 brick",
+    )
+    assert ui.signal_cell(paired) == "[dim]paired[/]"
+
+    console = _terminal()
+    console.print(ui.scan_table([paired]))
+    drawn = console.export_text()
+    assert "paired" in drawn
+    assert ui.SIGNAL_EMPTY not in drawn
+
+
 def test_the_chooser_marks_the_row_it_is_on() -> None:
     console = _terminal()
     console.print(ui.chooser_table([_device("First"), _device("Second")], 1))
@@ -199,6 +220,7 @@ def test_a_version_in_a_message_is_drawn_in_one_piece(err: bool) -> None:
         # "BLE" is our word, not a user's; nobody with a hub on a desk calls
         # the radio that.
         ("ble", "Bluetooth"),
+        ("rfcomm", "Bluetooth Classic"),
         ("usb", "USB"),
         ("fake", "simulated"),
     ],
@@ -214,6 +236,6 @@ def test_a_transport_the_service_did_not_report_names_nothing() -> None:
 
 
 def test_an_unrecognised_transport_is_passed_through() -> None:
-    # RFCOMM is planned and not built. A name we do not have yet is still a
-    # better answer than none, and it cannot be wrong the way a guess could.
-    assert ui.transport_name("rfcomm") == "rfcomm"
+    # A newer service's transport. A name we do not have yet is still a better
+    # answer than none, and it cannot be wrong the way a guess could.
+    assert ui.transport_name("carrier-pigeon") == "carrier-pigeon"

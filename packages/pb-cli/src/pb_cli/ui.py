@@ -188,13 +188,16 @@ def usage(message: str, hint: str | None = None) -> int:
 
 _TRANSPORT_NAMES: Final[Mapping[str, str]] = {
     "ble": "Bluetooth",
+    "rfcomm": "Bluetooth Classic",
     "usb": "USB",
     "fake": "simulated",
 }
 """What to call each way of reaching a hub.
 
-The service's words are ``ble`` and ``usb``, which are the right names on the
-wire and the wrong ones on a screen: nobody calls it BLE except us.
+The service's words are ``ble``, ``rfcomm`` and ``usb``, which are the right
+names on the wire and the wrong ones on a screen: nobody calls it BLE or RFCOMM
+except us. Classic is Bluetooth's own name for the older radio the EV3 and NXT
+use, and it keeps the two apart where both are in use.
 """
 
 
@@ -316,17 +319,22 @@ def signal_cell(device: pb_client.DeviceInfo, connected: Collection[str] = ()) -
         connected: The ids of hubs the service is holding open.
 
     Returns:
-        A meter for a hub that was heard over Bluetooth, and a word for the two
+        A meter for a hub that was heard over Bluetooth, and a word for the
         cases where a meter would be a lie. A connected hub is not advertising,
         so there is no signal to draw; a hub on a cable has no signal at all,
         and drawing an empty meter for one would read as a hub that can barely
-        be heard when it is in fact the best-connected hub on the list.
+        be heard when it is in fact the best-connected hub on the list. A hub
+        listed over Bluetooth Classic was not heard at all: it is there because
+        it is paired, which says nothing about whether it is switched on.
     """
     if device.id in connected:
         return "[green]connected[/]"
 
     if device.transport == "usb":
         return "[green]USB[/]"
+
+    if device.transport == "rfcomm":
+        return "[dim]paired[/]"
 
     return signal_bars(device.rssi)
 

@@ -61,6 +61,10 @@ _NOT_FOUND_HINTS: Final[Mapping[str | None, str]] = {
         "hub that is already connected, or running a program, does not "
         "advertise."
     ),
+    "rfcomm": (
+        "Pair the hub with this computer in its Bluetooth settings first. Only "
+        "the EV3 and NXT are reached this way."
+    ),
 }
 """What to suggest when a hub to connect to could not be found.
 
@@ -117,7 +121,8 @@ async def scan_cmd(
     Args:
         timeout: How long to scan, in seconds.
         name: Only show hubs with this name.
-        transport: Only look on this transport, usb or ble. Both by default.
+        transport: Only look on this transport: usb, ble or rfcomm. All of
+            them by default.
         verbose: Increase log detail.
     """
     configure_logging(verbose)
@@ -157,10 +162,15 @@ async def _scan(seconds: float, name: str | None, transport: str | None) -> int:
                 seen[device.id] = device
 
     if not seen:
-        # "In range" is Bluetooth's word for it and means nothing to somebody
-        # who asked about a cable.
-        where = "plugged in" if transport == "usb" else "in range"
-        err.print(f"[yellow]No hubs found.[/] Is the hub switched on and {where}?")
+        if transport == "rfcomm":
+            # The listing is the paired set, so an empty one means nothing is
+            # paired. Switching the hub on would not change it.
+            err.print("[yellow]No hubs found.[/] Is the hub paired with this computer?")
+        else:
+            # "In range" is Bluetooth's word for it and means nothing to
+            # somebody who asked about a cable.
+            where = "plugged in" if transport == "usb" else "in range"
+            err.print(f"[yellow]No hubs found.[/] Is the hub switched on and {where}?")
 
     return EXIT_OK
 
@@ -184,8 +194,9 @@ async def connect_cmd(
         scan: Watch for hubs and choose one from the list. There is no time
             limit, so the hub can be switched on whenever you like, and
             Ctrl-C gives up without connecting to anything.
-        transport: Reach the hub this way, usb or ble. By default whichever
-            works, preferring USB where a hub is reachable both ways.
+        transport: Reach the hub this way: usb, ble or rfcomm. By default
+            whichever works, preferring USB where a hub is reachable more than
+            one way.
         verbose: Increase log detail.
     """
 
