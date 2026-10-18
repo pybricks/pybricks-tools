@@ -103,7 +103,13 @@ def split_hub_name(name: str | None) -> tuple[str | None, HubType | None]:
     if kind is None:
         return name, None
 
-    return name[:start].strip() or None, kind
+    # The firmware joins the two with exactly one space (name, then
+    # " (" PBSYS_CONFIG_HUB_TYPE_STR ")", in pbsys_host_get_hub_display_name),
+    # so only that one goes. Any other spaces are the owner's, and the hub
+    # reports its name with them, which is what a name filter is matched on.
+    bare = name[:start].removesuffix(" ")
+
+    return bare or None, kind
 
 
 class ChannelPipe:
