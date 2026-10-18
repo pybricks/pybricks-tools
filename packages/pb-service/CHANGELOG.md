@@ -5,6 +5,8 @@ Notable changes to `pybricks-service`. The format is based on
 
 ## [Unreleased]
 
+## [1.0.0b1] - 2026-10-18
+
 ### Added
 
 - Keeps hubs connected between commands, so nothing reconnects each time.

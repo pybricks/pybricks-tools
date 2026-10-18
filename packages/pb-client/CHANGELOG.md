@@ -5,6 +5,8 @@ Notable changes to `pybricks-client`. The format is based on
 
 ## [Unreleased]
 
+## [1.0.0b1] - 2026-10-18
+
 ### Added
 
 - `connect()` gives an async handle to the service, starting one if needed.
