@@ -19,7 +19,7 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
+from contextlib import AbstractAsyncContextManager, asynccontextmanager, nullcontext
 from typing import TYPE_CHECKING, Final
 
 import anyio
@@ -187,16 +187,20 @@ async def run_service(
     Raises:
         AddressInUseError: If another service already holds the endpoint.
     """
-    from pb_service.backend import get_hub_transport
+    from pb_service.backend import open_hub_transport
     from pb_service.session import serve_session
 
     token = auth.read_or_create_token()
+
+    opened: AbstractAsyncContextManager[HubTransport] = (
+        open_hub_transport() if transport is None else nullcontext(transport)
+    )
 
     async with anyio.create_task_group() as root:
         # Entered before the listener and left after it. Hub connections
         # therefore live in a sibling scope of the client sessions, so a client
         # going away cancels only its own tasks and never a hub.
-        async with run_hub_manager(transport or get_hub_transport()) as hubs:
+        async with opened as hub_transport, run_hub_manager(hub_transport) as hubs:
             service = Service(endpoint, token, idle_timeout, hubs)
             root.start_soon(service._watchdog)  # pyright: ignore[reportPrivateUsage]
 

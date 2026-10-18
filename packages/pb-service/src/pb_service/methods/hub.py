@@ -375,6 +375,15 @@ async def hub_connect(session: Session, params: dict[str, Any]) -> dict[str, Any
         raise JsonRpcError(
             ErrorCode.HUB_NOT_CONNECTED, f"timed out connecting to {device.name}"
         ) from None
+    except ConnectionError as exc:
+        # How every transport reports a hub it cannot reach. Routine on
+        # RFCOMM, where the listing is the paired set and so names hubs that
+        # are switched off, and reachable on USB too by unplugging between
+        # the scan and the connect.
+        logger.info("could not connect to %s: %s", device.name, exc)
+        raise JsonRpcError(
+            ErrorCode.HUB_NOT_CONNECTED, f"could not connect to {device.name}"
+        ) from exc
     except (HubNotFoundError, HubAlreadyConnectedError, HubDisconnectedError) as exc:
         raise as_wire_error(exc) from exc
 

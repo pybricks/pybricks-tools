@@ -11,19 +11,25 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import AsyncGenerator
+from contextlib import AsyncExitStack, asynccontextmanager
+from typing import TYPE_CHECKING
 
 from pb_service.hub.transport import HubTransport
 
+if TYPE_CHECKING:
+    from aio_rfcomm import Bluetooth
+
 logger = logging.getLogger(__name__)
 
-__all__ = ["HUB_BACKEND_ENV_VAR", "get_hub_transport"]
+__all__ = ["HUB_BACKEND_ENV_VAR", "get_hub_transport", "open_hub_transport"]
 
 HUB_BACKEND_ENV_VAR = "PB_HUB_BACKEND"
 """Selects the transport.
 
-Left alone, the service uses USB and Bluetooth together, which is what lets a
-hub be found whichever way it happens to be reachable. Set it to ``usb`` or
-``ble`` to use only one, or to ``fake`` for a simulated hub.
+Left alone, the service uses every transport together, which is what lets a hub
+be found whichever way it happens to be reachable. Set it to ``usb``, ``ble`` or
+``rfcomm`` to use only one, or to ``fake`` for a simulated hub.
 """
 
 
@@ -39,7 +45,20 @@ def _ble() -> HubTransport:
     return BleHubTransport()
 
 
-def get_hub_transport() -> HubTransport:
+def _rfcomm(bluetooth: Bluetooth | None) -> tuple[HubTransport, ...]:
+    if bluetooth is None:
+        return ()
+
+    from pb_service.hub.rfcomm import RfcommHubTransport
+
+    return (RfcommHubTransport(bluetooth),)
+
+
+def _backend() -> str:
+    return os.environ.get(HUB_BACKEND_ENV_VAR, "").lower()
+
+
+def get_hub_transport(bluetooth: Bluetooth | None = None) -> HubTransport:
     """Return the transport this service should use.
 
     Every import here is inside the branch that needs it, so a service running
@@ -55,10 +74,14 @@ def get_hub_transport() -> HubTransport:
         in exactly one place rather than once per backend. The simulated backend
         is what lets the whole service be exercised on a CI runner with no radio
         and nothing plugged in.
+
+    Args:
+        bluetooth: Bluetooth Classic, already open, or None to leave RFCOMM
+            out. :func:`open_hub_transport` opens it when it is wanted.
     """
     from pb_service.hub.combined import CombinedTransport
 
-    backend = os.environ.get(HUB_BACKEND_ENV_VAR, "").lower()
+    backend = _backend()
 
     if backend == "fake":
         from pb_service.hub.fake import FakeHub, FakeHubTransport
@@ -77,6 +100,9 @@ def get_hub_transport() -> HubTransport:
     if backend == "ble":
         return CombinedTransport(_ble())
 
+    if backend == "rfcomm":
+        return CombinedTransport(*_rfcomm(bluetooth))
+
     if backend:
         logger.warning(
             "unknown %s=%r; using every transport", HUB_BACKEND_ENV_VAR, backend
@@ -84,4 +110,52 @@ def get_hub_transport() -> HubTransport:
 
     # In TRANSPORT_PREFERENCE order, which is what makes USB the one chosen when
     # a hub is reachable both ways. A test holds the two together.
-    return CombinedTransport(_usb(), _ble())
+    return CombinedTransport(_usb(), _ble(), *_rfcomm(bluetooth))
+
+
+@asynccontextmanager
+async def open_hub_transport() -> AsyncGenerator[HubTransport, None]:
+    """Open the transport this service should use, for as long as the block lasts.
+
+    Bluetooth Classic is opened here when RFCOMM is in use, and nowhere else:
+    aio-rfcomm allows it open once per process, and everything opened through
+    it stops working when its block ends, so it has to outlive every hub.
+
+    Yields:
+        What :func:`get_hub_transport` returns.
+
+    Raises:
+        RfcommError: ``PB_HUB_BACKEND`` asks for RFCOMM alone, and Bluetooth
+            could not be opened. With every transport in use, RFCOMM is left
+            out instead, so the others still work.
+    """
+    backend = _backend()
+
+    if backend in ("fake", "usb", "ble"):
+        yield get_hub_transport()
+        return
+
+    import aio_rfcomm
+    import aio_rfcomm.macos
+    from aio_rfcomm.errors import RfcommError
+
+    # macOS asks the responsible process for Bluetooth permission, and a
+    # service started from a command line has no application to speak for it,
+    # so without this it is refused rather than asked. The answer is
+    # remembered under the name, so changing it asks the user again.
+    aio_rfcomm.macos.prompt_under_name(
+        name="Pybricks", reason="to connect to LEGO hubs over Bluetooth"
+    )
+
+    async with AsyncExitStack() as stack:
+        bluetooth: Bluetooth | None = None
+
+        try:
+            bluetooth = await stack.enter_async_context(aio_rfcomm.open_bluetooth())
+        except RfcommError as exc:
+            if backend == "rfcomm":
+                raise
+
+            logger.warning("RFCOMM hubs will not be found: %s", exc)
+
+        yield get_hub_transport(bluetooth)
