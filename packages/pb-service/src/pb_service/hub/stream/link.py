@@ -13,7 +13,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable
+from collections.abc import AsyncGenerator, Callable
+from contextlib import asynccontextmanager
 from typing import Final, final
 
 import anyio
@@ -230,6 +231,45 @@ class StreamLink(HubLink):
             # should accumulate nothing at all.
             self._replies_in.close()
             self._replies_out.close()
+
+    @asynccontextmanager
+    async def running(
+        self, on_lost: Callable[[str], None] | None
+    ) -> AsyncGenerator[StreamLink, None]:
+        """Read the link in the background for as long as the block lasts.
+
+        Args:
+            on_lost: As for :meth:`run`.
+
+        Yields:
+            This link.
+
+        Raises:
+            ConnectionError: The hub went away while the block was using it,
+                such as part way through the handshake.
+        """
+        try:
+            async with anyio.create_task_group() as tg:
+                tg.start_soon(self.run, on_lost)
+
+                try:
+                    yield self
+                finally:
+                    tg.cancel_scope.cancel()
+        except ExceptionGroup as group:
+            # The reader is this link's own business, so what fails while the
+            # block uses the link comes out as itself, as from any other open.
+            # A hub that drops mid-handshake is a ConnectionError, which the
+            # caller handles, not a group it would report as an internal error.
+            failures = group.exceptions
+            alone = len(failures) == 1 and not isinstance(
+                failures[0], BaseExceptionGroup
+            )
+
+            if alone or all(isinstance(e, ConnectionError) for e in failures):
+                raise failures[0] from None
+
+            raise
 
 
 def _rejection(status: int) -> HubCommandError:

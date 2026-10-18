@@ -205,6 +205,23 @@ async def test_a_hub_that_goes_away_is_reported_once_and_refuses_more_work(
     assert lost == [f"usb:{hub.info.serial_number}"]
 
 
+async def test_a_hub_gone_part_way_through_a_handshake_refuses_plainly(
+    hub: FakeHubPort,
+) -> None:
+    # The reader runs in a task group, which wraps whatever leaves the block.
+    # A hub gone before the handshake finishes has to come out as the
+    # ConnectionError every caller handles, not as a group, which connecting
+    # used to report as an internal error.
+    transport = transport_for(hub)
+
+    with pytest.raises(ConnectionError):
+        async with transport.open(f"usb:{hub.info.serial_number}") as link:
+            hub.vanish()
+
+            with anyio.fail_after(5):
+                await link.read_characteristic(p.DEVICE_NAME_UUID)
+
+
 async def test_a_link_closed_on_request_is_not_reported_as_a_hub_going_away(
     hub: FakeHubPort,
 ) -> None:

@@ -219,6 +219,23 @@ async def test_an_id_from_another_transport_refuses() -> None:
             pass
 
 
+async def test_a_hub_gone_part_way_through_a_handshake_refuses_plainly() -> None:
+    # Review of the port found this: the channel dropping before the handshake
+    # finished came out of the link's task group as an ExceptionGroup, which
+    # connecting reported as an internal error rather than an unreachable hub.
+    port = FakeHubPort(name="Bumblebee")
+    transport = RfcommHubTransport(radio(FakePairedHub(address=EV3, port=port)))
+
+    (hub,) = await found(transport)
+
+    with pytest.raises(ConnectionError):
+        async with transport.open(hub.id) as link:
+            port.vanish()
+
+            with anyio.fail_after(5):
+                await link.read_characteristic(p.DEVICE_NAME_UUID)
+
+
 async def test_an_open_hub_answers_the_protocol() -> None:
     port = FakeHubPort(name="Bumblebee")
     transport = RfcommHubTransport(radio(FakePairedHub(address=EV3, port=port)))
