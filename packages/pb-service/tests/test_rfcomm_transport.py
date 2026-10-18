@@ -147,7 +147,9 @@ async def test_bluetooth_that_cannot_be_used_is_reported_rather_than_raised() ->
     transport = RfcommHubTransport(radio(unavailable="Bluetooth is turned off"))
 
     assert await found(transport) == []
-    assert [u.reason for u in transport.unavailable] == ["Bluetooth is turned off"]
+    assert [(u.reason, u.kind) for u in transport.unavailable] == [
+        ("Bluetooth is turned off", "adapter")
+    ]
 
 
 async def test_bluetooth_switched_off_and_on_mid_scan_is_noticed_at_once() -> None:

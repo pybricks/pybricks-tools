@@ -18,7 +18,7 @@ from __future__ import annotations
 from collections.abc import AsyncGenerator, Callable
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
-from typing import Final, Protocol, runtime_checkable
+from typing import Final, Literal, Protocol, runtime_checkable
 
 from pb_service.hub import protocol as p
 
@@ -141,6 +141,13 @@ class UnavailableDevice:
 
     They are the half of the message that says which of several quite different
     problems this is, and the client turns the code into the advice.
+    """
+
+    kind: Literal["port", "adapter"] = "port"
+    """What was turned away: a hub's own port, or the Bluetooth adapter.
+
+    They need opposite advice. A refused port is a hub that is there but out of
+    reach, while an adapter that cannot be used hides every hub behind it.
     """
 
 
