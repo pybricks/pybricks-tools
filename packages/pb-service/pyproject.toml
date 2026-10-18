@@ -23,7 +23,7 @@ dependencies = [
     "bleak>=1.1.0",
     "packaging>=22",
     "serialx>=1.9",
-    "aio-rfcomm>=1.0",
+    "aio-rfcomm>=1.1",
     "semver>=3",
     "typing-extensions>=4.15",
 ]

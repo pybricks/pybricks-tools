@@ -44,7 +44,7 @@ typecheck = [{ name = "pyright", specifier = ">=1.1.400" }]
 
 [[package]]
 name = "aio-rfcomm"
-version = "1.0.0"
+version = "1.1.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "dbus-fast", marker = "sys_platform == 'linux'" },
@@ -58,9 +58,9 @@ dependencies = [
     { name = "winrt-windows-foundation-collections", marker = "sys_platform == 'win32'" },
     { name = "winrt-windows-storage-streams", marker = "sys_platform == 'win32'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ff/f9/d0123d34731da8b544376ff29bef60842ef0c587223b240ff11fc276ad68/aio_rfcomm-1.0.0.tar.gz", hash = "sha256:3d4458519ecbe437967623b6ad72815294bbff7213a6d18152087cb98f233651", size = 108909, upload-time = "2026-10-18T04:38:40.416Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ae/80/7f0e6deed493c5402bf0b6d23c3107008cf74c621bdb7469dc5becf0e3f0/aio_rfcomm-1.1.0.tar.gz", hash = "sha256:8f3bff8e508c6d7b7e05381fbc4a6169e69e2c9a3df5e7d59f4ee641fbd515fd", size = 113091, upload-time = "2026-10-18T22:17:00.494Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/6a/28/85ff0a652fa0609f894c9afbbe17f02a168e40e9e403ac574b3ab3bcd565/aio_rfcomm-1.0.0-py3-none-any.whl", hash = "sha256:88e6a12f3023cc6e46b74a306d0b501185f6eefc6faa53844a2d62acac5f7f95", size = 138379, upload-time = "2026-10-18T04:38:38.862Z" },
+    { url = "https://files.pythonhosted.org/packages/a7/4f/6a8c420806612345afdfda4f36b05cf3f80d6e0211590a0caef25850e77d/aio_rfcomm-1.1.0-py3-none-any.whl", hash = "sha256:66d4fcc3132382cf83a89b6822e65e765ce162d71a3c2d79ebd795652a3b21b7", size = 142451, upload-time = "2026-10-18T22:16:59.016Z" },
 ]
 
 [[package]]
@@ -971,7 +971,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "aio-rfcomm", specifier = ">=1.0" },
+    { name = "aio-rfcomm", specifier = ">=1.1" },
     { name = "anyio", specifier = ">=4.14" },
     { name = "bleak", specifier = ">=1.1.0" },
     { name = "packaging", specifier = ">=22" },
