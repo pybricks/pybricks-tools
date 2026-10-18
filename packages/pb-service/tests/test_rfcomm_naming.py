@@ -24,6 +24,9 @@ from pb_service.hub.rfcomm.port import split_hub_name
         ("Pybricks (MINDSTORMS NXT)", "Pybricks", HubType.NXT),
         # The whole name can be the suffix if the hub was never named.
         ("(MINDSTORMS EV3)", None, HubType.EV3),
+        # Only the firmware's one separating space goes. The rest belongs to
+        # the name, which the hub reports with them, and filters match it.
+        (" Bumblebee  (MINDSTORMS EV3)", " Bumblebee ", HubType.EV3),
     ],
 )
 def test_the_firmware_suffix_names_the_brick(
