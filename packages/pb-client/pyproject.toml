@@ -27,7 +27,7 @@ dependencies = [
 [project.urls]
 homepage = "https://pybricks.com"
 repository = "https://github.com/pybricks/pybricks-tools"
-documentation = "https://pybricks.github.io/pybricks-tools/reference/"
+documentation = "https://pybricks.com/pybricks-tools/reference/"
 "Changelog" = "https://github.com/pybricks/pybricks-tools/blob/main/packages/pb-client/CHANGELOG.md"
 "Support" = "https://github.com/pybricks/support/discussions"
 "Issues" = "https://github.com/pybricks/support/issues"
