@@ -57,6 +57,6 @@ async with pb_client.connect() as pb:
     await pb.run_program(await pb_client.compile_script(Path("my_robot.py")))
 ```
 
-> **Status:** early development. Nothing is stable yet.
+> **Status:** beta. Commands and APIs may still change before 1.0.0.
 
 [Documentation](docs/index.md) · [Contributing](CONTRIBUTING.md)

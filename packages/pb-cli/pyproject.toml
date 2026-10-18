@@ -1,6 +1,6 @@
 [project]
 name = "pybricks-cli"
-version = "0.1.0"
+version = "1.0.0b1"
 description = "The Pybricks command line interface"
 readme = "README.md"
 license = "MIT"
@@ -10,6 +10,7 @@ maintainers = [{ name = "David Lechner", email = "david@pybricks.com" }]
 requires-python = ">=3.11"
 keywords = ["pybricks", "lego", "micropython", "bluetooth", "robotics"]
 classifiers = [
+    "Development Status :: 4 - Beta",
     "Environment :: Console",
     "Intended Audience :: Developers",
     "Intended Audience :: Education",
@@ -19,9 +20,9 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "pybricks-core",
-    "pybricks-client",
-    "pybricks-service",
+    "pybricks-core>=1.0.0b1",
+    "pybricks-client>=1.0.0b1",
+    "pybricks-service>=1.0.0b1",
     "anyio>=4.14",
     "cyclopts>=4.22",
     "rich>=13.7",

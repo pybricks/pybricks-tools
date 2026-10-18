@@ -4,7 +4,7 @@ Run Python programs on your [Pybricks](https://pybricks.com) hub from your
 computer — from the command line, or from your own Python code.
 
 !!! note "Status"
-    Early development. Nothing here is stable yet.
+    Beta. Commands and APIs may still change before 1.0.0.
 
 ## Install
 

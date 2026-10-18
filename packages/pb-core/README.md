@@ -9,4 +9,4 @@ file locations all of them use.
 `pybricks-client`, which is the one to reach for if you want to drive a hub from
 your own Python.
 
-> **Status:** early development. Nothing is stable yet.
+> **Status:** beta. Commands and APIs may still change before 1.0.0.
