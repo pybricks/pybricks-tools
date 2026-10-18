@@ -29,6 +29,7 @@ from typing import Final
 __all__ = [
     "PYBRICKS_COMMAND_EVENT_UUID",
     "PYBRICKS_HUB_CAPABILITIES_UUID",
+    "PYBRICKS_RFCOMM_SERVICE_UUID",
     "PYBRICKS_SERVICE_UUID",
     "Capabilities",
     "Command",
@@ -48,6 +49,7 @@ __all__ = [
     "encode_write_stdin",
     "encode_write_user_program_meta",
     "encode_write_user_ram",
+    "hub_kind_name",
     "hub_type_name",
     "parse_status_report",
     "parse_version",
@@ -72,6 +74,14 @@ def _standard_uuid(short: int) -> str:
 PYBRICKS_SERVICE_UUID: Final = _pybricks_uuid(0x0001)
 PYBRICKS_COMMAND_EVENT_UUID: Final = _pybricks_uuid(0x0002)
 PYBRICKS_HUB_CAPABILITIES_UUID: Final = _pybricks_uuid(0x0003)
+
+PYBRICKS_RFCOMM_SERVICE_UUID: Final = _pybricks_uuid(0x0101)
+"""Service class of the hub's Bluetooth Classic serial port.
+
+From the 0x01xx block, which is not GATT attributes. A dedicated class rather
+than plain Serial Port, which would match every paired headset and GPS, or the
+GATT service UUID, which would match every BLE-only hub.
+"""
 
 DEVICE_INFORMATION_SERVICE_UUID: Final = _standard_uuid(0x180A)
 DEVICE_NAME_UUID: Final = _standard_uuid(0x2A00)
@@ -615,6 +625,20 @@ Keyed by product id and, where a hub has variants, product version. A hub
 whose variant is unknown falls back to the entry with no variant, if there is
 one.
 """
+
+
+def hub_kind_name(kind: HubType) -> str | None:
+    """Name a kind of hub that is known without a PnP ID.
+
+    Args:
+        kind: Which hub.
+
+    Returns:
+        Its name, or ``None`` where the name depends on the product version
+        and so cannot be told from the kind alone, as for the large and small
+        Technic hubs.
+    """
+    return _HUB_TYPE_NAMES.get((kind, None))
 
 
 def hub_type_name(pnp: PnpId | None) -> str | None:
