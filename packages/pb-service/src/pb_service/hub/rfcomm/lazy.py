@@ -3,12 +3,15 @@
 
 """Bluetooth Classic, opened the first time RFCOMM needs it.
 
-Opening it is not free and may not finish. On macOS it starts aio-rfcomm's
-helper, which may ask the user for permission, and it does not return until the
-system has said whether Bluetooth is usable -- which, on a Mac where nobody is
-there to answer the prompt, is never. Done as the service started, that held up
-USB and BLE as well. So it is done in a task of the transport's own scope, the
-first time a scan or a connection asks for it, as bleak does for BLE.
+Opening it is not free. On macOS it starts aio-rfcomm's helper, which takes
+about a second, and the first time it makes macOS ask the user whether
+"Pybricks" may use Bluetooth. The open does not wait for that answer: the
+availability says ``AWAITING_PERMISSION`` until it comes, and every call is
+refused meanwhile with that reason, which the transport reports and the client
+turns into "answer the dialog". Done as the service started, the open would
+still hold up USB and BLE, and ask a question about a radio nobody had asked
+for. So it is done in a task of the transport's own scope, the first time a
+scan or a connection asks for it, as bleak does for BLE.
 """
 
 from __future__ import annotations
@@ -21,6 +24,7 @@ from uuid import UUID
 
 import aio_rfcomm
 import anyio
+from aio_rfcomm import UnavailableReason
 from aio_rfcomm.errors import BluetoothUnavailableError, RfcommError
 from anyio.abc import TaskGroup
 
@@ -48,7 +52,7 @@ class LazyBluetooth:
         self._asked = False
         self._settled = anyio.Event()
         self._bluetooth: aio_rfcomm.Bluetooth | None = None
-        self._failure: str | None = None
+        self._failure: tuple[UnavailableReason, str] | None = None
 
     async def _get(self) -> aio_rfcomm.Bluetooth:
         """Wait for Bluetooth to be open, opening it on the first call.
@@ -66,9 +70,10 @@ class LazyBluetooth:
         await self._settled.wait()
 
         if self._bluetooth is None:
-            raise BluetoothUnavailableError(
-                aio_rfcomm.Availability.UNSUPPORTED, self._failure
-            )
+            assert self._failure is not None
+            # A new one each time: raising the same object from every caller
+            # would pile each one's traceback onto it.
+            raise BluetoothUnavailableError(*self._failure)
 
         return self._bluetooth
 
@@ -83,7 +88,14 @@ class LazyBluetooth:
             # Reported by each call from now on, as Bluetooth that cannot be
             # used, which is what RFCOMM already tells the user about.
             logger.warning("RFCOMM hubs will not be found: %s", exc)
-            self._failure = str(exc)
+            # With its reason, if it said why, so that what the user is told
+            # to do still fits.
+            self._failure = (
+                exc.reason
+                if isinstance(exc, BluetoothUnavailableError)
+                else aio_rfcomm.Availability.UNSUPPORTED,
+                str(exc),
+            )
             self._settled.set()
 
     async def list_known_devices(
@@ -143,12 +155,12 @@ class _Watcher:
         if self._watching is None:
             try:
                 bluetooth = await self._get()
-            except BluetoothUnavailableError:
+            except BluetoothUnavailableError as exc:
                 # Said once, as a watcher says the state now. It never changes
                 # after, since nothing will open Bluetooth again.
                 if not self._reported:
                     self._reported = True
-                    return aio_rfcomm.Availability.UNSUPPORTED
+                    return exc.reason
 
                 await anyio.sleep_forever()
                 raise AssertionError("sleep_forever returned") from None

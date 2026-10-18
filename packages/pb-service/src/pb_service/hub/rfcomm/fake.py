@@ -26,6 +26,7 @@ from uuid import UUID
 
 import aio_rfcomm
 import anyio
+from aio_rfcomm import UnavailableReason
 from aio_rfcomm.errors import (
     BluetoothUnavailableError,
     DeviceNotFoundError,
@@ -130,9 +131,15 @@ class _FakeWatcher:
 
 @final
 class _FakeBluetooth:
-    def __init__(self, hubs: Sequence[FakePairedHub], unavailable: str | None) -> None:
+    def __init__(
+        self,
+        hubs: Sequence[FakePairedHub],
+        unavailable: str | None,
+        reason: UnavailableReason,
+    ) -> None:
         self._hubs = hubs
         self._unavailable = unavailable
+        self._reason: UnavailableReason = reason
         self.changed = anyio.Event()
 
     @property
@@ -140,10 +147,11 @@ class _FakeBluetooth:
         if self._unavailable is None:
             return aio_rfcomm.Availability.USABLE
 
-        return aio_rfcomm.Availability.SWITCHED_OFF
+        return self._reason
 
-    def switch(self, unavailable: str | None) -> None:
+    def switch(self, unavailable: str | None, reason: UnavailableReason) -> None:
         self._unavailable = unavailable
+        self._reason = reason
         self.changed.set()
         self.changed = anyio.Event()
 
@@ -152,9 +160,7 @@ class _FakeBluetooth:
 
     def _check(self) -> None:
         if self._unavailable is not None:
-            raise BluetoothUnavailableError(
-                aio_rfcomm.Availability.SWITCHED_OFF, self._unavailable
-            )
+            raise BluetoothUnavailableError(self._reason, self._unavailable)
 
     async def list_known_devices(
         self, *, service: UUID | Collection[UUID] | None = None
@@ -186,7 +192,11 @@ class _FakeBluetooth:
             port.close()
 
 
-def radio(*hubs: FakePairedHub, unavailable: str | None = None) -> aio_rfcomm.Bluetooth:
+def radio(
+    *hubs: FakePairedHub,
+    unavailable: str | None = None,
+    reason: UnavailableReason = aio_rfcomm.Availability.SWITCHED_OFF,
+) -> aio_rfcomm.Bluetooth:
     """Build Bluetooth with these devices paired to it.
 
     Args:
@@ -195,22 +205,30 @@ def radio(*hubs: FakePairedHub, unavailable: str | None = None) -> aio_rfcomm.Bl
             the switched-off or not-allowed case, which the transport has to
             report without stopping the other transports. Opening Bluetooth
             succeeds regardless, so it is every call that fails.
+        reason: Which of those it is, while it is unusable. Each calls for
+            different advice, and on macOS one of them -- a permission dialog
+            still open -- ends by itself when the user answers.
 
     Returns:
         Something to hand :class:`~pb_service.hub.rfcomm.transport.
         RfcommHubTransport`. Cast, because the real one is a class rather
         than a protocol and nothing structural can stand in for it.
     """
-    return cast("aio_rfcomm.Bluetooth", _FakeBluetooth(hubs, unavailable))
+    return cast("aio_rfcomm.Bluetooth", _FakeBluetooth(hubs, unavailable, reason))
 
 
-def switch(bluetooth: aio_rfcomm.Bluetooth, unavailable: str | None) -> None:
+def switch(
+    bluetooth: aio_rfcomm.Bluetooth,
+    unavailable: str | None,
+    reason: UnavailableReason = aio_rfcomm.Availability.SWITCHED_OFF,
+) -> None:
     """Make Bluetooth usable or unusable while it is in use.
 
     Args:
         bluetooth: What :func:`radio` built.
         unavailable: Why Bluetooth cannot be used from now on, or None for
             usable again. Watchers hear of it at once, as they would of the
-            user flipping the switch.
+            user flipping the switch, or answering the permission dialog.
+        reason: Which kind of unusable it is, as for :func:`radio`.
     """
-    cast("_FakeBluetooth", bluetooth).switch(unavailable)
+    cast("_FakeBluetooth", bluetooth).switch(unavailable, reason)

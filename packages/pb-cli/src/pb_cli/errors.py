@@ -52,7 +52,9 @@ __all__ = [
     "EXIT_INTERRUPTED",
     "EXIT_NOTHING_CONNECTED",
     "EXIT_OK",
+    "PERMISSION_NAME",
     "Problem",
+    "bluetooth_advice",
     "explain",
     "find",
     "flatten",
@@ -154,6 +156,70 @@ def serial_port_advice(platform: str = sys.platform) -> str:
     )
 
 
+PERMISSION_NAME = "Pybricks"
+"""What macOS calls this program when it asks about Bluetooth.
+
+pb-service's ``PERMISSION_NAME``, which it passes to aio-rfcomm's
+``prompt_under_name()``, and so the one in the dialog and under Privacy &
+Security. Repeated rather than imported, so that explaining an error does not
+load the service; a test holds the two together.
+"""
+
+_BLUETOOTH = (
+    "Switch Bluetooth on, or plug in an adapter, and check that this "
+    "computer lets pb use Bluetooth."
+)
+"""What to suggest when the service could not say why Bluetooth is unusable."""
+
+
+def bluetooth_advice(availability: str | None, platform: str = sys.platform) -> str:
+    """Say what to do about Bluetooth that cannot be used.
+
+    Args:
+        availability: Why, as the service names it -- one word per member of
+            aio-rfcomm's ``Availability`` -- or ``None`` if it did not say.
+        platform: What to advise for. An argument for the same reason as in
+            :func:`serial_port_advice`.
+
+    Returns:
+        What to suggest.
+    """
+    mac = platform == "darwin"
+
+    match availability:
+        case "switched_off":
+            return "Switch Bluetooth on, then try again."
+        case "no_adapter":
+            return "Plug in a Bluetooth adapter, then try again."
+        case "awaiting_permission":
+            # Only once the service has given up waiting: until then the CLI
+            # says this as it happens, and carries on when it is answered.
+            what = "the dialog" if mac else "the system's question"
+            return (
+                f"Answer {what} asking whether [bold]{PERMISSION_NAME}[/] may "
+                "use Bluetooth, then try again."
+            )
+        case "not_allowed" if mac:
+            # Conditional, because a profile or parental controls refuse it
+            # in the same words, and those are not the user's to undo.
+            return (
+                f"If you refused it for [bold]{PERMISSION_NAME}[/], allow it "
+                "in System Settings under Privacy & Security > Bluetooth, "
+                "then try again."
+            )
+        case "not_allowed":
+            return "Check that this computer lets pb use Bluetooth."
+        case "service_unavailable":
+            return (
+                "The system's Bluetooth service usually restarts by itself. "
+                "Wait a moment, then try again."
+            )
+        case "unsupported":
+            return "If the hub has a USB port, connect it with a cable instead."
+        case _:
+            return _BLUETOOTH
+
+
 _RULES: Mapping[int, _Rule] = {
     # Hubs. The service's own wording is specific -- "no connected hub named
     # 'Spare Hub'" -- so it is usually kept as the headline and only the
@@ -202,12 +268,9 @@ _RULES: Mapping[int, _Rule] = {
     ),
     # Transport and lifecycle.
     # The service repeats what the system said, which is what tells a radio
-    # that is switched off from one this program may not use.
-    ErrorCode.BLUETOOTH_UNAVAILABLE: _Rule(
-        "Switch Bluetooth on, or plug in an adapter, and check that this "
-        "computer lets pb use Bluetooth.",
-        exit_code=EXIT_ERROR,
-    ),
+    # that is switched off from one this program may not use, and names it in
+    # a word, which is what chooses the suggestion (see bluetooth_advice).
+    ErrorCode.BLUETOOTH_UNAVAILABLE: _Rule(_BLUETOOTH, exit_code=EXIT_ERROR),
     ErrorCode.SCAN_TIMEOUT: _Rule(
         "Switch the hub on and press its button so that its light flashes."
     ),
@@ -373,6 +436,24 @@ def _slot_hint(exc: JsonRpcError, default: str | None) -> str | None:
     return _ONE_SLOT if data.get("slots") == 1 else default
 
 
+def _bluetooth_hint(exc: JsonRpcError) -> str:
+    """Suggest what to do about Bluetooth, by the reason the service gave.
+
+    Args:
+        exc: The error the service sent.
+
+    Returns:
+        The suggestion to print.
+    """
+    payload: object = exc.data
+    if not isinstance(payload, Mapping):
+        return bluetooth_advice(None)
+
+    data = cast("Mapping[str, object]", payload)
+    availability = data.get("availability")
+    return bluetooth_advice(availability if isinstance(availability, str) else None)
+
+
 def _describe_rpc(exc: JsonRpcError, hints: Mapping[int, str] | None) -> Problem | None:
     """Present an error the service reported, or ``None`` if the code is unknown."""
     rule = _RULES.get(exc.code)
@@ -390,6 +471,9 @@ def _describe_rpc(exc: JsonRpcError, hints: Mapping[int, str] | None) -> Problem
 
     if exc.code == ErrorCode.PROGRAM_SLOT_NOT_SELECTED:
         hint = _slot_hint(exc, hint)
+
+    if exc.code == ErrorCode.BLUETOOTH_UNAVAILABLE:
+        hint = _bluetooth_hint(exc)
 
     if exc.code == ErrorCode.UNSUPPORTED_PROTOCOL_VERSION:
         message, hint = _version_mismatch(exc, message, hint)

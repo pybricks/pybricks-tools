@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import sys
 from pathlib import Path
 
 import anyio
@@ -437,6 +438,56 @@ def test_unusable_bluetooth_keeps_the_systems_words() -> None:
     assert "switched off" in problems[0].message
     assert problems[0].hint
     assert "Low Energy" not in problems[0].hint
+
+
+@pytest.mark.parametrize(
+    ("availability", "expected"),
+    [
+        ("switched_off", "Switch Bluetooth on"),
+        ("no_adapter", "Plug in a Bluetooth adapter"),
+        # The two only macOS reports, worded for it there.
+        (
+            "not_allowed",
+            "Privacy & Security" if sys.platform == "darwin" else "lets pb use",
+        ),
+        ("awaiting_permission", "Answer the"),
+        ("service_unavailable", "Wait a moment"),
+        ("unsupported", "USB"),
+        (None, "Switch Bluetooth on, or plug in an adapter"),
+        ("something_newer", "Switch Bluetooth on, or plug in an adapter"),
+    ],
+)
+def test_unusable_bluetooth_gets_the_advice_for_its_reason(
+    availability: str | None, expected: str
+) -> None:
+    # One suggestion covering every reason sent somebody whose permission
+    # dialog was open off to switch on a radio that was already on.
+    exc = JsonRpcError(
+        ErrorCode.BLUETOOTH_UNAVAILABLE,
+        "Bluetooth cannot be used: whatever the system said",
+        {"availability": availability} if availability else None,
+    )
+    problems = errors.explain(exc)
+
+    assert problems is not None
+    assert problems[0].hint is not None
+    assert expected in problems[0].hint
+    assert "whatever the system said" in problems[0].message
+
+
+def test_the_name_is_the_one_the_service_asks_under() -> None:
+    from pb_service.backend import PERMISSION_NAME
+
+    assert errors.PERMISSION_NAME == PERMISSION_NAME
+
+
+def test_the_permission_advice_names_what_macos_shows() -> None:
+    # The dialog and System Settings say "Pybricks", not pb or Python.
+    for availability in ("awaiting_permission", "not_allowed"):
+        assert "Pybricks" in errors.bluetooth_advice(availability, "darwin")
+
+    # Elsewhere there is no System Settings to send anybody to.
+    assert "System Settings" not in errors.bluetooth_advice("not_allowed", "linux")
 
 
 @pytest.mark.parametrize(

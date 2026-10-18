@@ -31,12 +31,14 @@ from pb_client.models import (
     Downloaded,
     HubInfo,
     ServiceInfo,
+    UnusableAdapter,
 )
 from pb_client.stdio import HubEvent
 from pb_core import auth, ipc
 from pb_core.ipc import Endpoint
 from pb_core.jsonrpc import JsonRpcPeer, Request, connect_peer, encode_binary
 from pb_core.protocol import (
+    HUB_ADAPTERS,
     HUB_FOUND,
     HUB_STATE,
     HUB_STATUS,
@@ -310,6 +312,54 @@ class Service:
                 # Whether the caller finished or walked away, nothing this
                 # method started outlives the block.
                 tg.cancel_scope.cancel()
+
+    @asynccontextmanager
+    async def watching_adapters(
+        self,
+    ) -> AsyncGenerator[AsyncIterator[tuple[UnusableAdapter, ...]], None]:
+        """Follow which Bluetooth adapters cannot be used, while hubs are sought.
+
+        Only a scan or a connection looking for a hub reports this, and only on
+        a change, so open this around one of those. What it is for: on macOS
+        the first use of Bluetooth Classic makes the system ask the user
+        whether "Pybricks" may use Bluetooth, and nothing is found until they
+        answer. Telling them as soon as that happens, rather than when the
+        search gives up, is the difference between a dialog answered and one
+        nobody noticed. Meanwhile the service holds the search's time limit
+        still, and once the dialog is answered the search carries on.
+
+        Yields:
+            Each change: every adapter that cannot be used, or an empty tuple
+            once all can again. Ends when the block is left.
+
+        Raises:
+            RuntimeError: If this connection has no notification router, which
+                would leave the iterator silently empty.
+        """
+        if self._notifications is None:
+            raise RuntimeError("this connection does not receive notifications")
+
+        # Small and lossy, as with every subscriber: these are levels, so the
+        # next one corrects a dropped one.
+        sender, receiver = anyio.create_memory_object_stream[
+            tuple[str, dict[str, Any]]
+        ](16)
+        self._notifications.add(HUB_ADAPTERS, sender)
+
+        async def changes() -> AsyncGenerator[tuple[UnusableAdapter, ...], None]:
+            async with receiver:
+                async for _method, payload in receiver:
+                    entries = cast("list[dict[str, Any]]", payload.get("unusable", []))
+                    yield tuple(UnusableAdapter.from_wire(e) for e in entries)
+
+        stream = changes()
+
+        try:
+            async with aclosing(stream):
+                yield stream
+        finally:
+            self._notifications.discard(HUB_ADAPTERS, sender)
+            sender.close()
 
     async def connect_hub(
         self,

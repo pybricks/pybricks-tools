@@ -32,6 +32,7 @@ from __future__ import annotations
 from typing import Final
 
 __all__ = [
+    "HUB_ADAPTERS",
     "HUB_FOUND",
     "HUB_STATE",
     "HUB_STATUS",
@@ -76,6 +77,23 @@ advertisement rather than one per hub, so the signal strength in it is current;
 the same hub arrives many times during a scan. The name lives here because both
 ends have to agree on it, and a notification whose name drifts is not an error
 anywhere -- it simply stops arriving, which is the worst way to find out.
+"""
+
+HUB_ADAPTERS: Final = "hub.adapters"
+"""Notification sent to a session that is scanning or connecting when the
+Bluetooth adapters it cannot use change.
+
+Its parameter ``unusable`` lists each such adapter as an ``address``, the
+system's ``reason`` and, where the transport knows it, an ``availability``
+word such as ``switched_off`` or ``awaiting_permission``. An empty list means
+everything is usable again. Sent only on a change, and not at all while
+everything is usable, so most scans never send one.
+
+It exists for ``awaiting_permission``: macOS asking the user whether the
+service may use Bluetooth. That ends by itself when the user answers, and the
+search carries on, so it is said while the search is still running rather than
+as an error at the end -- by which time the user would have had to notice a
+dialog without being told to look for one.
 """
 
 HUB_STDOUT: Final = "hub.stdout"

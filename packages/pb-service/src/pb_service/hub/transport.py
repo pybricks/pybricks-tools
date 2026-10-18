@@ -150,6 +150,21 @@ class UnavailableDevice:
     reach, while an adapter that cannot be used hides every hub behind it.
     """
 
+    availability: str | None = None
+    """For an adapter, which kind of unusable it is, if the transport knows.
+
+    One word a client can choose its advice by, since :attr:`reason` is the
+    system's prose and differs between platforms: ``switched_off``,
+    ``no_adapter``, ``not_allowed``, ``awaiting_permission``,
+    ``service_unavailable`` or ``unsupported``. ``awaiting_permission`` is the
+    one that ends by itself, when the user answers the system's question.
+    """
+
+    @property
+    def awaiting_permission(self) -> bool:
+        """Whether the system is asking the user to let this program in."""
+        return self.availability == "awaiting_permission"
+
 
 TRANSPORT_PREFERENCE: Final = ("usb", "ble", "rfcomm", "fake")
 """How transports rank when a hub is reachable more than one way, best first.
