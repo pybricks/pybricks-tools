@@ -214,13 +214,8 @@ class RfcommHubTransport:
 
             link = StreamLink(pipe, device_id)
 
-            async with anyio.create_task_group() as tg:
-                tg.start_soon(link.run, self._on_lost)
-
-                try:
-                    yield link
-                finally:
-                    tg.cancel_scope.cancel()
+            async with link.running(self._on_lost):
+                yield link
 
     def _on_lost(self, device_id: str) -> None:
         """Report a hub that went away by itself."""

@@ -274,9 +274,7 @@ class UsbHubTransport:
         async with self._open_port(port.device) as serial:
             link = StreamLink(serial, device_id)
 
-            async with anyio.create_task_group() as tg:
-                tg.start_soon(link.run, self._on_lost)
-
+            async with link.running(self._on_lost):
                 try:
                     yield link
                 finally:
@@ -290,8 +288,6 @@ class UsbHubTransport:
                         suppress(OSError, ConnectionError),
                     ):
                         await serial.write(wire.encode_subscribe(subscribed=False))
-
-                    tg.cancel_scope.cancel()
 
     def _on_lost(self, device_id: str) -> None:
         """Report a hub that went away by itself."""
