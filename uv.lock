@@ -43,6 +43,27 @@ test = [
 typecheck = [{ name = "pyright", specifier = ">=1.1.400" }]
 
 [[package]]
+name = "aio-rfcomm"
+version = "1.0.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "dbus-fast", marker = "sys_platform == 'linux'" },
+    { name = "rubicon-objc", marker = "sys_platform == 'darwin'" },
+    { name = "typing-extensions" },
+    { name = "winrt-windows-devices-bluetooth", marker = "sys_platform == 'win32'" },
+    { name = "winrt-windows-devices-bluetooth-rfcomm", marker = "sys_platform == 'win32'" },
+    { name = "winrt-windows-devices-enumeration", marker = "sys_platform == 'win32'" },
+    { name = "winrt-windows-devices-radios", marker = "sys_platform == 'win32'" },
+    { name = "winrt-windows-foundation", marker = "sys_platform == 'win32'" },
+    { name = "winrt-windows-foundation-collections", marker = "sys_platform == 'win32'" },
+    { name = "winrt-windows-storage-streams", marker = "sys_platform == 'win32'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ff/f9/d0123d34731da8b544376ff29bef60842ef0c587223b240ff11fc276ad68/aio_rfcomm-1.0.0.tar.gz", hash = "sha256:3d4458519ecbe437967623b6ad72815294bbff7213a6d18152087cb98f233651", size = 108909, upload-time = "2026-10-18T04:38:40.416Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/6a/28/85ff0a652fa0609f894c9afbbe17f02a168e40e9e403ac574b3ab3bcd565/aio_rfcomm-1.0.0-py3-none-any.whl", hash = "sha256:88e6a12f3023cc6e46b74a306d0b501185f6eefc6faa53844a2d62acac5f7f95", size = 138379, upload-time = "2026-10-18T04:38:38.862Z" },
+]
+
+[[package]]
 name = "anyio"
 version = "4.14.2"
 source = { registry = "https://pypi.org/simple" }
@@ -938,6 +959,7 @@ name = "pybricks-service"
 version = "0.1.0"
 source = { editable = "packages/pb-service" }
 dependencies = [
+    { name = "aio-rfcomm" },
     { name = "anyio" },
     { name = "bleak" },
     { name = "packaging" },
@@ -949,6 +971,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aio-rfcomm", specifier = ">=1.0" },
     { name = "anyio", specifier = ">=4.14" },
     { name = "bleak", specifier = ">=1.1.0" },
     { name = "packaging", specifier = ">=22" },
@@ -1236,6 +1259,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/e2/d6/d0b9fafc73b65767200da027acab1db1bdb1048f4fea5ebf659df01c700e/rich_rst-2.1.0.tar.gz", hash = "sha256:f4d117b49697f338769759fa5cacf5197da4888b347b9fda2e50aef5cd8d93bd", size = 302732, upload-time = "2026-07-05T02:59:44.308Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/2a/68/1fc93dd759605b5d00fc98b50200739e41ed32bd22d6ba35ca6c3932371b/rich_rst-2.1.0-py3-none-any.whl", hash = "sha256:7ecd1343ee12c879d0e7ae74c3eb6d263b023d2929c6d114212eb1fd91057255", size = 272987, upload-time = "2026-07-05T02:59:42.792Z" },
+]
+
+[[package]]
+name = "rubicon-objc"
+version = "0.5.7"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/46/7a/b90db65d32583ecace5164420ec93a5321a0b90e7951f6b93aebd3e70eee/rubicon_objc-0.5.7.tar.gz", hash = "sha256:ed2a56284a18ceb6370276069e8aab685b5465bbb457a5f13e09e37d0618703d", size = 197088, upload-time = "2026-09-30T04:12:18.303Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/09/68/f2548a31901e437c49b676a395bb7bef9f879d4df496e0a18e17160816ad/rubicon_objc-0.5.7-py3-none-any.whl", hash = "sha256:3dc76bc29f300ee6b9a4f408748099f70f8472ca59fe70cca42dfa1f2f1bfe3f", size = 64666, upload-time = "2026-09-30T04:12:16.966Z" },
 ]
 
 [[package]]
@@ -1592,6 +1624,29 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/b7/32/cb447ca7730a1e05730272309b074da6a04af29a8c0f5121014db8a2fc02/winrt_windows_devices_bluetooth_genericattributeprofile-3.2.1-cp314-cp314-win32.whl", hash = "sha256:d5f83739ca370f0baf52b0400aebd6240ab80150081fbfba60fd6e7b2e7b4c5f", size = 185249, upload-time = "2025-09-20T07:09:58.639Z" },
     { url = "https://files.pythonhosted.org/packages/bb/fa/f465d5d44dda166bf7ec64b7a950f57eca61f165bfe18345e9a5ea542def/winrt_windows_devices_bluetooth_genericattributeprofile-3.2.1-cp314-cp314-win_amd64.whl", hash = "sha256:13786a5853a933de140d456cd818696e1121c7c296ae7b7af262fc5d2cffb851", size = 193739, upload-time = "2025-09-20T07:09:59.893Z" },
     { url = "https://files.pythonhosted.org/packages/78/08/51c53ac3c704cd92da5ed7e7b9b57159052f6e46744e4f7e447ed708aa22/winrt_windows_devices_bluetooth_genericattributeprofile-3.2.1-cp314-cp314-win_arm64.whl", hash = "sha256:5140682da2860f6a55eb6faf9e980724dc457c2e4b4b35a10e1cebd8fc97d892", size = 194836, upload-time = "2025-09-20T07:10:00.87Z" },
+]
+
+[[package]]
+name = "winrt-windows-devices-bluetooth-rfcomm"
+version = "3.2.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "winrt-runtime" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/2a/b4/c182d73c9562f10fc345d1c5cf97ab0be5e2d6adbc83d52792e41ad730f8/winrt_windows_devices_bluetooth_rfcomm-3.2.1.tar.gz", hash = "sha256:98eb180b95539c0831cc9878984192063875bd806f8d054afc3fabf7945634ce", size = 9324, upload-time = "2025-06-06T14:41:23.667Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e2/37/e48883277129f45e2f445d202051a709b828e192163585e98a286cbf31bc/winrt_windows_devices_bluetooth_rfcomm-3.2.1-cp311-cp311-win32.whl", hash = "sha256:b49b5d36adf2584579d58f44049a552c078d6ede94ca80003845e9d21b42a0a1", size = 56339, upload-time = "2025-06-06T07:01:04.774Z" },
+    { url = "https://files.pythonhosted.org/packages/21/a6/d68c821104f899d54b328b8cb56af54f8c0f3e03c07044c6032b82a919b0/winrt_windows_devices_bluetooth_rfcomm-3.2.1-cp311-cp311-win_amd64.whl", hash = "sha256:d846786c5f6af6e684161d40ec29fee4408422b87870725a9c2e844a1d97ff1b", size = 59860, upload-time = "2025-06-06T07:01:05.578Z" },
+    { url = "https://files.pythonhosted.org/packages/35/97/a148ef1c8bf627d3d7fbcc3d4a262d80f7c932e1b87295dea08f4472e956/winrt_windows_devices_bluetooth_rfcomm-3.2.1-cp311-cp311-win_arm64.whl", hash = "sha256:5b7813c6e4fc213d2174d80843d15d096704050f3f03e81a83fe0adc6dd214bb", size = 54862, upload-time = "2025-06-06T07:01:06.367Z" },
+    { url = "https://files.pythonhosted.org/packages/8c/8f/73ae88689f34c4ece5c995c2c276bc18ecaf83a0edf4dfc5524e5cfaaefe/winrt_windows_devices_bluetooth_rfcomm-3.2.1-cp312-cp312-win32.whl", hash = "sha256:daf332a1508687318139ef710a229f2e2e24dc34ff5e6c97bb57aa1134bb5b55", size = 56409, upload-time = "2025-06-06T07:01:07.488Z" },
+    { url = "https://files.pythonhosted.org/packages/39/1d/9be78401783d89165642b4bd33ddfaf4a8dff76e08fc863984be5f55cce4/winrt_windows_devices_bluetooth_rfcomm-3.2.1-cp312-cp312-win_amd64.whl", hash = "sha256:2193818b705c64312b650b81c675a476feb9f09a6450f5b3e1fe47725c4ac39d", size = 60073, upload-time = "2025-06-06T07:01:08.666Z" },
+    { url = "https://files.pythonhosted.org/packages/2e/92/6e336e5806fe407903c91ef8f6ec94d3bd8fb0462fa7d5c45e842bb643e8/winrt_windows_devices_bluetooth_rfcomm-3.2.1-cp312-cp312-win_arm64.whl", hash = "sha256:2eff3b3f7b09957cd83134bdd39d33b344aa98cf15269767e5d6a9a9eb6ceb58", size = 54838, upload-time = "2025-06-06T07:01:09.447Z" },
+    { url = "https://files.pythonhosted.org/packages/a0/95/99c18c537f9abe54318122e0729067b23c8a6067016b7f8985bb8aaaf1b3/winrt_windows_devices_bluetooth_rfcomm-3.2.1-cp313-cp313-win32.whl", hash = "sha256:c751fcd5bc4dfa61bc7c8c52c143bd148c56122a34deb7c79d5065696ded1cc4", size = 56419, upload-time = "2025-06-06T07:01:10.974Z" },
+    { url = "https://files.pythonhosted.org/packages/71/0c/c821f538857a90cc04ba759e4425c22488c93facbeab0d84713dad58a754/winrt_windows_devices_bluetooth_rfcomm-3.2.1-cp313-cp313-win_amd64.whl", hash = "sha256:a800ae9fbea506142eb4284a5a4e390896402eab4eb5150608478571eaec80d3", size = 60102, upload-time = "2025-06-06T07:01:11.766Z" },
+    { url = "https://files.pythonhosted.org/packages/46/15/ae05619969114256f83ab33374dd1c1e53a2b0b459b55e3358cfeca0f57c/winrt_windows_devices_bluetooth_rfcomm-3.2.1-cp313-cp313-win_arm64.whl", hash = "sha256:0ace6a12b6f051bb3a09c29956fd4ba58744ed5cd8584b12b1ef6eaab311f456", size = 54851, upload-time = "2025-06-06T07:01:12.544Z" },
+    { url = "https://files.pythonhosted.org/packages/b2/00/d0931934b5b98ecfb68c2e455fe2318f3912c52910a8e8f674b2c0b6e98f/winrt_windows_devices_bluetooth_rfcomm-3.2.1-cp314-cp314-win32.whl", hash = "sha256:ae79b8bb7178e07f5edf4bae66cfce763f8dbe31bd5c1207d40fb61a7a99e206", size = 57861, upload-time = "2025-09-20T07:10:01.711Z" },
+    { url = "https://files.pythonhosted.org/packages/b5/5d/d1148f216f5481467177b7f9fe9596a21b514e7c640025862ac587eaf9d0/winrt_windows_devices_bluetooth_rfcomm-3.2.1-cp314-cp314-win_amd64.whl", hash = "sha256:356b9a3e79da980ccdcf4858103bb922664a985e1bfe552d4317cc6e855b5bc9", size = 61547, upload-time = "2025-09-20T07:10:02.478Z" },
+    { url = "https://files.pythonhosted.org/packages/fa/8e/a90c322f6380f3527666ba0f0337000cd19acc0aa6b69f52b6ff464a3660/winrt_windows_devices_bluetooth_rfcomm-3.2.1-cp314-cp314-win_arm64.whl", hash = "sha256:3eb710f6f0308baf4aa3572963bf136139c8249f1f52adc9507eb0b661435fe8", size = 56593, upload-time = "2025-09-20T07:10:03.258Z" },
 ]
 
 [[package]]
