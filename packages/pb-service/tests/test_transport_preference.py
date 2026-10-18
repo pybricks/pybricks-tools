@@ -18,7 +18,7 @@ def test_usb_is_preferred_over_bluetooth() -> None:
 
 def test_a_transport_this_build_does_not_know_loses_every_tie() -> None:
     # It can still be used; it just is not chosen over something known.
-    assert preference_rank("rfcomm") > preference_rank("ble")
+    assert preference_rank("unknown") > preference_rank("ble")
     assert preference_rank("") > preference_rank("fake")
 
 
@@ -34,12 +34,14 @@ def test_the_service_builds_its_transports_in_preference_order(
     # decision, and nothing else would notice them drifting apart: connecting
     # would simply start choosing the wrong route.
     from pb_service.backend import HUB_BACKEND_ENV_VAR, get_hub_transport
+    from pb_service.hub.rfcomm.fake import radio
 
     # The real transports, not whatever the suite is otherwise pointed at.
-    # Building them touches no hardware.
+    # Building them touches no hardware, and RFCOMM's needs Bluetooth open, so
+    # it gets a simulated one.
     monkeypatch.delenv(HUB_BACKEND_ENV_VAR, raising=False)
 
-    schemes = get_hub_transport().scheme.split("+")
+    schemes = get_hub_transport(radio()).scheme.split("+")
 
     assert schemes == sorted(schemes, key=preference_rank)
     assert schemes[0] == "usb", "USB is meant to be the preferred route"

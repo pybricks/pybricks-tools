@@ -144,8 +144,13 @@ class UnavailableDevice:
     """
 
 
-TRANSPORT_PREFERENCE: Final = ("usb", "ble", "fake")
+TRANSPORT_PREFERENCE: Final = ("usb", "ble", "rfcomm", "fake")
 """How transports rank when a hub is reachable more than one way, best first.
+
+RFCOMM comes after BLE: its listing is the paired set, which includes hubs
+that are switched off, where hearing a hub advertise says it is actually there.
+The two rarely compete anyway, since a hub speaks one radio protocol or the
+other.
 
 USB comes first on three counts, each measured rather than argued: enumerating
 serial ports answers in milliseconds where a Bluetooth scan has to wait to hear
