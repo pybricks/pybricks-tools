@@ -12,8 +12,10 @@ from __future__ import annotations
 import logging
 import os
 from collections.abc import AsyncGenerator
-from contextlib import AsyncExitStack, asynccontextmanager
-from typing import TYPE_CHECKING
+from contextlib import asynccontextmanager
+from typing import TYPE_CHECKING, cast
+
+import anyio
 
 from pb_service.hub.transport import HubTransport
 
@@ -117,17 +119,16 @@ def get_hub_transport(bluetooth: Bluetooth | None = None) -> HubTransport:
 async def open_hub_transport() -> AsyncGenerator[HubTransport, None]:
     """Open the transport this service should use, for as long as the block lasts.
 
-    Bluetooth Classic is opened here when RFCOMM is in use, and nowhere else:
-    aio-rfcomm allows it open once per process, and everything opened through
-    it stops working when its block ends, so it has to outlive every hub.
+    Bluetooth Classic is held open in this scope when RFCOMM is in use, and
+    nowhere else: aio-rfcomm allows it open once per process, and everything
+    opened through it stops working when its block ends, so it has to outlive
+    every hub. It is opened the first time RFCOMM needs it, not here, so the
+    service never waits on it to start (see
+    :mod:`pb_service.hub.rfcomm.lazy`). If it cannot be opened, RFCOMM
+    reports Bluetooth as unusable and the other transports carry on.
 
     Yields:
         What :func:`get_hub_transport` returns.
-
-    Raises:
-        RfcommError: ``PB_HUB_BACKEND`` asks for RFCOMM alone, and Bluetooth
-            could not be opened. With every transport in use, RFCOMM is left
-            out instead, so the others still work.
     """
     backend = _backend()
 
@@ -135,9 +136,9 @@ async def open_hub_transport() -> AsyncGenerator[HubTransport, None]:
         yield get_hub_transport()
         return
 
-    import aio_rfcomm
     import aio_rfcomm.macos
-    from aio_rfcomm.errors import RfcommError
+
+    from pb_service.hub.rfcomm.lazy import LazyBluetooth
 
     # macOS asks the responsible process for Bluetooth permission, and a
     # service started from a command line has no application to speak for it,
@@ -147,15 +148,11 @@ async def open_hub_transport() -> AsyncGenerator[HubTransport, None]:
         name="Pybricks", reason="to connect to LEGO hubs over Bluetooth"
     )
 
-    async with AsyncExitStack() as stack:
-        bluetooth: Bluetooth | None = None
+    async with anyio.create_task_group() as tg:
+        # Cast: it offers only the calls the RFCOMM transport makes.
+        bluetooth = cast("Bluetooth", LazyBluetooth(tg))
 
         try:
-            bluetooth = await stack.enter_async_context(aio_rfcomm.open_bluetooth())
-        except RfcommError as exc:
-            if backend == "rfcomm":
-                raise
-
-            logger.warning("RFCOMM hubs will not be found: %s", exc)
-
-        yield get_hub_transport(bluetooth)
+            yield get_hub_transport(bluetooth)
+        finally:
+            tg.cancel_scope.cancel()

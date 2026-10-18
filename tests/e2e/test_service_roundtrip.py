@@ -13,8 +13,10 @@ import socket
 import sys
 import uuid
 from collections.abc import AsyncGenerator, Iterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 
+import aio_rfcomm
 import anyio
 import pytest
 
@@ -212,3 +214,26 @@ async def test_idle_service_exits_on_its_own(endpoint: Endpoint) -> None:
 
     assert "idle" in service.shutdown_reason
     assert 0.3 <= took < 0.45, f"exited after {took:.3f}s, wanted about 0.3s"
+
+
+@asynccontextmanager
+async def _never_opens() -> AsyncGenerator[None, None]:
+    """What opening Bluetooth does on a Mac with nobody to answer its prompt."""
+    await anyio.sleep_forever()
+    yield  # Never reached, but makes this a generator.
+
+
+async def test_a_service_starts_while_bluetooth_never_opens(
+    monkeypatch: pytest.MonkeyPatch, endpoint: Endpoint
+) -> None:
+    # The CI failure: the service waited on Bluetooth before listening, so
+    # on a Mac nobody could answer, it never answered anything either.
+    monkeypatch.setenv("PB_HUB_BACKEND", "")
+    monkeypatch.setattr(aio_rfcomm, "open_bluetooth", _never_opens)
+
+    with anyio.fail_after(10):
+        async with (
+            service_module.run_service(endpoint, idle_timeout=0),
+            pb_client.connect(endpoint, autostart=False) as service,
+        ):
+            await service.ping()
