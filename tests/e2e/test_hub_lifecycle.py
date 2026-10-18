@@ -165,6 +165,44 @@ async def test_a_scan_that_reports_nothing_still_ends(service_at: Endpoint) -> N
 
 
 @pytest.fixture
+async def bluetooth_off_at(endpoint: Endpoint) -> AsyncGenerator[Endpoint, None]:
+    """A service whose Bluetooth adapter cannot be used.
+
+    What RFCOMM reports with the radio switched off or not allowed: it cannot
+    read the paired set at all, so it names the adapter rather than a hub.
+
+    Args:
+        endpoint: Where the service should listen.
+
+    Yields:
+        That endpoint, with the service running.
+    """
+    transport = FakeHubTransport()
+    transport.hubs = []
+    transport.unavailable = (
+        UnavailableDevice("bluetooth", "Bluetooth is switched off", kind="adapter"),
+    )
+
+    async with service_module.run_service(
+        endpoint, idle_timeout=0, transport=transport
+    ):
+        yield endpoint
+
+
+async def test_bluetooth_that_cannot_be_used_is_not_reported_as_a_port(
+    bluetooth_off_at: Endpoint,
+) -> None:
+    # Told a port would not open, somebody on Linux joins dialout and somebody
+    # on a Mac unplugs a hub, and neither helps. The radio is what to fix.
+    async with pb_client.connect(bluetooth_off_at, autostart=False) as service:
+        with pytest.raises(JsonRpcError) as caught:
+            await service.scan(seconds=0.3)
+
+    assert caught.value.code == ErrorCode.BLUETOOTH_UNAVAILABLE
+    assert "switched off" in str(caught.value), "the system's words are lost"
+
+
+@pytest.fixture
 async def out_of_reach_at(endpoint: Endpoint) -> AsyncGenerator[Endpoint, None]:
     """A service whose only hub is behind a port it may not open.
 

@@ -201,12 +201,12 @@ _RULES: Mapping[int, _Rule] = {
         message="The hub's button interrupted this.",
     ),
     # Transport and lifecycle.
+    # The service repeats what the system said, which is what tells a radio
+    # that is switched off from one this program may not use.
     ErrorCode.BLUETOOTH_UNAVAILABLE: _Rule(
-        "Connect or enable a Bluetooth Low Energy adapter, and check that this "
-        "computer has permission to use it.",
+        "Switch Bluetooth on, or plug in an adapter, and check that this "
+        "computer lets pb use Bluetooth.",
         exit_code=EXIT_ERROR,
-        message="No Bluetooth adapter could be found, or permission to use it "
-        "has not been granted.",
     ),
     ErrorCode.SCAN_TIMEOUT: _Rule(
         "Switch the hub on and press its button so that its light flashes."

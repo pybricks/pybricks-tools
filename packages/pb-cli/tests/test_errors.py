@@ -424,6 +424,21 @@ def test_a_refused_serial_port_keeps_the_port_in_the_message() -> None:
     assert problems[0].hint
 
 
+def test_unusable_bluetooth_keeps_the_systems_words() -> None:
+    # They are what tells a radio switched off from one pb may not use, and
+    # the advice covers Bluetooth Classic as well as Low Energy.
+    exc = JsonRpcError(
+        ErrorCode.BLUETOOTH_UNAVAILABLE,
+        "Bluetooth cannot be used: Bluetooth is switched off",
+    )
+    problems = errors.explain(exc)
+
+    assert problems is not None
+    assert "switched off" in problems[0].message
+    assert problems[0].hint
+    assert "Low Energy" not in problems[0].hint
+
+
 @pytest.mark.parametrize(
     ("platform", "expected"),
     [

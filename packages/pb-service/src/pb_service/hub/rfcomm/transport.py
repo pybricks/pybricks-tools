@@ -100,7 +100,7 @@ class RfcommHubTransport:
         stands for the adapter.
         """
         return tuple(
-            UnavailableDevice(address, reason)
+            UnavailableDevice(address, reason, kind="adapter")
             for address, reason in self._unavailable.items()
         )
 

@@ -57,7 +57,8 @@ def _found_nothing(manager: HubManager) -> JsonRpcError:
     A hub that is plugged in but whose port will not open is the opposite
     problem from no hub at all -- the user needs to fix their computer, not go
     and find their hub -- so it gets a code of its own rather than the wording
-    being bent to cover both.
+    being bent to cover both. So does a Bluetooth adapter that cannot be used,
+    which hides every hub behind it.
 
     Args:
         manager: Whose transports did the looking.
@@ -68,12 +69,22 @@ def _found_nothing(manager: HubManager) -> JsonRpcError:
         neither.
     """
     unavailable = manager.transport.unavailable
+    ports = [d for d in unavailable if d.kind == "port"]
+    adapters = [d for d in unavailable if d.kind == "adapter"]
 
-    if unavailable:
-        refused = ", ".join(f"{d.address} ({d.reason})" for d in unavailable)
+    # A refused port first: it is a hub actually there, while an adapter that
+    # cannot be used only means hubs behind it could not be looked for.
+    if ports:
+        refused = ", ".join(f"{d.address} ({d.reason})" for d in ports)
         return JsonRpcError(
             ErrorCode.SERIAL_PORT_UNAVAILABLE,
             f"found a hub but could not open its port: {refused}",
+        )
+
+    if adapters:
+        reasons = ", ".join(d.reason for d in adapters)
+        return JsonRpcError(
+            ErrorCode.BLUETOOTH_UNAVAILABLE, f"Bluetooth cannot be used: {reasons}"
         )
 
     return JsonRpcError(ErrorCode.HUB_NOT_FOUND, "no hub found")
@@ -289,8 +300,9 @@ async def hub_scan(session: Session, params: dict[str, Any]) -> dict[str, Any]:
                     session.peer.notify(HUB_FOUND, _device_json(device))
 
     # A scan that finds nothing is an ordinary answer and not an error, so it
-    # returns an empty list -- unless a hub was there and would not open, which
-    # scanning again will not fix and which the user can do something about.
+    # returns an empty list -- unless a hub was there and would not open, or
+    # Bluetooth could not be used, which scanning again will not fix and which
+    # the user can do something about.
     if not found and manager.transport.unavailable:
         raise _found_nothing(manager)
 
