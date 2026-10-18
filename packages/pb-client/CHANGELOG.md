@@ -9,6 +9,7 @@ Notable changes to `pybricks-client`. The format is based on
 
 - `connect()` gives an async handle to the service, starting one if needed.
 - Ongoing events are async context managers yielding async iterators.
+- `watching_adapters()` says which Bluetooth adapters a search cannot use.
 - No function takes a `timeout`; callers scope cancellation themselves.
 - Compiles a script and every module of its own that it imports.
 - Passes a precompiled `.mpy` through, for modules built for native code.

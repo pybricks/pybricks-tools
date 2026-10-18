@@ -17,7 +17,7 @@ The format is based on
 
 - A uv workspace of four packages, `src` layout throughout, with `py.typed`.
 - ruff, pyright strict, pytest and a strict docs build, gated from commit one.
-- CI on Linux, macOS, Windows and Windows ARM64, across Python 3.11 to 3.13.
+- CI on Linux, macOS, Windows and Windows ARM64, across Python 3.11 to 3.14.
 - Documentation with the API and command references generated from the code.
 
 ### Notes
