@@ -125,6 +125,7 @@ async def _follow_adapters(
     session: Session,
     looking: anyio.CancelScope,
     waiting: Callable[[], bool],
+    started: anyio.Event,
 ) -> None:
     """Keep the caller told about unusable adapters while a search runs.
 
@@ -141,14 +142,19 @@ async def _follow_adapters(
             the user for permission, up to :data:`PERMISSION_SECONDS`.
         waiting: Whether nothing has been found yet. Once something has, the
             permission no longer holds the search open.
+        started: Set when this search's scan has the radio. A search queued
+            behind another must not report that one's adapters, or have its
+            deadline held by that one's permission dialog.
     """
+    await started.wait()
     told: tuple[UnavailableDevice, ...] = ()
     held = 0.0
     then = anyio.current_time()
 
     while True:
         # Before the first look, so that the transports have started this
-        # search: until then they still hold what the last one found.
+        # search: until then they still hold what the last one found, even
+        # once it has the radio.
         await anyio.sleep(FOLLOW_SECONDS)
         now = anyio.current_time()
         adapters = _adapters(manager)
@@ -380,13 +386,22 @@ async def hub_scan(session: Session, params: dict[str, Any]) -> dict[str, Any]:
 
     # A cancel scope rather than a timeout argument, which also means that
     # whatever was seen before the deadline is still returned.
+    started = anyio.Event()
+
     async with anyio.create_task_group() as tg:
         with anyio.move_on_after(seconds) as looking:
             tg.start_soon(
-                _follow_adapters, manager, session, looking, lambda: not found
+                _follow_adapters,
+                manager,
+                session,
+                looking,
+                lambda: not found,
+                started,
             )
 
-            async with aclosing(manager.discover(scan_filter)) as stream:
+            async with aclosing(
+                manager.discover(scan_filter, started=started)
+            ) as stream:
                 async for device in stream:
                     found[device.id] = device
 
@@ -403,8 +418,9 @@ async def hub_scan(session: Session, params: dict[str, Any]) -> dict[str, Any]:
     # A scan that finds nothing is an ordinary answer and not an error, so it
     # returns an empty list -- unless a hub was there and would not open, or
     # Bluetooth could not be used, which scanning again will not fix and which
-    # the user can do something about.
-    if not found and manager.transport.unavailable:
+    # the user can do something about. Only if it scanned at all: one whose
+    # time ran out waiting behind another would be reporting that one's.
+    if not found and started.is_set() and manager.transport.unavailable:
         raise _found_nothing(manager)
 
     return {"devices": [_device_json(device) for device in found.values()]}
@@ -456,15 +472,24 @@ async def hub_connect(session: Session, params: dict[str, Any]) -> dict[str, Any
     # it: put it inside and cancelling it unwinds into the generator's own
     # scopes, which anyio reports as exiting a cancel scope that is not the
     # current one -- measured, as a service that died whenever USB was in play.
+    started = anyio.Event()
+
     async with anyio.create_task_group() as tg:
         with anyio.move_on_after(
             float(params.get("timeout_s") or DEFAULT_SCAN_SECONDS)
         ) as looking:
             tg.start_soon(
-                _follow_adapters, manager, session, looking, lambda: device is None
+                _follow_adapters,
+                manager,
+                session,
+                looking,
+                lambda: device is None,
+                started,
             )
 
-            async with aclosing(manager.discover(scan_filter)) as stream:
+            async with aclosing(
+                manager.discover(scan_filter, started=started)
+            ) as stream:
                 async for candidate in stream:
                     if wanted_id and candidate.id != wanted_id:
                         continue
@@ -487,6 +512,11 @@ async def hub_connect(session: Session, params: dict[str, Any]) -> dict[str, Any
         tg.cancel_scope.cancel()
 
     if device is None:
+        # As for a scan: what the transports say is another search's unless
+        # this one got the radio.
+        if not started.is_set():
+            raise JsonRpcError(ErrorCode.HUB_NOT_FOUND, "no hub found")
+
         raise _found_nothing(manager)
 
     try:

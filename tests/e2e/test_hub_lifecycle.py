@@ -30,6 +30,7 @@ from pb_core.ipc import Endpoint
 from pb_core.jsonrpc import ErrorCode, JsonRpcError
 from pb_service import service as service_module
 from pb_service.hub import protocol as p
+from pb_service.hub.combined import CombinedTransport
 from pb_service.hub.fake import FakeHub, FakeHubTransport
 from pb_service.hub.rfcomm.fake import FakePairedHub, radio, switch
 from pb_service.hub.rfcomm.transport import RfcommHubTransport
@@ -308,6 +309,52 @@ async def test_connecting_carries_on_once_the_user_answers(
         switch(bluetooth, None)
 
     assert [hub.address for hub in connected] == [EV3]
+
+
+async def test_a_search_queued_behind_one_held_by_the_dialog_is_not_held_too(
+    endpoint: Endpoint, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # One scan at a time, so a search waits for the radio behind any other.
+    # Until it has the radio, what the transports report is the other
+    # search's: a USB user must not be told about a Bluetooth dialog, or kept
+    # waiting while somebody else reads it.
+    monkeypatch.setattr(pb_service.methods.hub, "PERMISSION_SECONDS", 1.0)
+    bluetooth = radio(
+        FakePairedHub(address=EV3),
+        unavailable="macOS is asking whether this program may use Bluetooth",
+        reason=aio_rfcomm.Availability.AWAITING_PERMISSION,
+    )
+    transport = CombinedTransport(RfcommHubTransport(bluetooth), FakeHubTransport())
+    told: list[tuple[pb_client.UnusableAdapter, ...]] = []
+    took = float("inf")
+
+    async with (
+        service_module.run_service(endpoint, idle_timeout=0, transport=transport),
+        pb_client.connect(endpoint, autostart=False) as asked,
+        pb_client.connect(endpoint, autostart=False) as queued,
+        anyio.create_task_group() as tg,
+    ):
+
+        async def held() -> None:
+            with pytest.raises(JsonRpcError):
+                await asked.scan(seconds=0.2, transport="rfcomm")
+
+        async def watch() -> None:
+            async with queued.watching_adapters() as changes:
+                async for change in changes:
+                    told.append(change)
+
+        tg.start_soon(held)
+        tg.start_soon(watch)
+        # Asked second, so that it queues behind the scan the dialog holds.
+        await anyio.sleep(0.05)
+        began = anyio.current_time()
+        await queued.scan(seconds=0.3, transport="fake")
+        took = anyio.current_time() - began
+        tg.cancel_scope.cancel()
+
+    assert told == [], "told about another search's Bluetooth dialog"
+    assert took < 0.9, "held by another search's Bluetooth dialog"
 
 
 async def test_a_question_nobody_answers_is_not_waited_on_for_ever(

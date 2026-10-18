@@ -171,7 +171,10 @@ class HubManager:
     # ------------------------------------------------------------------ scan
 
     async def discover(
-        self, scan_filter: ScanFilter | None = None
+        self,
+        scan_filter: ScanFilter | None = None,
+        *,
+        started: anyio.Event | None = None,
     ) -> AsyncGenerator[DeviceInfo, None]:
         """Report hubs as they are seen, until the caller stops listening.
 
@@ -180,12 +183,18 @@ class HubManager:
 
         Args:
             scan_filter: Which hubs to report.
+            started: Set once this scan has the radio, rather than waiting
+                behind another. Until then, what the transports report is the
+                other scan's.
 
         Yields:
             Hubs as their advertisements arrive.
         """
 
         async with self._scan_lock:
+            if started is not None:
+                started.set()
+
             logger.info("scanning for hubs")
             seen = 0
 
