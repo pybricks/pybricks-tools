@@ -40,12 +40,18 @@ be found whichever way it happens to be reachable. Set it to ``usb``, ``ble`` or
 """
 
 
-PERMISSION_NAME = "Pybricks"
+PERMISSION_NAME = "Pybricks RFCOMM Service"
 """What macOS calls this service when it asks about Bluetooth.
 
 Shown in the permission dialog and under Privacy & Security, and what the
 answer is remembered against, so changing it asks every user again. pb-cli
 repeats it in what it tells the user, and a test holds the two together.
+
+Not plain "Pybricks": among the other entries in Privacy & Security that
+reads as the Pybricks app or Pybricks Code, and says nothing about what is
+asking or why. This is the part of pb-service that reaches EV3 and NXT hubs
+over Bluetooth Classic, and only that part is asked about: BLE is bleak's,
+inside the service itself.
 """
 
 

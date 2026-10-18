@@ -322,7 +322,7 @@ class Service:
         Only a scan or a connection looking for a hub reports this, and only on
         a change, so open this around one of those. What it is for: on macOS
         the first use of Bluetooth Classic makes the system ask the user
-        whether "Pybricks" may use Bluetooth, and nothing is found until they
+        whether the service may use Bluetooth, and nothing is found until they
         answer. Telling them as soon as that happens, rather than when the
         search gives up, is the difference between a dialog answered and one
         nobody noticed. Meanwhile the service holds the search's time limit
