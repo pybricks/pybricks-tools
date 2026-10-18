@@ -97,7 +97,7 @@ MAX_KNOWN_PROFILE: Final[Version] = (1, 7, 0)
 
 The firmware header declares v1.6.0, whose addition was a USB interface: the
 same commands and events inside a message envelope a byte stream needs, which
-belongs to :mod:`pb_service.hub.usb.wire` rather than here. v1.7.0 is the
+belongs to :mod:`pb_service.hub.stream.wire` rather than here. v1.7.0 is the
 telemetry pair below, where the two upstreams disagree -- the firmware carries
 it as unreleased, Pybricks Code already calls it v1.7.0 -- and the higher
 number is the safer of the two to claim, since claiming it only ever admits

@@ -3,10 +3,11 @@
 
 """Consistent Overhead Byte Stuffing, the SPIKE Prime variant.
 
-A CDC pipe is a raw byte stream with no message boundaries, so each direction
-frames its messages. This is a port of ``lib/pbio/src/cobs.c``, and it is
-deliberately not classic COBS -- close enough to look familiar and different
-enough that assuming the familiar version produces a hub that never answers:
+A byte stream -- a CDC pipe over USB, an RFCOMM channel over Bluetooth -- has
+no message boundaries, so each direction frames its messages. This is a port of
+``lib/pbio/src/cobs.c``, and it is deliberately not classic COBS -- close enough
+to look familiar and different enough that assuming the familiar version
+produces a hub that never answers:
 
 * the frame delimiter is ``0x02``, not ``0x00``;
 * three values are escaped rather than one, so that ``0x01`` and ``0x02`` are
