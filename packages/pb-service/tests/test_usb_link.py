@@ -22,6 +22,8 @@ import anyio
 import pytest
 
 from pb_service.hub import protocol as p
+from pb_service.hub.stream import wire
+from pb_service.hub.stream.pipe import BytePipe
 from pb_service.hub.transport import (
     HubCommandError,
     HubLink,
@@ -29,9 +31,7 @@ from pb_service.hub.transport import (
     UnavailableDevice,
 )
 from pb_service.hub.usb import transport as usb_transport
-from pb_service.hub.usb import wire
 from pb_service.hub.usb.fake import FakeHubPort, lister, opener
-from pb_service.hub.usb.port import SerialPort
 from pb_service.hub.usb.transport import UsbHubTransport
 
 pytestmark = pytest.mark.anyio
@@ -287,7 +287,7 @@ async def test_a_late_reply_is_not_the_next_requests_answer() -> None:
 async def test_a_characteristic_with_no_usb_equivalent_is_refused(
     link: HubLink,
 ) -> None:
-    with pytest.raises(ValueError, match="no USB equivalent"):
+    with pytest.raises(ValueError, match="no stream equivalent"):
         await link.read_characteristic("0000face-0000-1000-8000-00805f9b34fb")
 
 
@@ -354,7 +354,7 @@ async def test_two_hubs_are_told_apart_by_their_serial_numbers() -> None:
 
 
 @asynccontextmanager
-async def _refused(device: str) -> AsyncGenerator[SerialPort, None]:
+async def _refused(device: str) -> AsyncGenerator[BytePipe, None]:
     """Refuse to open a port, the way the operating system refuses one.
 
     Args:
@@ -421,7 +421,7 @@ async def test_a_port_that_opens_on_a_later_turn_stops_being_reported(
     refusals = 0
 
     @asynccontextmanager
-    async def open_port(device: str) -> AsyncGenerator[SerialPort, None]:
+    async def open_port(device: str) -> AsyncGenerator[BytePipe, None]:
         nonlocal refusals
 
         if refusals == 0:

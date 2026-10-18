@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import pytest
 
-from pb_service.hub.usb import cobs
+from pb_service.hub.stream import cobs
 
 SUBSCRIBE = 1
 READ = 3

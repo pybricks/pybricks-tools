@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 The Pybricks Authors
 
-"""The messages a hub exchanges over USB.
+"""The messages a hub exchanges over a byte stream.
 
-The commands themselves are the ones the Bluetooth transport already sends --
+The commands themselves are the ones the GATT transport already sends --
 :mod:`pb_service.hub.protocol` builds them and nothing here duplicates that.
 What this module adds is the envelope a byte stream needs and a radio does not:
 a message type, a tag so a response can be matched to the command that caused
@@ -27,7 +27,7 @@ from enum import IntEnum
 from typing import Final, NamedTuple
 
 from pb_service.hub import protocol as p
-from pb_service.hub.usb import cobs
+from pb_service.hub.stream import cobs
 
 __all__ = [
     "MIN_PROFILE",

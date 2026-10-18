@@ -10,7 +10,7 @@ comes, a hub that vanishes mid-request, a frame that will not decode -- are
 unreachable with hardware. Here they are one method call.
 
 **Replies are built by hand rather than with the encoders under test.** The
-framing is shared, because :mod:`~pb_service.hub.usb.cobs` is already checked
+framing is shared, because :mod:`~pb_service.hub.stream.cobs` is already checked
 against frames captured from a real hub and reusing a verified codec proves
 nothing wrong; but the envelope is packed here with :mod:`struct`, so a mistake
 in ``parse_response`` or ``parse_read_reply`` shows up as a failure instead of
@@ -33,8 +33,9 @@ from typing import Final, final
 import anyio
 
 from pb_service.hub import protocol as p
-from pb_service.hub.usb import cobs, wire
-from pb_service.hub.usb.port import PortInfo, PortLister, PortOpener, SerialPort
+from pb_service.hub.stream import cobs, wire
+from pb_service.hub.stream.pipe import BytePipe
+from pb_service.hub.usb.port import PortInfo, PortLister, PortOpener
 
 __all__ = ["CAPABILITIES", "FakeHubPort", "lister", "opener"]
 
@@ -295,7 +296,7 @@ def opener(*ports: FakeHubPort) -> PortOpener:
     by_device = {port.info.device: port for port in ports}
 
     @asynccontextmanager
-    async def open_port(device: str) -> AsyncGenerator[SerialPort, None]:
+    async def open_port(device: str) -> AsyncGenerator[BytePipe, None]:
         found = by_device.get(device)
 
         if found is None:

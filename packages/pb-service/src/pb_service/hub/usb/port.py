@@ -21,9 +21,11 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncGenerator, Callable, Iterable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
-from typing import Final, NamedTuple, Protocol
+from typing import Final, NamedTuple
 
 import serialx
+
+from pb_service.hub.stream.pipe import BytePipe
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +34,6 @@ __all__ = [
     "PortInfo",
     "PortLister",
     "PortOpener",
-    "SerialPort",
     "list_hub_ports",
     "open_hub_port",
 ]
@@ -71,33 +72,10 @@ class PortInfo(NamedTuple):
     """
 
 
-class SerialPort(Protocol):
-    """The little of an open serial port this transport uses."""
-
-    async def readuntil(self, separator: bytes = b"\n") -> bytes:
-        """Read up to and including the separator.
-
-        Args:
-            separator: The byte sequence to stop after.
-
-        Returns:
-            Everything up to and including it.
-        """
-        ...
-
-    async def write(self, data: bytes | bytearray | memoryview) -> None:
-        """Send bytes, waiting for them to leave the application buffer.
-
-        Args:
-            data: What to send.
-        """
-        ...
-
-
 PortLister = Callable[[], Iterable[PortInfo]]
 """Where the list of ports that might be hubs comes from."""
 
-PortOpener = Callable[[str], AbstractAsyncContextManager[SerialPort]]
+PortOpener = Callable[[str], AbstractAsyncContextManager[BytePipe]]
 """How a port is opened, given its device name."""
 
 
@@ -119,7 +97,7 @@ def list_hub_ports() -> Iterable[PortInfo]:
 
 
 @asynccontextmanager
-async def open_hub_port(device: str) -> AsyncGenerator[SerialPort, None]:
+async def open_hub_port(device: str) -> AsyncGenerator[BytePipe, None]:
     """Open a serial port ready to talk to a hub.
 
     Asserting DTR is part of opening rather than something the caller does,
