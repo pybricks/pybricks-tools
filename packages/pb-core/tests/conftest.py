@@ -1,9 +1,12 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 The Pybricks Authors
 
+import shutil
 import socket
 import sys
+import tempfile
 import uuid
+from collections.abc import Iterator
 
 import pytest
 
@@ -31,9 +34,7 @@ def _schemes() -> list[str]:
 
 
 @pytest.fixture(params=_schemes())
-def endpoint(
-    request: pytest.FixtureRequest, tmp_path_factory: pytest.TempPathFactory
-) -> Endpoint:
+def endpoint(request: pytest.FixtureRequest) -> Iterator[Endpoint]:
     """A unique, unused endpoint for each transport under test.
 
     Uniqueness matters: named pipe names are machine-global, so a fixed name
@@ -43,14 +44,25 @@ def endpoint(
     unique = uuid.uuid4().hex[:12]
 
     if scheme == "memory":
-        return Endpoint("memory", f"test-{unique}")
+        yield Endpoint("memory", f"test-{unique}")
+        return
 
     if scheme == "tcp":
-        return Endpoint("tcp", f"127.0.0.1:{_free_tcp_port()}")
+        yield Endpoint("tcp", f"127.0.0.1:{_free_tcp_port()}")
+        return
 
     if scheme == "pipe":
-        return Endpoint("pipe", f"pb-test-{unique}")
+        yield Endpoint("pipe", f"pb-test-{unique}")
+        return
 
-    # AF_UNIX: keep the path short, since sun_path is only 104 bytes on macOS.
-    directory = tmp_path_factory.mktemp("s")
-    return Endpoint("unix", str(directory / f"{unique}.sock"))
+    # AF_UNIX: under /tmp rather than pytest's tmp_path, since sun_path is only
+    # 104 bytes on macOS. The per-user temporary directory there is 57 bytes
+    # once resolved, and with pytest's own two levels a socket in it measures
+    # 104 as soon as pytest's run counter reaches three digits -- one too many,
+    # counting the terminator. tests/e2e/conftest.py's short_tmp_path does the
+    # same for the end-to-end tests.
+    directory = tempfile.mkdtemp(prefix="pb-", dir="/tmp")
+    try:
+        yield Endpoint("unix", f"{directory}/{unique}.sock")
+    finally:
+        shutil.rmtree(directory, ignore_errors=True)
