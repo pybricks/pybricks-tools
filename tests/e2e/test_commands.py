@@ -304,7 +304,7 @@ async def test_scan_says_to_answer_the_dialog_and_then_lists_the_hub(
     # As one line, wherever rich wrapped it for the terminal width.
     said = " ".join(captured.err.split())
     assert "Answer the dialog" in said
-    assert "Pybricks" in said, "not the name the dialog shows"
+    assert errors.PERMISSION_NAME in said, "not the name the dialog shows"
     assert captured.out.splitlines() == ["Ostrich"]
 
 

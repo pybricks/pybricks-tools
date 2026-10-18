@@ -100,8 +100,9 @@ def _found_nothing(manager: HubManager) -> JsonRpcError:
 PERMISSION_SECONDS = 120.0
 """How much longer a search may run while the system asks for permission.
 
-On macOS the first use of Bluetooth Classic asks the user whether "Pybricks"
-may use it, and nothing can be found until they answer. Their time reading the
+On macOS the first use of Bluetooth Classic asks the user whether the service
+may use it, by the name in :data:`~pb_service.backend.PERMISSION_NAME`, and
+nothing can be found until they answer. Their time reading the
 dialog is not counted against the search's own limit -- a ten-second scan would
 otherwise run out while they read -- but not without end either: a Mac where
 nobody is there to answer leaves the question open for good.

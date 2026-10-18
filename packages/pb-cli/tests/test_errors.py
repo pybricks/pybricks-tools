@@ -482,9 +482,10 @@ def test_the_name_is_the_one_the_service_asks_under() -> None:
 
 
 def test_the_permission_advice_names_what_macos_shows() -> None:
-    # The dialog and System Settings say "Pybricks", not pb or Python.
+    # The dialog and System Settings name the service, not pb or Python.
     for availability in ("awaiting_permission", "not_allowed"):
-        assert "Pybricks" in errors.bluetooth_advice(availability, "darwin")
+        advice = errors.bluetooth_advice(availability, "darwin")
+        assert errors.PERMISSION_NAME in advice
 
     # Elsewhere there is no System Settings to send anybody to.
     assert "System Settings" not in errors.bluetooth_advice("not_allowed", "linux")

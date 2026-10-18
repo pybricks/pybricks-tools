@@ -156,7 +156,7 @@ def serial_port_advice(platform: str = sys.platform) -> str:
     )
 
 
-PERMISSION_NAME = "Pybricks"
+PERMISSION_NAME = "Pybricks RFCOMM Service"
 """What macOS calls this program when it asks about Bluetooth.
 
 pb-service's ``PERMISSION_NAME``, which it passes to aio-rfcomm's

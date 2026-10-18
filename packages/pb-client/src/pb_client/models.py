@@ -116,8 +116,9 @@ class UnusableAdapter:
     def awaiting_permission(self) -> bool:
         """Whether the system is asking the user to let the service in.
 
-        On macOS, a dialog asking whether "Pybricks" may use Bluetooth. It
-        ends by itself when the user answers, and a scan carries on then.
+        On macOS, a dialog asking whether the service may use Bluetooth, by
+        the name it asks under. It ends by itself when the user answers, and
+        a scan carries on then.
         """
         return self.availability == "awaiting_permission"
 

@@ -5,10 +5,11 @@
 
 Opening it is not free. On macOS it starts aio-rfcomm's helper, which takes
 about a second, and the first time it makes macOS ask the user whether
-"Pybricks" may use Bluetooth. The open does not wait for that answer: the
-availability says ``AWAITING_PERMISSION`` until it comes, and every call is
-refused meanwhile with that reason, which the transport reports and the client
-turns into "answer the dialog". Done as the service started, the open would
+pb-service may use Bluetooth, by the name in
+:data:`~pb_service.backend.PERMISSION_NAME`. The open does not wait for that
+answer: the availability says ``AWAITING_PERMISSION`` until it comes, and
+every call is refused meanwhile with that reason, which the transport reports
+and the client turns into "answer the dialog". Done as the service started, the open would
 still hold up USB and BLE, and ask a question about a radio nobody had asked
 for. So it is done in a task of the transport's own scope, the first time a
 scan or a connection asks for it, as bleak does for BLE.
