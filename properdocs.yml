@@ -8,10 +8,12 @@ copyright: Copyright &copy; The Pybricks Authors
 
 theme:
   name: material
-  # The Pybricks mark, and the app icon as the favicon. Both are copied from
-  # pybricks-code, which is MIT under the same copyright as this repository.
-  logo: assets/pybricks-logo.svg
-  favicon: assets/pybricks-icon.svg
+  # The Pybricks mark, and the app icon as the favicon. Linked from
+  # pybricks-code rather than kept here, so that this repository holds no copy
+  # of the logos. Pinned to a release tag: a file moved on its main branch
+  # would otherwise take the site's logo with it.
+  logo: https://raw.githubusercontent.com/pybricks/pybricks-code/v2.2.0/src/editor/logo.svg
+  favicon: https://raw.githubusercontent.com/pybricks/pybricks-code/v2.2.0/src/about/icon.svg
   icon:
     repo: fontawesome/brands/github
   features:
