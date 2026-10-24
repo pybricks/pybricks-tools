@@ -5,6 +5,8 @@ Notable changes to `pybricks-service`. The format is based on
 
 ## [Unreleased]
 
+## [1.0.0b2] - 2026-10-24
+
 ### Fixed
 
 - Connecting over Bluetooth on macOS, which failed reading the hub's name.

@@ -8,6 +8,6 @@ stays connected between commands and several clients can talk to one hub at
 once.
 """
 
-__version__ = "1.0.0b1"
+__version__ = "1.0.0b2"
 
 __all__ = ["__version__"]
