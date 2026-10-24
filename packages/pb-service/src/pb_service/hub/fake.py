@@ -295,8 +295,8 @@ class FakeHub:
             HubRejection: If this hub has no such characteristic.
         """
 
-        if uuid == p.DEVICE_NAME_UUID:
-            return self.name.encode()
+        # No Device Name, as on macOS, where CoreBluetooth keeps the Generic
+        # Access service to itself: the name has to come from elsewhere.
 
         if uuid == p.FIRMWARE_REVISION_UUID:
             return self.firmware.encode()
