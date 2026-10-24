@@ -266,6 +266,17 @@ class HubLink(Protocol):
         """
         ...
 
+    async def read_name(self) -> str:
+        """Read the hub's name.
+
+        Not a characteristic read on every transport: some operating systems
+        keep the GATT Device Name characteristic to themselves.
+
+        Returns:
+            What the hub is called.
+        """
+        ...
+
     async def write_characteristic(
         self, uuid: str, data: bytes, *, response: bool = True
     ) -> None:

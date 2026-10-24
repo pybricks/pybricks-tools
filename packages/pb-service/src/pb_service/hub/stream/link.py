@@ -89,6 +89,11 @@ class StreamLink(HubLink):
                     if reply is not None and reply[0] == selector:
                         return reply[1]
 
+    async def read_name(self) -> str:
+        return (await self.read_characteristic(p.DEVICE_NAME_UUID)).decode(
+            "utf-8", "replace"
+        )
+
     async def write_characteristic(
         self, uuid: str, data: bytes, *, response: bool = True
     ) -> None:

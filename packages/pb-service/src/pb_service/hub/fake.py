@@ -341,6 +341,10 @@ class _FakeLink(HubLink):
         self._require_connected()
         return self._hub.read(uuid)
 
+    async def read_name(self) -> str:
+        self._require_connected()
+        return self._hub.name
+
     async def write_characteristic(
         self, uuid: str, data: bytes, *, response: bool = True
     ) -> None:

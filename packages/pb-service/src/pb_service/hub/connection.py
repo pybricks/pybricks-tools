@@ -210,9 +210,7 @@ class HubConnection:
 
     async def _handshake(self, link: HubLink) -> HubInfo:
         """Read the hub's identity and capabilities."""
-        name = (await link.read_characteristic(p.DEVICE_NAME_UUID)).decode(
-            "utf-8", "replace"
-        )
+        name = await link.read_name()
         firmware = (await link.read_characteristic(p.FIRMWARE_REVISION_UUID)).decode(
             "utf-8", "replace"
         )
