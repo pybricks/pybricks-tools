@@ -100,6 +100,23 @@ async def test_handshake_reads_identity_and_capabilities(hub: FakeHub) -> None:
         connection.close("done")
 
 
+async def test_handshake_names_the_hub_without_the_device_name_characteristic(
+    hub: FakeHub,
+) -> None:
+    # macOS will not let the Device Name characteristic be read, and the fake
+    # hub does not serve it either, so reading it here fails as it did there.
+    # https://github.com/pybricks/support/issues/2870
+    transport = FakeHubTransport(hub)
+
+    with pytest.raises(HubRejection):
+        hub.read(p.DEVICE_NAME_UUID)
+
+    async with anyio.create_task_group() as tg:
+        connection, info = await _start(tg, transport, hub)
+        assert info.name == hub.name
+        connection.close("done")
+
+
 async def test_old_firmware_is_refused_with_advice() -> None:
     # A hub too old for the capabilities characteristic cannot be supported,
     # and the message should say what to do about it.

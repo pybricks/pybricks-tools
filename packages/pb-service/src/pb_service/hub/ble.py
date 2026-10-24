@@ -116,9 +116,8 @@ class _BleLink(HubLink):
         return bytes(await self._client.read_gatt_char(uuid))
 
     async def read_name(self) -> str:
-        # CoreBluetooth hides the Generic Access service, so the Device Name
-        # characteristic cannot be read on macOS. bleak asks the OS instead,
-        # which has the name from that characteristic or the advertisement.
+        # Not a read of the Device Name characteristic, which macOS does not
+        # allow. bleak asks the OS for the name instead, on every platform.
         return self._client.name
 
     async def write_characteristic(
