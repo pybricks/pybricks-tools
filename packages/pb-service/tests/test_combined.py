@@ -98,6 +98,9 @@ class _StubLink:
     async def read_characteristic(self, uuid: str) -> bytes:
         return b""
 
+    async def read_name(self) -> str:
+        return ""
+
     async def write_characteristic(
         self, uuid: str, data: bytes, *, response: bool = True
     ) -> None:

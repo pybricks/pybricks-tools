@@ -215,9 +215,7 @@ class UsbHubTransport:
                     async with anyio.create_task_group() as tg:
                         tg.start_soon(link.run, None)
 
-                        name = (
-                            await link.read_characteristic(p.DEVICE_NAME_UUID)
-                        ).decode("utf-8", "replace")
+                        name = await link.read_name()
                         raw_pnp = await link.read_characteristic(p.PNP_ID_UUID)
 
                         tg.cancel_scope.cancel()
