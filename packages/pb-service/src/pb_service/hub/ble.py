@@ -21,6 +21,7 @@ from collections.abc import AsyncGenerator, Callable
 from contextlib import AbstractAsyncContextManager, aclosing, asynccontextmanager
 from typing import Any, final
 
+import anyio
 from bleak import BleakClient, BleakScanner
 from bleak.backends.device import BLEDevice
 from bleak.backends.scanner import AdvertisementData
@@ -41,6 +42,15 @@ logger = logging.getLogger(__name__)
 __all__ = ["BleHubTransport", "device_id_for"]
 
 SCHEME = "ble"
+
+SCAN_RESPONSE_SECONDS = 1.0
+"""How long a hub may go without a scan response before that is logged.
+
+The kind of hub is in the scan response, which arrives after the advertisement,
+so a hub is not reported until it has been heard. Every Pybricks firmware sends
+one, so a hub that still has not after this long has a firmware bug, and is
+logged as such rather than listed without its type.
+"""
 
 
 def device_id_for(address: str) -> str:
@@ -71,8 +81,8 @@ def _advertised_pnp_id(advertisement: AdvertisementData) -> p.PnpId | None:
 
     Returns:
         The decoded identifier, or ``None`` if this hub did not advertise one
-        or advertised something malformed. Either way the hub is still listed:
-        not knowing what kind it is is no reason to hide it.
+        or advertised something malformed, which is not yet, or a firmware
+        bug if it never comes.
     """
     data = advertisement.service_data.get(p.PNP_ID_UUID)
     if data is None:
@@ -185,7 +195,9 @@ class BleHubTransport:
 
         Yields:
             Hubs as they are seen. A hub may be reported more than once as its
-            advertisement repeats; callers deduplicate by id.
+            advertisement repeats; callers deduplicate by id. A hub is only
+            reported once its scan response, which says what kind of hub it
+            is, has arrived. One that never sends it is logged, not reported.
         """
 
         # aclosing on bleak's generator, because this one is nearly always
@@ -198,8 +210,25 @@ class BleHubTransport:
             BleakScanner(service_uuids=[p.PYBRICKS_SERVICE_UUID]) as scanner,
             aclosing(scanner.advertisement_data()) as seen,
         ):
+            first_seen: dict[str, float] = {}
+            logged: set[str] = set()
             async for device, advertisement in seen:
-                info = self._to_device_info(device, advertisement)
+                pnp = _advertised_pnp_id(advertisement)
+                if pnp is None:
+                    now = anyio.current_time()
+                    since = now - first_seen.setdefault(device.address, now)
+                    if since >= SCAN_RESPONSE_SECONDS and device.address not in logged:
+                        logged.add(device.address)
+                        logger.warning(
+                            "ignoring %s (%s): no PnP ID in its scan response after"
+                            " %.1f s, which is a firmware bug",
+                            device.address,
+                            advertisement.local_name or device.name,
+                            since,
+                        )
+                    continue
+
+                info = self._to_device_info(device, advertisement, pnp)
                 if info is None:
                     continue
 
@@ -213,10 +242,13 @@ class BleHubTransport:
                 yield info
 
     def _to_device_info(
-        self, device: BLEDevice, advertisement: AdvertisementData
+        self,
+        device: BLEDevice,
+        advertisement: AdvertisementData,
+        pnp: p.PnpId,
     ) -> DeviceInfo | None:
-        # The name arrives in the scan response, which may lag the advertisement,
-        # so a hub without one yet is skipped rather than shown as unnamed.
+        # A hub may be heard before its name is, so one without a name yet is
+        # skipped rather than shown as unnamed.
         name = advertisement.local_name or device.name
         if not name:
             return None
@@ -227,7 +259,7 @@ class BleHubTransport:
             address=device.address,
             rssi=advertisement.rssi,
             transport=SCHEME,
-            hub_type=p.hub_type_name(_advertised_pnp_id(advertisement)),
+            hub_type=p.hub_type_name(pnp),
         )
 
     def open(self, device_id: str) -> AbstractAsyncContextManager[HubLink]:

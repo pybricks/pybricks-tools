@@ -5,6 +5,12 @@ Notable changes to `pybricks-service`. The format is based on
 
 ## [Unreleased]
 
+### Fixed
+
+- A Bluetooth hub was sometimes first reported without its hub type, before
+  its scan response arrived. Hubs are now reported only once it has, and one
+  that never sends it is logged as a firmware bug rather than listed.
+
 ## [1.0.0b2] - 2026-10-24
 
 ### Fixed
