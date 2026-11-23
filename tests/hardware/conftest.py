@@ -136,6 +136,15 @@ async def hub(service: pb_client.Service) -> AsyncGenerator[str, None]:
     await _quiesce(service, name)
 
 
+_no_hub: str | None = None
+"""Why the first test that looked for a hub found none, if one has.
+
+Each looks for SCAN_SECONDS, so with every hub switched off a run spent a
+minute finding the same nothing once per test. Nothing is going to switch one
+on partway through a run, so the first answer is the answer.
+"""
+
+
 async def _connected(service: pb_client.Service) -> str:
     """Find a hub to test against, connecting to one if need be.
 
@@ -148,17 +157,23 @@ async def _connected(service: pb_client.Service) -> str:
     Returns:
         The hub's name.
     """
+    global _no_hub
+
     hubs, _ = await service.list_hubs()
 
     if hubs:
         return hubs[0].name
+
+    if _no_hub is not None:
+        pytest.skip(_no_hub)
 
     try:
         with anyio.fail_after(SCAN_SECONDS):
             info = await service.connect_hub()
 
     except _UNAVAILABLE as exc:
-        pytest.skip(f"no hub switched on and in range: {exc}")
+        _no_hub = f"no hub switched on and in range: {exc}"
+        pytest.skip(_no_hub)
 
     return info.name
 

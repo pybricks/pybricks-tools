@@ -20,7 +20,7 @@ import anyio
 import pytest
 
 import pb_client
-import pb_service.methods.hub  # pyright: ignore[reportUnusedImport]
+import pb_service.methods.hub
 import pb_service.methods.program  # pyright: ignore[reportUnusedImport]
 
 # Imported to register the RPC methods.
@@ -645,7 +645,11 @@ async def test_commands_for_an_unknown_hub_are_reported(service_at: Endpoint) ->
         assert info.value.code == ErrorCode.HUB_NOT_FOUND
 
 
-async def test_connecting_to_a_hub_that_is_not_there(service_at: Endpoint) -> None:
+async def test_connecting_to_a_hub_that_is_not_there(
+    service_at: Endpoint, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(pb_service.methods.hub, "DEFAULT_SCAN_SECONDS", 0.3)
+
     async with pb_client.connect(service_at, autostart=False) as service:
         with pytest.raises(JsonRpcError) as info:
             await service.connect_hub(name="No Such Hub")
