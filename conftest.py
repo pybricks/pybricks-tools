@@ -3,8 +3,8 @@
 
 """Fixtures that apply to every test in the workspace.
 
-There is one, and it is here rather than in a package because the problem it
-solves crosses packages.
+They are here rather than in a package because the problems they solve cross
+packages.
 """
 
 from __future__ import annotations
@@ -13,6 +13,15 @@ import logging
 from collections.abc import Iterator
 
 import pytest
+
+import pb_service.methods.hub
+
+GRACE_SECONDS = 0.05
+"""How long a connect waits after the first hub it hears, under test.
+
+Long enough for every simulated hub to be heard, since they are all heard at
+once, and short enough not to add up.
+"""
 
 _QUIET_LOGGERS = ("bleak", "asyncio")
 """The loggers ``setup_logging`` holds at a higher level, and so must restore."""
@@ -49,3 +58,16 @@ def _leave_logging_as_it_was() -> Iterator[None]:  # pyright: ignore[reportUnuse
     root.setLevel(level)
     for logger, was in quiet_levels:
         logger.setLevel(was)
+
+
+@pytest.fixture(autouse=True)
+def _short_grace(monkeypatch: pytest.MonkeyPatch) -> None:  # pyright: ignore[reportUnusedFunction]
+    """Stop a connect waiting for hubs that have all been heard already.
+
+    A connect that finds a hub waits a moment for a better route to it, since
+    real hubs advertise only every so often. Simulated hubs are all heard at
+    once, so under test the wait is only ever waited out, by every connect that
+    is not by id -- which was more than a third of the time the whole suite
+    took. A test about the wait itself sets it back.
+    """
+    monkeypatch.setattr(pb_service.methods.hub, "PREFERENCE_SECONDS", GRACE_SECONDS)
