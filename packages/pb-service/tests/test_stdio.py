@@ -166,3 +166,64 @@ async def test_the_write_size_is_what_the_hub_said_and_nothing_else(
         await _write_stdin(connection, b"x" * 100)
 
     assert connection.stdin_limit == was
+
+
+# ------------------------------------------------------------ firmware 4.0
+
+
+@pytest.mark.parametrize(
+    ("hub_type", "buffer", "most"),
+    [
+        (p.HubType.TECHNIC_LARGE_HUB, 64, 63),
+        (p.HubType.CITY_HUB, 21, 20),
+    ],
+)
+async def test_firmware_4_0_says_its_buffer_is_too_small_at_once(
+    hub_type: p.HubType, buffer: int, most: int
+) -> None:
+    # 4.0 reported a write size it had no room for, so a paste waited out
+    # the whole of its patience and was then blamed on nothing reading. It is
+    # a firmware bug with a fix, which is what the user needs to hear, and
+    # straight away: no amount of waiting makes room that is not there.
+    hub = FakeHub(firmware="4.0.1", hub_type=hub_type, stdin_capacity=buffer - 1)
+    transport = FakeHubTransport(hub)
+
+    async with anyio.create_task_group() as tg:
+        connection = await _start(tg, transport, hub)
+
+        try:
+            assert await _write_stdin(connection, b"x" * most) == most
+            hub.stdin.clear()
+
+            with anyio.fail_after(1), pytest.raises(JsonRpcError) as caught:
+                await _write_stdin(connection, b"x" * 100)
+
+            assert caught.value.code == ErrorCode.HUB_BUSY
+            assert caught.value.message.startswith("update the hub's firmware")
+            assert f"at most {most} bytes" in caught.value.message
+            assert caught.value.data["firmware_limit"] == most
+
+        finally:
+            connection.close("test finished")
+
+
+async def test_firmware_4_0_not_reading_small_input_is_still_not_reading(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Input that would fit says nothing about the firmware when it is refused.
+    monkeypatch.setattr(stdio, "STDIN_PATIENCE_SECONDS", 0.3)
+    hub = FakeHub(firmware="4.0.1", hub_type=p.HubType.CITY_HUB, stdin_capacity=20)
+    hub.stdin += b"y" * 15
+    transport = FakeHubTransport(hub)
+
+    async with anyio.create_task_group() as tg:
+        connection = await _start(tg, transport, hub)
+
+        try:
+            with pytest.raises(JsonRpcError) as caught:
+                await _write_stdin(connection, b"x" * 10)
+
+            assert "not reading its input" in caught.value.message
+
+        finally:
+            connection.close("test finished")
