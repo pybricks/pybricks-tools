@@ -1,6 +1,6 @@
 [project]
 name = "pybricks-service"
-version = "1.0.0b2"
+version = "1.0.0b3"
 description = "The Pybricks service: manages hub connections"
 readme = "README.md"
 license = "MIT"
@@ -19,7 +19,7 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "pybricks-core>=1.0.0b1",
+    "pybricks-core>=1.0.0b2",
     "anyio>=4.14",
     "bleak>=1.1.0",
     "packaging>=22",

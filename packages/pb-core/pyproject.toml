@@ -1,6 +1,6 @@
 [project]
 name = "pybricks-core"
-version = "1.0.0b1"
+version = "1.0.0b2"
 description = "Shared protocol, IPC transport and logging for the Pybricks tools"
 readme = "README.md"
 license = "MIT"

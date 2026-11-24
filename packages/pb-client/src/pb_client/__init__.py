@@ -11,7 +11,7 @@ argument. Callers scope cancellation with
 [move_on_after][anyio.move_on_after] instead.
 """
 
-__version__ = "1.0.0b1"
+__version__ = "1.0.0b2"
 
 from pb_client.compile import (
     SOURCE_NAME,

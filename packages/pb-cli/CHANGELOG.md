@@ -5,6 +5,8 @@ Notable changes to `pybricks-cli`, the `pb` command. The format is based on
 
 ## [Unreleased]
 
+## [1.0.0b2] - 2026-11-23
+
 ### Changed
 
 - `pb connect` with no `--hub` connects to the hub chosen with `pb use`

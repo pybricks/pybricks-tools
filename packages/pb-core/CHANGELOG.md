@@ -5,6 +5,8 @@ Notable changes to `pybricks-core`. The format is based on
 
 ## [Unreleased]
 
+## [1.0.0b2] - 2026-11-23
+
 ### Added
 
 - `ErrorCode.HUB_AMBIGUOUS`, for a hub that could be any of several.

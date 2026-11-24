@@ -5,6 +5,8 @@ Notable changes to `pybricks-client`. The format is based on
 
 ## [Unreleased]
 
+## [1.0.0b2] - 2026-11-23
+
 ### Changed
 
 - `Service.connect_hub()` with no hub named connects to the chosen hub, and
