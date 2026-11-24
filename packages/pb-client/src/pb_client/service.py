@@ -372,15 +372,29 @@ class Service:
 
         The connection outlives this client: that is the point of the service.
 
+        With neither ``hub_id`` nor ``name``, the hub is the one chosen with
+        [use_hub][pb_client.service.Service.use_hub] if there is one;
+        otherwise one already connected; otherwise the only hub switched on.
+        Several hubs switched on and nothing to say which is refused rather
+        than guessed at.
+
         Args:
             hub_id: The hub's id, from [scan][pb_client.service.Service.scan].
-            name: Connect to the first hub with this name instead.
+            name: Connect to the hub with this name instead. One already
+                connected is handed back; several switched on are refused.
             transport: Reach the hub this way, such as ``"usb"`` or ``"ble"``.
                 Left out, the service uses whichever it can, preferring USB
                 where a hub is reachable both ways.
 
         Returns:
-            The connected hub.
+            The connected hub. If it was connected already, it is handed back
+            as it is, with ``already_connected`` set.
+
+        Raises:
+            JsonRpcError: With ``ErrorCode.HUB_AMBIGUOUS`` when several hubs
+                were found and none was named or chosen, or several have the
+                name asked for or chosen. Its ``data`` lists them, in the
+                shape ``hub.scan`` reports, and names that shared ``name``.
         """
         params: dict[str, Any] = {}
 

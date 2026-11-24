@@ -16,12 +16,13 @@ from __future__ import annotations
 import logging
 import sys
 from collections.abc import AsyncGenerator, AsyncIterator, Callable, Mapping
-from contextlib import AbstractAsyncContextManager, asynccontextmanager
-from typing import Annotated, Final
+from contextlib import AbstractAsyncContextManager, aclosing, asynccontextmanager
+from typing import Annotated, Final, cast
 
 import anyio
 import cyclopts
 from rich.console import Console, RenderableType
+from rich.markup import escape
 
 import pb_client
 from pb_cli import errors, keys, picker, ui
@@ -272,8 +273,9 @@ async def connect_cmd(
     than reconnecting.
 
     Args:
-        hub: The hub's name, as shown by pb scan. Defaults to the first
-            hub found.
+        hub: The hub's name, as shown by pb scan. Defaults to the hub
+            chosen with pb use, and otherwise to the only hub switched on;
+            when there are several, you are asked which.
         scan: Watch for hubs and choose one from the list. There is no time
             limit, so the hub can be switched on whenever you like, and
             Ctrl-C gives up without connecting to anything.
@@ -305,6 +307,65 @@ async def connect_cmd(
     )
 
 
+def _shared_name(exc: pb_client.JsonRpcError) -> str | None:
+    """The name several hubs answered to, if that is what made them ambiguous.
+
+    Args:
+        exc: A ``HUB_AMBIGUOUS`` refusal.
+
+    Returns:
+        The name, or ``None`` if no name was asked for or the service did not
+        say.
+    """
+    data: object = exc.data
+    if not isinstance(data, Mapping):
+        return None
+
+    name = cast("Mapping[str, object]", data).get("name")
+    return name if isinstance(name, str) and name else None
+
+
+def _offered_transports(exc: pb_client.JsonRpcError) -> frozenset[str] | None:
+    """The transports the hubs in an ambiguity were found on.
+
+    Args:
+        exc: A ``HUB_AMBIGUOUS`` refusal.
+
+    Returns:
+        Their transports, or ``None`` if the service did not list them.
+    """
+    data: object = exc.data
+    if not isinstance(data, Mapping):
+        return None
+
+    devices = cast("Mapping[str, object]", data).get("devices")
+    if not isinstance(devices, list):
+        return None
+
+    return frozenset(
+        str(cast("Mapping[str, object]", device).get("transport", ""))
+        for device in cast("list[object]", devices)
+        if isinstance(device, Mapping)
+    )
+
+
+async def _offering(
+    devices: AsyncIterator[pb_client.DeviceInfo], heard_only: bool
+) -> AsyncGenerator[pb_client.DeviceInfo, None]:
+    """Pass on the hubs found, less those only paired over RFCOMM if asked.
+
+    Args:
+        devices: Hubs as they are found.
+        heard_only: Leave out hubs only listed as paired.
+
+    Yields:
+        The hubs to offer.
+    """
+    async for device in devices:
+        if not heard_only or device.transport != "rfcomm":
+            yield device
+
+
 async def _connect(hub: str | None, scan: bool, transport: str | None) -> int:
     err = ui.console(err=True)
 
@@ -315,14 +376,69 @@ async def _connect(hub: str | None, scan: bool, transport: str | None) -> int:
             err.print(_asked())
 
     async with pb_client.connect() as service:
-        if scan:
+        info: pb_client.HubInfo | None = None
+        # The name several hubs share, when that is why one could not be
+        # picked: the choice is then between those hubs and no others.
+        shared: str | None = None
+        # Whether the hubs to choose between were only those heard, the service
+        # having left out hubs that are merely paired: offering a paired EV3
+        # in a drawer as one of them would be offering a hub that is not there.
+        heard_only = False
+
+        if not scan:
+            # Which hub is meant, when none was named, is the service's to
+            # decide -- the chosen one, as for every other command -- but it is
+            # worth saying, so that a hub left switched off is not a mystery.
+            chosen = None if hub else (await service.chosen_hub()).name
+            # Escaped, as every hub name printed with markup is: a name is the
+            # user's to write, square brackets and all.
+            doing = f"Connecting to {escape(chosen)}..." if chosen else "Connecting..."
+
+            with ui.spinner(err, doing):
+                async with _telling_when_asked(service, tell):
+                    try:
+                        info = await service.connect_hub(
+                            hub_id=hub if hub and _looks_like_id(hub) else None,
+                            name=hub if hub and not _looks_like_id(hub) else None,
+                            transport=transport,
+                        )
+                    except pb_client.JsonRpcError as exc:
+                        # Several hubs and nothing to say which is a question,
+                        # not a failure, wherever there is someone to ask. With
+                        # no terminal it is reported like any other refusal.
+                        if (
+                            exc.code != ErrorCode.HUB_AMBIGUOUS
+                            or not keys.keys_available()
+                        ):
+                            raise
+
+                        shared = _shared_name(exc)
+                        offered = _offered_transports(exc)
+                        heard_only = offered is not None and "rfcomm" not in offered
+
+            if info is None:
+                if shared:
+                    err.print(
+                        f"More than one hub called {shared} was found. Which one?",
+                        markup=False,
+                        highlight=False,
+                    )
+                else:
+                    err.print("More than one hub was found. Which one?")
+
+        if info is None:
             # No time limit: the hub may still be in the next room. The scan
             # ends when the block does, whether the user chose or gave up.
+            # aclosing, because the picker stops listening as soon as a hub is
+            # chosen, which leaves the filter suspended at its yield.
             async with (
                 _telling_when_asked(service, tell),
-                service.scanning(seconds=None, transport=transport) as devices,
+                service.scanning(
+                    seconds=None, name=shared, transport=transport
+                ) as devices,
+                aclosing(_offering(devices, heard_only)) as offered,
             ):
-                device = await picker.choose_hub(err, devices, ui.chooser_table)
+                device = await picker.choose_hub(err, offered, ui.chooser_table)
 
             if device is None:
                 # Deciding not to connect is what was asked for, not a failure.
@@ -333,14 +449,6 @@ async def _connect(hub: str | None, scan: bool, transport: str | None) -> int:
                 info = await service.connect_hub(hub_id=device.id)
                 # No transport here: choosing a row from the list has already
                 # chosen the route, since each row is one.
-        else:
-            with ui.spinner(err, "Connecting..."):
-                async with _telling_when_asked(service, tell):
-                    info = await service.connect_hub(
-                        hub_id=hub if hub and _looks_like_id(hub) else None,
-                        name=hub if hub and not _looks_like_id(hub) else None,
-                        transport=transport,
-                    )
 
     # The protocol version belongs to pb status: it explains why a command was
     # refused, but on a successful connection it is one more number to read
@@ -350,7 +458,11 @@ async def _connect(hub: str | None, scan: bool, transport: str | None) -> int:
     if info.hub_type:
         described = f"{info.hub_type}, {described}"
 
-    err.print(f"Connected to [bold]{info.name}[/] ({described}).")
+    # Said, because connecting to a hub that already is succeeds without doing
+    # anything, and a user who meant another hub of the same name needs to see
+    # that none was looked for.
+    done = "Already connected" if info.already_connected else "Connected"
+    err.print(f"{done} to [bold]{escape(info.name)}[/] ({escape(described)}).")
     return EXIT_OK
 
 

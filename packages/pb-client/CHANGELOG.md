@@ -5,6 +5,16 @@ Notable changes to `pybricks-client`. The format is based on
 
 ## [Unreleased]
 
+### Changed
+
+- `Service.connect_hub()` with no hub named connects to the chosen hub, and
+  raises `HUB_AMBIGUOUS` when several are switched on and none is chosen.
+
+### Added
+
+- `HubInfo.already_connected`, set when `Service.connect_hub()` handed back a
+  hub that was connected before.
+
 ## [1.0.0b1] - 2026-10-18
 
 ### Added

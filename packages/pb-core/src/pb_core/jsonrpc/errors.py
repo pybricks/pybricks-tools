@@ -43,6 +43,16 @@ class ErrorCode(IntEnum):
     HUB_BUSY = -32014
     HUB_INVALID_COMMAND = -32015
     HUB_UNSUPPORTED = -32016
+    HUB_AMBIGUOUS = -32024
+    """More than one hub was found, and nothing said which one was meant.
+
+    Raised by ``hub.connect`` when no hub is named, none is chosen and none is
+    connected, rather than taking whichever advertised first: in a classroom
+    that is somebody else's robot. Raised too when several hubs have the name
+    asked for or chosen, and then the data also carries that ``name``. The data
+    carries what was found, as ``hub.scan`` reports it, so that a client can
+    offer them as a choice.
+    """
 
     # Programs.
     PROGRAM_TOO_LARGE = -32017

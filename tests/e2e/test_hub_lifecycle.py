@@ -12,7 +12,8 @@ from __future__ import annotations
 
 import sys
 import uuid
-from collections.abc import AsyncGenerator, Iterator
+from collections.abc import AsyncGenerator, Callable, Iterator
+from contextlib import AbstractAsyncContextManager
 from pathlib import Path
 
 import aio_rfcomm
@@ -34,7 +35,12 @@ from pb_service.hub.combined import CombinedTransport
 from pb_service.hub.fake import FakeHub, FakeHubTransport
 from pb_service.hub.rfcomm.fake import FakePairedHub, radio, switch
 from pb_service.hub.rfcomm.transport import RfcommHubTransport
-from pb_service.hub.transport import UnavailableDevice
+from pb_service.hub.transport import (
+    DeviceInfo,
+    HubLink,
+    ScanFilter,
+    UnavailableDevice,
+)
 
 pytestmark = pytest.mark.anyio
 
@@ -570,6 +576,498 @@ async def test_a_hub_can_be_chosen_before_it_is_connected(
         # It does not stand in the way of the only hub there is.
         await service.connect_hub(name=FIRST)
         assert (await service.hub_info()).name == FIRST
+
+
+async def test_connecting_with_no_hub_named_connects_the_chosen_one(
+    service_at: Endpoint,
+) -> None:
+    # pybricks/support#2866: choosing a hub and then connecting reached
+    # whichever hub advertised first, which need not be the one chosen.
+    async with pb_client.connect(service_at, autostart=False) as service:
+        await service.use_hub(SECOND)
+        info = await service.connect_hub()
+
+    assert info.name == SECOND
+
+
+async def test_the_chosen_hub_is_connected_even_with_another_connected(
+    service_at: Endpoint,
+) -> None:
+    # Handing back the hub already connected instead would leave one hub
+    # chosen and another connected, and commands going to the wrong one.
+    async with pb_client.connect(service_at, autostart=False) as service:
+        await service.connect_hub(name=FIRST)
+        await service.use_hub(SECOND)
+        info = await service.connect_hub()
+        hubs, _ = await service.list_hubs()
+
+    assert info.name == SECOND
+    assert {hub.name for hub in hubs} == {FIRST, SECOND}
+
+
+async def test_a_chosen_hub_already_connected_is_handed_back(
+    service_at: Endpoint,
+) -> None:
+    # It has stopped advertising, so looking for it would report it missing.
+    async with pb_client.connect(service_at, autostart=False) as service:
+        first = await service.connect_hub(name=SECOND)
+        await service.use_hub(SECOND)
+        again = await service.connect_hub()
+
+    assert again.id == first.id
+    assert not first.already_connected
+    assert again.already_connected
+
+
+async def test_a_chosen_hub_that_is_switched_off_is_named_as_missing(
+    service_at: Endpoint, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Two other hubs are switched on, and neither is taken instead: the user
+    # chose, and connecting to a hub they did not choose is the bug.
+    monkeypatch.setattr(pb_service.methods.hub, "DEFAULT_SCAN_SECONDS", 0.3)
+
+    async with pb_client.connect(service_at, autostart=False) as service:
+        await service.use_hub("Some Other Hub")
+
+        with pytest.raises(JsonRpcError) as caught:
+            await service.connect_hub()
+
+        hubs, _ = await service.list_hubs()
+
+    assert caught.value.code == ErrorCode.HUB_NOT_FOUND
+    assert "Some Other Hub" in str(caught.value)
+    assert hubs == []
+
+
+async def test_several_hubs_and_nothing_chosen_is_refused(
+    service_at: Endpoint,
+) -> None:
+    # In a classroom the first hub to advertise is usually somebody else's.
+    async with pb_client.connect(service_at, autostart=False) as service:
+        with pytest.raises(JsonRpcError) as caught:
+            await service.connect_hub()
+
+        hubs, _ = await service.list_hubs()
+
+    assert caught.value.code == ErrorCode.HUB_AMBIGUOUS
+    offered = {device["name"] for device in caught.value.data["devices"]}
+    assert offered == {FIRST, SECOND}
+    assert hubs == []
+
+
+@pytest.fixture
+async def twins_at(endpoint: Endpoint) -> AsyncGenerator[Endpoint, None]:
+    """Two hubs flashed without a name, so both answer to the default one."""
+    transport = FakeHubTransport(
+        FakeHub(name=FIRST, address="00:11:22:33:44:55"),
+        FakeHub(name=FIRST, address="66:77:88:99:AA:BB"),
+    )
+
+    async with service_module.run_service(
+        endpoint, idle_timeout=0, transport=transport
+    ):
+        yield endpoint
+
+
+async def test_a_chosen_name_two_hubs_share_is_refused(twins_at: Endpoint) -> None:
+    # Choosing by name is no choice at all when every hub has the same one.
+    async with pb_client.connect(twins_at, autostart=False) as service:
+        await service.use_hub(FIRST)
+
+        with pytest.raises(JsonRpcError) as caught:
+            await service.connect_hub()
+
+        hubs, _ = await service.list_hubs()
+
+    assert caught.value.code == ErrorCode.HUB_AMBIGUOUS
+    assert caught.value.data["name"] == FIRST
+    assert len(caught.value.data["devices"]) == 2
+    assert hubs == []
+
+
+async def test_a_name_given_that_two_hubs_share_is_refused(twins_at: Endpoint) -> None:
+    async with pb_client.connect(twins_at, autostart=False) as service:
+        with pytest.raises(JsonRpcError) as caught:
+            await service.connect_hub(name=FIRST)
+
+    assert caught.value.code == ErrorCode.HUB_AMBIGUOUS
+    assert caught.value.data["name"] == FIRST
+
+
+async def test_an_id_tells_hubs_with_one_name_apart(twins_at: Endpoint) -> None:
+    async with pb_client.connect(twins_at, autostart=False) as service:
+        devices = await service.scan(seconds=0.3)
+        info = await service.connect_hub(hub_id=devices[1].id)
+
+    assert info.id == devices[1].id
+
+
+async def test_a_name_given_for_a_connected_hub_hands_it_back(
+    twins_at: Endpoint,
+) -> None:
+    # The connected twin has stopped advertising, so a scan for the name would
+    # find only the other one and connect it too, as if it were the one meant.
+    async with pb_client.connect(twins_at, autostart=False) as service:
+        devices = await service.scan(seconds=0.3)
+        first = await service.connect_hub(hub_id=devices[0].id)
+        again = await service.connect_hub(name=FIRST)
+        hubs, _ = await service.list_hubs()
+
+    assert again.id == first.id
+    assert again.already_connected
+    assert [hub.id for hub in hubs] == [first.id]
+
+
+async def test_a_twin_heard_late_is_still_noticed(
+    endpoint: Endpoint, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Measured on real hubs: one advertising every 0.8 s or so is first heard
+    # that long after the other, and deciding at the first one heard connected
+    # to whichever that was without asking. The wait is the point here, so it
+    # is the real one rather than the root conftest's.
+    monkeypatch.setattr(pb_service.methods.hub, "AMBIGUITY_SECONDS", 1.0)
+    transport = FakeHubTransport(
+        FakeHub(name=FIRST, address="00:11:22:33:44:55"),
+        FakeHub(name=FIRST, address="66:77:88:99:AA:BB", heard_after=0.8),
+    )
+
+    async with (
+        service_module.run_service(endpoint, idle_timeout=0, transport=transport),
+        pb_client.connect(endpoint, autostart=False) as service,
+    ):
+        with pytest.raises(JsonRpcError) as caught:
+            await service.connect_hub(name=FIRST)
+
+    assert caught.value.code == ErrorCode.HUB_AMBIGUOUS
+    assert len(caught.value.data["devices"]) == 2
+
+
+class _PluggedIn:
+    """Hubs on cables, one per port, heard a moment into a search.
+
+    Only as much of a transport as a search needs: these hubs are refused
+    before anything opens them.
+    """
+
+    scheme = "usb"
+    unavailable: tuple[UnavailableDevice, ...] = ()
+
+    def __init__(self, *names: str, heard_after: float = 0.0) -> None:
+        self.on_disconnect: Callable[[str], None] | None = None
+        self._names = names
+        self._heard_after = heard_after
+
+    async def discover(
+        self, scan_filter: ScanFilter
+    ) -> AsyncGenerator[DeviceInfo, None]:
+        await anyio.sleep(self._heard_after)
+
+        for number, name in enumerate(self._names):
+            port = f"/dev/ttyACM{number}"
+
+            if scan_filter.name in (None, name):
+                yield DeviceInfo(
+                    id=f"usb:{port}",
+                    name=name,
+                    address=port,
+                    transport=self.scheme,
+                )
+
+            # A port takes a moment to answer the first time it is opened.
+            await anyio.sleep(0.01)
+
+        await anyio.sleep_forever()
+
+    def open(self, device_id: str) -> AbstractAsyncContextManager[HubLink]:
+        raise ConnectionError(f"not expected to open {device_id}")
+
+
+async def test_a_cable_does_not_hide_another_hub_heard_first(
+    endpoint: Endpoint,
+) -> None:
+    # A hub on a cable used to end the search at once, and only two hubs on one
+    # transport counted as two. So with one hub heard over the air and another
+    # plugged in, the one on the cable was connected without asking.
+    transport = CombinedTransport(
+        _PluggedIn(FIRST, heard_after=0.02),
+        FakeHubTransport(FakeHub(name=SECOND, address="66:77:88:99:AA:BB")),
+    )
+
+    async with (
+        service_module.run_service(endpoint, idle_timeout=0, transport=transport),
+        pb_client.connect(endpoint, autostart=False) as service,
+    ):
+        with pytest.raises(JsonRpcError) as caught:
+            await service.connect_hub()
+
+    assert caught.value.code == ErrorCode.HUB_AMBIGUOUS
+    assert {d["name"] for d in caught.value.data["devices"]} == {FIRST, SECOND}
+
+
+async def test_two_hubs_on_cables_are_two_hubs(endpoint: Endpoint) -> None:
+    # USB is the best route there is, so finding a hub on it used to end the
+    # search before the next port was read.
+    transport = CombinedTransport(_PluggedIn(FIRST, FIRST))
+
+    async with (
+        service_module.run_service(endpoint, idle_timeout=0, transport=transport),
+        pb_client.connect(endpoint, autostart=False) as service,
+    ):
+        with pytest.raises(JsonRpcError) as caught:
+            await service.connect_hub()
+
+    assert caught.value.code == ErrorCode.HUB_AMBIGUOUS
+    assert len(caught.value.data["devices"]) == 2
+
+
+async def test_a_paired_hub_switched_off_is_not_another_hub(
+    endpoint: Endpoint,
+) -> None:
+    # RFCOMM lists what the computer is paired with, switched on or not, so an
+    # EV3 in a drawer must not make the hub on the desk ambiguous.
+    bluetooth = radio(FakePairedHub(address=EV3, reachable=False))
+    transport = CombinedTransport(
+        RfcommHubTransport(bluetooth),
+        FakeHubTransport(FakeHub(name=SECOND, address="66:77:88:99:AA:BB")),
+    )
+
+    async with (
+        service_module.run_service(endpoint, idle_timeout=0, transport=transport),
+        pb_client.connect(endpoint, autostart=False) as service,
+    ):
+        info = await service.connect_hub()
+
+    assert info.name == SECOND
+
+
+async def test_a_connected_hub_asked_for_exclusively_is_refused(
+    service_at: Endpoint,
+) -> None:
+    async with pb_client.connect(service_at, autostart=False) as service:
+        await service.connect_hub(name=FIRST)
+
+        with pytest.raises(JsonRpcError) as caught:
+            await service._peer.call(  # pyright: ignore[reportPrivateUsage]
+                "hub.connect", {"name": FIRST, "exclusive": True}
+            )
+
+    assert caught.value.code == ErrorCode.HUB_ALREADY_CONNECTED
+
+
+async def test_a_connected_hub_asked_for_by_another_route_is_looked_for(
+    endpoint: Endpoint, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Which route is in use decides how quick everything after it is, so a hub
+    # connected one way and asked for another is not the hub asked for.
+    monkeypatch.setattr(pb_service.methods.hub, "DEFAULT_SCAN_SECONDS", 0.3)
+    # Combined, because that is what keeps a search to the transport asked for.
+    transport = CombinedTransport(
+        FakeHubTransport(FakeHub(name=FIRST, address="00:11:22:33:44:55"))
+    )
+
+    async with (
+        service_module.run_service(endpoint, idle_timeout=0, transport=transport),
+        pb_client.connect(endpoint, autostart=False) as service,
+    ):
+        await service.connect_hub(name=FIRST)
+
+        with pytest.raises(JsonRpcError) as caught:
+            await service.connect_hub(name=FIRST, transport="usb")
+
+    assert caught.value.code == ErrorCode.HUB_NOT_FOUND
+
+
+@pytest.fixture
+def drawer_and_desk(monkeypatch: pytest.MonkeyPatch) -> CombinedTransport:
+    """A paired EV3 switched off, and two hubs heard a little apart.
+
+    The waits are scaled down from the real ones but keep their proportions:
+    the first hub heard comes after the paired one is listed, and the second
+    after AMBIGUITY_SECONDS has passed since the paired one was listed, though
+    not since the first hub was heard.
+    """
+    monkeypatch.setattr(pb_service.methods.hub, "AMBIGUITY_SECONDS", 0.6)
+    monkeypatch.setattr(pb_service.methods.hub, "PAIRED_SECONDS", 2.0)
+
+    # 0.1 s either side of the wait that a paired hub would have started, and
+    # 0.2 s inside the one the first hub heard starts.
+    return CombinedTransport(
+        RfcommHubTransport(radio(FakePairedHub(address=EV3, reachable=False))),
+        FakeHubTransport(
+            FakeHub(name=FIRST, address="00:11:22:33:44:55", heard_after=0.3),
+            FakeHub(name=SECOND, address="66:77:88:99:AA:BB", heard_after=0.7),
+        ),
+    )
+
+
+async def test_a_paired_hub_does_not_cut_short_the_wait_for_another(
+    endpoint: Endpoint, drawer_and_desk: CombinedTransport
+) -> None:
+    # The paired EV3 is listed at once. Had that started the wait, it would
+    # have ended before the second hub was heard, and the first been taken.
+    async with (
+        service_module.run_service(endpoint, idle_timeout=0, transport=drawer_and_desk),
+        pb_client.connect(endpoint, autostart=False) as service,
+    ):
+        with pytest.raises(JsonRpcError) as caught:
+            await service.connect_hub()
+
+    assert caught.value.code == ErrorCode.HUB_AMBIGUOUS
+    assert {d["name"] for d in caught.value.data["devices"]} == {FIRST, SECOND}
+
+
+async def test_a_hub_heard_after_the_wait_a_paired_one_would_start_is_found(
+    endpoint: Endpoint, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Had the paired EV3 started the wait, it would have ended holding only
+    # the EV3, and tried to connect to a hub in a drawer.
+    monkeypatch.setattr(pb_service.methods.hub, "AMBIGUITY_SECONDS", 0.6)
+    monkeypatch.setattr(pb_service.methods.hub, "PAIRED_SECONDS", 2.0)
+    transport = CombinedTransport(
+        RfcommHubTransport(radio(FakePairedHub(address=EV3, reachable=False))),
+        FakeHubTransport(
+            FakeHub(name=SECOND, address="66:77:88:99:AA:BB", heard_after=0.9)
+        ),
+    )
+
+    async with (
+        service_module.run_service(endpoint, idle_timeout=0, transport=transport),
+        pb_client.connect(endpoint, autostart=False) as service,
+    ):
+        info = await service.connect_hub()
+
+    assert info.name == SECOND
+
+
+async def test_a_permission_dialog_does_not_cut_short_the_wait_for_another(
+    endpoint: Endpoint, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Waiting on the dialog moves the end of the search later. Had the wait for
+    # a second hub been bounded by the end as it was at the start, the first
+    # hub heard after that would have ended the search at once.
+    monkeypatch.setattr(pb_service.methods.hub, "DEFAULT_SCAN_SECONDS", 0.3)
+    monkeypatch.setattr(pb_service.methods.hub, "AMBIGUITY_SECONDS", 0.5)
+    monkeypatch.setattr(pb_service.methods.hub, "PERMISSION_SECONDS", 3.0)
+    asking = radio(
+        unavailable="macOS is asking whether this program may use Bluetooth",
+        reason=aio_rfcomm.Availability.AWAITING_PERMISSION,
+    )
+    transport = CombinedTransport(
+        RfcommHubTransport(asking),
+        FakeHubTransport(
+            FakeHub(name=FIRST, address="00:11:22:33:44:55", heard_after=0.8),
+            FakeHub(name=SECOND, address="66:77:88:99:AA:BB", heard_after=0.9),
+        ),
+    )
+
+    async with (
+        service_module.run_service(endpoint, idle_timeout=0, transport=transport),
+        pb_client.connect(endpoint, autostart=False) as service,
+    ):
+        with pytest.raises(JsonRpcError) as caught:
+            await service.connect_hub()
+
+    assert caught.value.code == ErrorCode.HUB_AMBIGUOUS
+
+
+async def test_nothing_named_finds_the_connected_hub_on_the_route_asked_for(
+    endpoint: Endpoint,
+) -> None:
+    # The hub a command would act on is the one connected last, but asked for
+    # another route, a connected hub on it is the one meant.
+    bluetooth = radio(FakePairedHub(address=EV3))
+    transport = CombinedTransport(
+        RfcommHubTransport(bluetooth),
+        FakeHubTransport(FakeHub(name=SECOND, address="66:77:88:99:AA:BB")),
+    )
+
+    async with (
+        service_module.run_service(endpoint, idle_timeout=0, transport=transport),
+        pb_client.connect(endpoint, autostart=False) as service,
+    ):
+        ev3 = await service.connect_hub(transport="rfcomm")
+        await service.connect_hub(name=SECOND)
+        again = await service.connect_hub(transport="rfcomm")
+
+    assert again.id == ev3.id
+    assert again.already_connected
+
+
+async def test_nothing_named_and_a_route_asked_for_keeps_the_hub_commands_use(
+    service_at: Endpoint,
+) -> None:
+    # Two hubs connected the same way: asking for that way is no reason to
+    # hand back a different one from the hub the next command will act on.
+    async with pb_client.connect(service_at, autostart=False) as service:
+        await service.connect_hub(name=FIRST)
+        second = await service.connect_hub(name=SECOND)
+        again = await service.connect_hub(transport="fake")
+
+    assert again.id == second.id
+
+
+async def test_a_connected_id_with_another_route_asked_for_is_handed_back(
+    service_at: Endpoint,
+) -> None:
+    # An id names its route too, so no hub on another one could have it, and
+    # searching there would only end in "no hub found" with the hub connected.
+    async with pb_client.connect(service_at, autostart=False) as service:
+        first = await service.connect_hub(name=FIRST)
+
+        with anyio.fail_after(1):
+            again = await service.connect_hub(hub_id=first.id, transport="rfcomm")
+
+    assert again.id == first.id
+    assert again.already_connected
+
+
+async def test_nothing_named_and_another_route_asked_for_is_looked_for(
+    endpoint: Endpoint, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # As for a name: a hub connected one way is not one asked for another.
+    monkeypatch.setattr(pb_service.methods.hub, "DEFAULT_SCAN_SECONDS", 0.3)
+    transport = CombinedTransport(
+        FakeHubTransport(FakeHub(name=FIRST, address="00:11:22:33:44:55"))
+    )
+
+    async with (
+        service_module.run_service(endpoint, idle_timeout=0, transport=transport),
+        pb_client.connect(endpoint, autostart=False) as service,
+    ):
+        await service.connect_hub()
+
+        with pytest.raises(JsonRpcError) as caught:
+            await service.connect_hub(transport="usb")
+
+    assert caught.value.code == ErrorCode.HUB_NOT_FOUND
+
+
+async def test_nothing_named_and_exclusive_refuses_a_connected_hub(
+    service_at: Endpoint,
+) -> None:
+    async with pb_client.connect(service_at, autostart=False) as service:
+        await service.connect_hub(name=FIRST)
+
+        with pytest.raises(JsonRpcError) as caught:
+            await service._peer.call(  # pyright: ignore[reportPrivateUsage]
+                "hub.connect", {"exclusive": True}
+            )
+
+    assert caught.value.code == ErrorCode.HUB_ALREADY_CONNECTED
+
+
+async def test_the_only_hub_switched_on_needs_no_name(endpoint: Endpoint) -> None:
+    hub = FakeHub(name=FIRST, address="00:11:22:33:44:55")
+
+    async with (
+        service_module.run_service(
+            endpoint, idle_timeout=0, transport=FakeHubTransport(hub)
+        ),
+        pb_client.connect(endpoint, autostart=False) as service,
+    ):
+        info = await service.connect_hub()
+
+    assert info.name == FIRST
 
 
 async def test_an_id_for_a_hub_that_is_not_connected_is_refused(

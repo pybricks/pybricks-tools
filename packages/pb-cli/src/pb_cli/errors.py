@@ -240,6 +240,12 @@ _RULES: Mapping[int, _Rule] = {
     ErrorCode.HUB_BUSY: _Rule(
         "Wait a moment, or stop what it is doing with [bold]pb stop[/]."
     ),
+    # Only seen where nobody can be asked which: with a terminal, pb connect
+    # turns it into a choice instead.
+    ErrorCode.HUB_AMBIGUOUS: _Rule(
+        "Say which with [bold]--hub[/], or choose one for every command with "
+        "[bold]pb use[/]."
+    ),
     ErrorCode.HUB_INVALID_COMMAND: _Rule(
         "If the hub's firmware is old, installing the latest version from "
         "code.pybricks.com may help."
@@ -436,6 +442,55 @@ def _slot_hint(exc: JsonRpcError, default: str | None) -> str | None:
     return _ONE_SLOT if data.get("slots") == 1 else default
 
 
+_SAME_NAME = (
+    "Hubs with the same name cannot be told apart by it. Give one another "
+    "name when installing the firmware with Pybricks Code, or connect it in "
+    "a terminal with [bold]pb connect --scan[/]."
+)
+
+
+def _ambiguous_hint(exc: JsonRpcError, default: str | None) -> str | None:
+    """Suggest how to say which hub, which a shared name rules out.
+
+    Args:
+        exc: The error the service sent.
+        default: The suggestion for hubs that a name would tell apart.
+
+    Returns:
+        The suggestion to print.
+    """
+    payload: object = exc.data
+    if not isinstance(payload, Mapping):
+        return default
+
+    data = cast("Mapping[str, object]", exc.data)
+    return _SAME_NAME if data.get("name") else default
+
+
+def _chosen_hint(exc: JsonRpcError, hint: str | None) -> str | None:
+    """Add how to choose again, when the hub not found was the chosen one.
+
+    Args:
+        exc: The error the service sent.
+        hint: The suggestion so far.
+
+    Returns:
+        The suggestion to print. Switching the hub on is still the first one,
+        but a choice outlives the hub it named, and without this the only way
+        out of an old one is to know about pb use.
+    """
+    payload: object = exc.data
+    if not isinstance(payload, Mapping):
+        return hint
+
+    data = cast("Mapping[str, object]", payload)
+    if not data.get("chosen"):
+        return hint
+
+    again = "To use another hub, choose it with [bold]pb use[/]."
+    return f"{hint} {again}" if hint else again
+
+
 def _bluetooth_hint(exc: JsonRpcError) -> str:
     """Suggest what to do about Bluetooth, by the reason the service gave.
 
@@ -474,6 +529,12 @@ def _describe_rpc(exc: JsonRpcError, hints: Mapping[int, str] | None) -> Problem
 
     if exc.code == ErrorCode.BLUETOOTH_UNAVAILABLE:
         hint = _bluetooth_hint(exc)
+
+    if exc.code == ErrorCode.HUB_AMBIGUOUS:
+        hint = _ambiguous_hint(exc, hint)
+
+    if exc.code == ErrorCode.HUB_NOT_FOUND:
+        hint = _chosen_hint(exc, hint)
 
     if exc.code == ErrorCode.UNSUPPORTED_PROTOCOL_VERSION:
         message, hint = _version_mismatch(exc, message, hint)

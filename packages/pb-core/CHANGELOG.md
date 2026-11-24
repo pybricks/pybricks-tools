@@ -5,6 +5,16 @@ Notable changes to `pybricks-core`. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- `ErrorCode.HUB_AMBIGUOUS`, for a hub that could be any of several.
+
+### Changed
+
+- `PROTOCOL_VERSION` and `MIN_PROTOCOL_VERSION` are 4, for the changes to
+  `hub.connect`. A client and a service of different versions refuse each
+  other, and `pb service stop` replaces a service left over from before.
+
 ## [1.0.0b1] - 2026-10-18
 
 ### Added
