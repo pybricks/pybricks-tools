@@ -28,6 +28,11 @@ hub that keeps saying ``BUSY`` is a hub with nothing reading, and the remedy is
 on the hub rather than here -- which is what :data:`STDIN_PATIENCE_SECONDS`
 eventually says.
 
+The one exception is firmware 4.0, whose buffer is smaller than the write size
+it reports: a write bigger than the buffer is refused for good, which is a
+firmware bug fixed in 4.1. That is said at once, and not worked around; see
+:data:`FIRMWARE_4_0_STDIN_BYTES`.
+
 **Nothing here adapts the write size, and that is deliberate.** It used to
 halve on a refusal that lasted, on the theory that a long refusal meant the
 buffer was smaller than advertised, remembering where it settled. The theory
@@ -45,7 +50,7 @@ four-hundred-byte paste went from 73 ms to 2589 ms.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Final
 
 import anyio
 
@@ -59,7 +64,7 @@ from pb_core.jsonrpc import (
 from pb_core.protocol import HUB_STATE, HUB_STATUS, HUB_STDOUT
 from pb_service.errors import hub_errors
 from pb_service.hub import protocol as p
-from pb_service.hub.connection import HubConnection
+from pb_service.hub.connection import HubConnection, HubInfo
 from pb_service.hub.events import Channel, StateEvent, StatusEvent, StdoutEvent
 from pb_service.methods import method, require
 from pb_service.methods.hub import hub_of, report_json, status_json
@@ -179,7 +184,8 @@ async def _write_stdin(connection: HubConnection, data: bytes) -> int:
     over and over at that size until the hub takes it. **The size never
     changes**, because a refusal carries no information about it: the firmware
     tests the buffer's *free space*, which is whatever the reader on the hub has
-    not read yet, so a refusal says only that nothing has read lately. See the
+    not read yet, so a refusal says only that nothing has read lately -- except
+    on firmware 4.0, where a piece bigger than its buffer never fits. See the
     module docstring for the version of this that tried to be clever and what it
     cost.
 
@@ -197,7 +203,9 @@ async def _write_stdin(connection: HubConnection, data: bytes) -> int:
 
     Raises:
         JsonRpcError: If the hub is not ready, or stayed busy for longer than
-            its patience allows.
+            its patience allows. ``HUB_BUSY`` at once, with ``firmware_limit``
+            in its data, if the hub runs firmware 4.0 and was offered more than
+            its buffer holds.
     """
     info = connection.info
     if info is None:
@@ -205,13 +213,30 @@ async def _write_stdin(connection: HubConnection, data: bytes) -> int:
 
     offset = 0
     limit = connection.stdin_limit
+    too_small = _firmware_4_0_limit(info)
 
     with anyio.move_on_after(STDIN_PATIENCE_SECONDS) as patience:
         while offset < len(data):
-            if await _offer(connection, data[offset : offset + limit], info.profile):
-                offset += min(limit, len(data) - offset)
+            chunk = data[offset : offset + limit]
+
+            if await _offer(connection, chunk, info.profile):
+                offset += len(chunk)
 
                 continue
+
+            if too_small is not None and len(chunk) > too_small:
+                # Not a program that has not read yet: this firmware has no
+                # room for this much, now or ever, and the fix is to update it.
+                # Nothing here cuts the input smaller to get round that.
+                #
+                # The remedy first: a REPL shows this in a status line cut to
+                # the terminal's width.
+                raise JsonRpcError(
+                    ErrorCode.HUB_BUSY,
+                    f"update the hub's firmware: {info.firmware} takes at most "
+                    f"{too_small} bytes of input at once",
+                    {"written": offset, "firmware_limit": too_small},
+                )
 
             # Nothing on the hub has read its input yet. There is nothing to
             # conclude and nothing to adjust, so wait for the soonest moment
@@ -226,6 +251,52 @@ async def _write_stdin(connection: HubConnection, data: bytes) -> int:
         )
 
     return offset
+
+
+FIRMWARE_4_0_STDIN_BYTES: Final = 20
+"""The most input Pybricks 4.0 takes in one write, on most hubs.
+
+4.0 sized its input buffer to 21 bytes, less the byte a ring buffer keeps empty,
+while reporting a write size of up to 512: a write bigger than the buffer could
+never fit, however long it waited. 4.1 sized the buffer to the write size
+(pybricks-micropython a363d48f5f, discussions/2788). The betas between are not
+worth telling apart: nobody stays on a beta.
+"""
+
+FIRMWARE_4_0_STDIN_BYTES_WITH_USB: Final = 63
+"""The most input Pybricks 4.0 takes in one write, on hubs with USB.
+
+Their buffer was 64 bytes, to match the USB endpoint. Measured on a Prime hub
+on 4.0.1: 63 bytes are taken at the prompt, and 64 are refused for good.
+"""
+
+_HUBS_WITH_USB: Final = frozenset(
+    {p.HubType.TECHNIC_LARGE_HUB, p.HubType.TECHNIC_SMALL_HUB, p.HubType.NXT}
+)
+
+
+def _firmware_4_0_limit(info: HubInfo) -> int | None:
+    """How much input a hub takes at once, if its firmware has too small a buffer.
+
+    Args:
+        info: The hub.
+
+    Returns:
+        The most it takes in one write, or ``None`` for firmware without the
+        bug, including firmware whose version cannot be read.
+    """
+    try:
+        version = p.parse_version(info.firmware)
+    except ValueError:
+        return None
+
+    if version[:2] != (4, 0):
+        return None
+
+    if info.pnp is not None and info.pnp.product_id in _HUBS_WITH_USB:
+        return FIRMWARE_4_0_STDIN_BYTES_WITH_USB
+
+    return FIRMWARE_4_0_STDIN_BYTES
 
 
 @method(

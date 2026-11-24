@@ -25,6 +25,7 @@ import anyio
 import pytest
 
 import pb_client
+from pb_service.hub.protocol import parse_version
 
 pytestmark = [pytest.mark.hardware, pytest.mark.anyio]
 
@@ -189,6 +190,13 @@ async def test_a_program_that_ignores_input_does_not_slow_the_hub_afterwards(
     # the buffer was smaller than advertised, halved the write size, and
     # remembered that for the life of the connection. The connection outlives
     # every command, so pasting stayed slow for the rest of the day.
+    firmware = (await service.hub_info(hub)).firmware
+
+    if parse_version(firmware)[:2] == (4, 0):
+        # Its input buffer is smaller than a paste, so nothing pasted fits,
+        # and the service says so rather than waiting. Fixed in 4.1.
+        pytest.skip(f"Pybricks {firmware} cannot take a paste this size")
+
     await service.start_repl(hub_id=hub)
     await anyio.sleep(1.0)
     before = await _paste_ms(service, hub)

@@ -29,6 +29,7 @@ import anyio
 import pytest
 
 import pb_client
+from pb_core.jsonrpc import ErrorCode
 
 SCAN_SECONDS = 15.0
 """How long to look for a hub before deciding there is none to test against."""
@@ -173,6 +174,15 @@ async def _connected(service: pb_client.Service) -> str:
 
     except _UNAVAILABLE as exc:
         _no_hub = f"no hub switched on and in range: {exc}"
+
+        # Several hubs on and none chosen is refused rather than guessed at,
+        # and the remedy is not to switch one on.
+        if (
+            isinstance(exc, pb_client.JsonRpcError)
+            and exc.code == ErrorCode.HUB_AMBIGUOUS
+        ):
+            _no_hub = f"{exc}; switch the others off, or choose one with pb use"
+
         pytest.skip(_no_hub)
 
     return info.name

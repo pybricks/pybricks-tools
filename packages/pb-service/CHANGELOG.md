@@ -31,6 +31,10 @@ Notable changes to `pybricks-service`. The format is based on
 
 ### Fixed
 
+- Input too big for the buffer of a hub on Pybricks 4.0 is refused at once,
+  saying to update the firmware, rather than after 10 s as a hub not reading
+  its input. 4.0 takes 20 bytes at a time, or 63 on
+  hubs with USB, whatever write size it reports.
 - A Bluetooth hub was sometimes first reported without its hub type, before
   its scan response arrived. Hubs are now reported only once it has, and one
   that never sends it is logged as a firmware bug rather than listed.

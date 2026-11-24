@@ -60,7 +60,7 @@ class FakeHub:
     name: str = "Fake Hub"
     address: str = "AA:BB:CC:DD:EE:FF"
     profile: p.Version = (1, 5, 0)
-    firmware: str = "4.0.1"
+    firmware: str = "4.1.3"
     hub_type: int = p.HubType.TECHNIC_LARGE_HUB
     variant: int = 0
     """Product id and version, as the PnP ID reports them."""
