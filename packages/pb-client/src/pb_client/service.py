@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import aclosing, asynccontextmanager
-from typing import Any, cast
+from typing import Any, Final, cast
 
 import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
@@ -43,13 +43,33 @@ from pb_core.protocol import (
     HUB_STATE,
     HUB_STATUS,
     HUB_STDOUT,
-    PROTOCOL_VERSION,
     STDIO_CAPABILITY,
 )
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["DeviceInfo", "HubInfo", "Service", "ServiceInfo", "connect"]
+PROTOCOL_VERSION: Final = 4
+"""The version of the service protocol this client speaks.
+
+Sent when connecting, and a service that cannot serve it refuses the
+connection, saying which of the two is the older. It is a promise about what
+this package does, so it is declared here, and the service declares the
+versions it serves; in this repository the two are moved together.
+
+2 since the chosen hub became something the service remembers, which changed
+what ``hub.use`` and ``hub.list`` say. 4 since ``hub.connect`` goes to the chosen
+hub and refuses several with ``HUB_AMBIGUOUS``, which a client of 3 does not
+know, and says whether the hub was ``already_connected``.
+"""
+
+__all__ = [
+    "PROTOCOL_VERSION",
+    "DeviceInfo",
+    "HubInfo",
+    "Service",
+    "ServiceInfo",
+    "connect",
+]
 
 
 Listener = MemoryObjectSendStream[tuple[str, dict[str, Any]]]

@@ -5,6 +5,12 @@ Notable changes to `pybricks-service`. The format is based on
 
 ## [Unreleased]
 
+### Changed
+
+- The protocol versions this service serves are declared in pb-service, as
+  `PROTOCOL_VERSION` and `MIN_PROTOCOL_VERSION` in
+  `pb_service.methods.service`, rather than read from pybricks-core.
+
 ## [1.0.0b3] - 2026-11-23
 
 ### Changed

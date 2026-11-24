@@ -23,11 +23,11 @@ import pytest
 import pb_client
 
 # Imported to register the RPC methods.
-import pb_service.methods.service  # noqa: F401  # pyright: ignore[reportUnusedImport]
+import pb_service.methods.service as service_methods
+from pb_client.service import PROTOCOL_VERSION
 from pb_core import auth, ipc
 from pb_core.ipc import Endpoint
 from pb_core.jsonrpc import ErrorCode, JsonRpcError, connect_peer
-from pb_core.protocol import PROTOCOL_VERSION
 from pb_service import service as service_module
 
 pytestmark = pytest.mark.anyio
@@ -237,3 +237,10 @@ async def test_a_service_starts_while_bluetooth_never_opens(
             pb_client.connect(endpoint, autostart=False) as service,
         ):
             await service.ping()
+
+
+def test_the_client_speaks_what_the_service_serves() -> None:
+    # Each declares its own, because each is a promise about its own code; in
+    # one checkout they are moved together.
+    assert PROTOCOL_VERSION == service_methods.PROTOCOL_VERSION
+    assert service_methods.MIN_PROTOCOL_VERSION <= PROTOCOL_VERSION
