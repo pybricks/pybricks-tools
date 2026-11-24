@@ -5,6 +5,11 @@ Notable changes to `pybricks-client`. The format is based on
 
 ## [Unreleased]
 
+### Changed
+
+- The protocol version this client speaks is declared in pb-client, as
+  `pb_client.service.PROTOCOL_VERSION`, rather than read from pybricks-core.
+
 ## [1.0.0b2] - 2026-11-23
 
 ### Changed
