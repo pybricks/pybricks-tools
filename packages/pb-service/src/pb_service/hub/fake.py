@@ -65,6 +65,14 @@ class FakeHub:
     variant: int = 0
     """Product id and version, as the PnP ID reports them."""
 
+    heard_after: float = 0.0
+    """Seconds into a scan before this hub is first heard.
+
+    A real hub advertises only every so often, so one switched on alongside
+    another may be heard a second after it. Simulated hubs are otherwise all
+    heard at once, which hides anything that decides too soon.
+    """
+
     max_write_size: int = 512
     max_program_size: int = 16384
     num_slots: int = 5
@@ -445,7 +453,13 @@ class FakeHubTransport:
         if self.scan_delay:
             await anyio.sleep(self.scan_delay)
 
-        for hub in self.hubs:
+        heard_until = 0.0
+
+        for hub in sorted(self.hubs, key=lambda hub: hub.heard_after):
+            if hub.heard_after > heard_until:
+                await anyio.sleep(hub.heard_after - heard_until)
+                heard_until = hub.heard_after
+
             if scan_filter.name is not None and hub.name != scan_filter.name:
                 continue
 
