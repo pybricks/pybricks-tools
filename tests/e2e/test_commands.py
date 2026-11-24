@@ -18,26 +18,28 @@ from __future__ import annotations
 
 import sys
 import uuid
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, AsyncIterator
 from pathlib import Path
 
 import aio_rfcomm
 import anyio
 import pytest
 
+import pb_client
 import pb_service.methods.hub
 import pb_service.methods.program  # pyright: ignore[reportUnusedImport]
 
 # Imported to register the RPC methods.
 import pb_service.methods.service  # pyright: ignore[reportUnusedImport]
 import pb_service.methods.stdio  # pyright: ignore[reportUnusedImport]
-from pb_cli import errors
+from pb_cli import errors, keys, picker
 from pb_cli.commands import hub as hub_commands
 from pb_cli.commands import program as program_commands
 from pb_cli.commands import service as service_commands
 from pb_core.ipc import Endpoint
 from pb_service import service as service_module
 from pb_service.hub import protocol as p
+from pb_service.hub.combined import CombinedTransport
 from pb_service.hub.fake import FakeHub, FakeHubTransport
 from pb_service.hub.rfcomm.fake import FakePairedHub, radio, switch
 from pb_service.hub.rfcomm.transport import RfcommHubTransport
@@ -237,6 +239,230 @@ async def test_a_chosen_hub_is_what_a_command_acts_on(
     assert await hub_commands.list_cmd() == errors.EXIT_OK
     listed = _out(capsys)
     assert listed.startswith("*")
+
+
+SPARE_NAME = "Spare Hub"
+
+
+@pytest.fixture
+async def two_hubs(private: Endpoint) -> AsyncGenerator[None, None]:
+    """A service with two hubs switched on, as in a classroom."""
+    transport = FakeHubTransport(
+        FakeHub(name=HUB_NAME, address="00:11:22:33:44:55"),
+        FakeHub(name=SPARE_NAME, address="66:77:88:99:AA:BB"),
+    )
+
+    async with service_module.run_service(private, idle_timeout=0, transport=transport):
+        yield
+
+
+async def test_connect_goes_to_the_hub_chosen_with_use(
+    two_hubs: None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # pybricks/support#2866.
+    await hub_commands.use_cmd(hub=SPARE_NAME)
+    capsys.readouterr()
+
+    assert await hub_commands.connect_cmd() == errors.EXIT_OK
+    assert f"Connected to {SPARE_NAME}" in capsys.readouterr().err
+
+
+async def test_connect_says_when_the_hub_already_was(
+    two_hubs: None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Succeeding is right, so that connect can be run to be sure of a hub, but
+    # claiming to have connected would hide that no other hub was looked for.
+    await hub_commands.use_cmd(hub=SPARE_NAME)
+    await hub_commands.connect_cmd()
+    capsys.readouterr()
+
+    assert await hub_commands.connect_cmd() == errors.EXIT_OK
+    assert f"Already connected to {SPARE_NAME}" in capsys.readouterr().err
+
+
+async def test_connect_asks_which_when_several_hubs_are_on(
+    two_hubs: None,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    offered: list[str] = []
+
+    async def choose(
+        err: object, devices: AsyncIterator[pb_client.DeviceInfo], *_: object
+    ) -> pb_client.DeviceInfo:
+        async for device in devices:
+            offered.append(device.name)
+            if device.name == SPARE_NAME:
+                return device
+
+        raise AssertionError("the spare hub was never offered")
+
+    monkeypatch.setattr(keys, "keys_available", lambda: True)
+    monkeypatch.setattr(picker, "choose_hub", choose)
+
+    assert await hub_commands.connect_cmd() == errors.EXIT_OK
+    captured = capsys.readouterr()
+    assert "More than one hub" in captured.err
+    assert f"Connected to {SPARE_NAME}" in captured.err
+    assert SPARE_NAME in offered
+    assert captured.out == ""
+
+
+async def test_the_picker_leaves_out_a_paired_hub_the_service_did(
+    private: Endpoint,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The service did not count the EV3 in the drawer, so offering it would be
+    # offering a hub that is not there.
+    transport = CombinedTransport(
+        RfcommHubTransport(
+            radio(FakePairedHub(name="Ostrich (MINDSTORMS EV3)", reachable=False))
+        ),
+        FakeHubTransport(
+            FakeHub(name=HUB_NAME, address="00:11:22:33:44:55"),
+            FakeHub(name=SPARE_NAME, address="66:77:88:99:AA:BB"),
+        ),
+    )
+    offered: set[str] = set()
+
+    async def choose(
+        err: object, devices: AsyncIterator[pb_client.DeviceInfo], *_: object
+    ) -> pb_client.DeviceInfo | None:
+        with anyio.move_on_after(0.5):
+            async for device in devices:
+                offered.add(device.name)
+
+        return None
+
+    monkeypatch.setattr(keys, "keys_available", lambda: True)
+    monkeypatch.setattr(picker, "choose_hub", choose)
+
+    async with service_module.run_service(private, idle_timeout=0, transport=transport):
+        assert await hub_commands.connect_cmd() == errors.EXIT_OK
+
+    assert "More than one hub was found" in capsys.readouterr().err
+    assert offered == {HUB_NAME, SPARE_NAME}
+
+
+async def test_connect_without_a_terminal_refuses_to_guess(
+    two_hubs: None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert await hub_commands.connect_cmd() != errors.EXIT_OK
+    captured = capsys.readouterr()
+    assert "More than one hub found" in captured.err
+    assert "pb use" in captured.err
+    assert captured.out == ""
+
+
+async def test_a_chosen_hub_not_found_says_how_to_choose_another(
+    two_hubs: None,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A choice outlives the hub it named, so the way out of an old one is said.
+    monkeypatch.setattr(pb_service.methods.hub, "DEFAULT_SCAN_SECONDS", 0.3)
+    await hub_commands.use_cmd(hub="Retired Hub")
+    capsys.readouterr()
+
+    assert await hub_commands.connect_cmd() != errors.EXIT_OK
+    said = " ".join(capsys.readouterr().err.split())
+    assert "The chosen hub 'Retired Hub' was not found" in said
+    assert "Switch the hub on" in said
+    assert "choose it with pb use" in said
+
+
+async def test_a_typed_hub_not_found_does_not_mention_choosing(
+    two_hubs: None,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Nothing was chosen, so there is no choice to undo.
+    monkeypatch.setattr(pb_service.methods.hub, "DEFAULT_SCAN_SECONDS", 0.3)
+
+    assert await hub_commands.connect_cmd(hub="Retired Hub") != errors.EXIT_OK
+    said = " ".join(capsys.readouterr().err.split())
+    assert "Switch the hub on" in said
+    assert "pb use" not in said
+
+
+async def test_a_hub_name_is_printed_as_it_was_written(
+    private: Endpoint, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # A name is the user's to write, and rich reads square brackets as markup.
+    name = "Robot [red] [/b]"
+    transport = FakeHubTransport(FakeHub(name=name, address="00:11:22:33:44:55"))
+
+    async with service_module.run_service(private, idle_timeout=0, transport=transport):
+        await hub_commands.use_cmd(hub=name)
+        capsys.readouterr()
+
+        assert await hub_commands.connect_cmd() == errors.EXIT_OK
+
+    assert f"Connected to {name}" in capsys.readouterr().err
+
+
+@pytest.fixture
+async def twins_and_spare(private: Endpoint) -> AsyncGenerator[None, None]:
+    """Two hubs flashed without a name, and one that was given its own."""
+    transport = FakeHubTransport(
+        FakeHub(name=HUB_NAME, address="00:11:22:33:44:55"),
+        FakeHub(name=HUB_NAME, address="66:77:88:99:AA:BB"),
+        FakeHub(name=SPARE_NAME, address="12:34:56:78:9A:BC"),
+    )
+
+    async with service_module.run_service(private, idle_timeout=0, transport=transport):
+        yield
+
+
+async def test_connect_asks_which_of_the_hubs_with_the_chosen_name(
+    twins_and_spare: None,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    offered: dict[str, str] = {}
+
+    async def choose(
+        err: object, devices: AsyncIterator[pb_client.DeviceInfo], *_: object
+    ) -> pb_client.DeviceInfo:
+        # Long enough to hear every hub there is, since what matters is the
+        # one that is not offered.
+        with anyio.move_on_after(0.5):
+            async for device in devices:
+                offered[device.id] = device.name
+
+        return pb_client.DeviceInfo(
+            id=sorted(offered)[1],
+            name=HUB_NAME,
+            address="",
+            rssi=None,
+            transport="fake",
+        )
+
+    monkeypatch.setattr(keys, "keys_available", lambda: True)
+    monkeypatch.setattr(picker, "choose_hub", choose)
+
+    await hub_commands.use_cmd(hub=HUB_NAME)
+    capsys.readouterr()
+
+    assert await hub_commands.connect_cmd() == errors.EXIT_OK
+    captured = capsys.readouterr()
+    assert f"More than one hub called {HUB_NAME}" in captured.err
+    assert f"Connected to {HUB_NAME}" in captured.err
+    # Only the hubs answering to the name: the spare is not what was asked for.
+    assert sorted(offered.values()) == [HUB_NAME, HUB_NAME]
+
+
+async def test_a_shared_name_without_a_terminal_says_to_rename_one(
+    twins_and_spare: None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert await hub_commands.connect_cmd(hub=HUB_NAME) != errors.EXIT_OK
+    captured = capsys.readouterr()
+    assert f"More than one hub named '{HUB_NAME}' found" in captured.err
+    # Not "say which with --hub": that is what was just done.
+    assert "same name" in captured.err
+    assert "--hub" not in captured.err
+    assert captured.out == ""
 
 
 async def test_scan_lists_what_it_hears(

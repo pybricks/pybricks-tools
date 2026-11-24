@@ -104,8 +104,13 @@ pb use --hub "Rover"        # or name it
 What is remembered is the hub's name, so the choice survives switching the hub
 off and on, and outlives the background service; every shell sees the same one.
 The hub does not have to be connected, or even switched on, so the hub a
-project belongs to can be chosen before any of it is plugged in.
+project belongs to can be chosen before any of it is plugged in: the next
+`pb connect` goes looking for that hub, and for no other.
 `pb use --clear` forgets it again.
+
+With nothing chosen and more than one hub switched on, `pb connect` asks which
+one you mean rather than taking whichever it heard first — in a room full of
+robots, that is usually somebody else's.
 
 Every command takes `-v` for more detail, and `-vv` or `-vvv` when something
 is going wrong and you want to see why.

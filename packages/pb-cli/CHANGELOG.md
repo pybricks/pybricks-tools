@@ -5,6 +5,23 @@ Notable changes to `pybricks-cli`, the `pb` command. The format is based on
 
 ## [Unreleased]
 
+### Changed
+
+- `pb connect` with no `--hub` connects to the hub chosen with `pb use`
+  ([support#2866](https://github.com/pybricks/support/issues/2866)).
+- `pb connect` asks which hub when several are switched on and none is chosen,
+  instead of taking the first one heard. The same goes for several hubs
+  sharing the name asked for or chosen, as unnamed hubs all do. A hub only
+  paired over RFCOMM is not offered unless the service counted it.
+- `pb connect` says "Already connected" when the hub already was, rather than
+  claiming to have connected it.
+- When the hub chosen with `pb use` is not found, `pb connect` says how to
+  choose another.
+
+### Fixed
+
+- `pb connect` printed a hub name with square brackets in it as rich markup.
+
 ## [1.0.0b1] - 2026-10-18
 
 ### Added

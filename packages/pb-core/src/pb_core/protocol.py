@@ -42,14 +42,16 @@ __all__ = [
     "STDIO_CAPABILITY",
 ]
 
-PROTOCOL_VERSION: Final = 3
+PROTOCOL_VERSION: Final = 4
 """The version this build speaks.
 
 2 since the chosen hub became something the service remembers, which changed
-what ``hub.use`` and ``hub.list`` say.
+what ``hub.use`` and ``hub.list`` say. 4 since ``hub.connect`` goes to the chosen
+hub and refuses several with ``HUB_AMBIGUOUS``, which a client of 3 does not
+know, and says whether the hub was ``already_connected``.
 """
 
-MIN_PROTOCOL_VERSION: Final = 3
+MIN_PROTOCOL_VERSION: Final = 4
 """The oldest client version this build still accepts.
 
 Equal to :data:`PROTOCOL_VERSION`, and moved with it, so that a mismatch is

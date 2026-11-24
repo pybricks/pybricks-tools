@@ -5,6 +5,30 @@ Notable changes to `pybricks-service`. The format is based on
 
 ## [Unreleased]
 
+### Changed
+
+- `hub.connect` with no hub named connects to the chosen hub, even when
+  another hub is already connected.
+- `hub.connect` refuses with `HUB_AMBIGUOUS` when several hubs are found and
+  none is named or chosen, rather than connecting to the first, and when
+  several share the name asked for. It listens for 1 s after the first hub
+  heard, so that a second hub that advertises less often is still heard, and
+  for a second hub on USB too. Hubs with different names count as several even
+  when heard on different transports. A hub only paired over RFCOMM counts, and
+  is chosen, only when no other transport heard one, and it waits up to 3 s for
+  one to be heard rather than starting the 1 s wait itself.
+- `hub.connect` with a name hands back a connected hub with that name rather
+  than scanning past it and connecting another hub with the same name. That
+  hub, or with nothing named the connected one, is not handed back when
+  `transport` asks for another route, and `exclusive` refuses it.
+
+### Added
+
+- `already_connected` in the `hub.connect` result, saying whether the hub was
+  connected before the call.
+- `chosen` in the data of `hub.connect`'s `HUB_NOT_FOUND`, naming the hub when
+  it was the one chosen with `hub.use` that was not found.
+
 ### Fixed
 
 - A Bluetooth hub was sometimes first reported without its hub type, before

@@ -64,10 +64,13 @@ def _leave_logging_as_it_was() -> Iterator[None]:  # pyright: ignore[reportUnuse
 def _short_grace(monkeypatch: pytest.MonkeyPatch) -> None:  # pyright: ignore[reportUnusedFunction]
     """Stop a connect waiting for hubs that have all been heard already.
 
-    A connect that finds a hub waits a moment for a better route to it, since
-    real hubs advertise only every so often. Simulated hubs are all heard at
+    A connect that finds a hub waits a moment for a better route to it, and,
+    short of an id, for another hub that would match as well, since real hubs
+    advertise only every so often. Simulated hubs are all heard at
     once, so under test the wait is only ever waited out, by every connect that
     is not by id -- which was more than a third of the time the whole suite
     took. A test about the wait itself sets it back.
     """
     monkeypatch.setattr(pb_service.methods.hub, "PREFERENCE_SECONDS", GRACE_SECONDS)
+    monkeypatch.setattr(pb_service.methods.hub, "AMBIGUITY_SECONDS", GRACE_SECONDS)
+    monkeypatch.setattr(pb_service.methods.hub, "PAIRED_SECONDS", GRACE_SECONDS)

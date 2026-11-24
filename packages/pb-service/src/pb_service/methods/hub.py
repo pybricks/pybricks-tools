@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from contextlib import aclosing
 from typing import Any
 
@@ -53,7 +53,7 @@ STOP_BUILTIN_SECONDS = 2.0
 """How long disconnecting waits for a built-in program to stop first."""
 
 
-def _found_nothing(manager: HubManager) -> JsonRpcError:
+def _found_nothing(manager: HubManager, chosen: str | None = None) -> JsonRpcError:
     """Say as precisely as the transports allow why nothing turned up.
 
     A hub that is plugged in but whose port will not open is the opposite
@@ -64,6 +64,10 @@ def _found_nothing(manager: HubManager) -> JsonRpcError:
 
     Args:
         manager: Whose transports did the looking.
+        chosen: The chosen hub, if that is what was looked for. Named in the
+            message because the user did not name it this time, and "no hub
+            found" while another hub sits switched on beside them would read
+            as the tool being broken.
 
     Returns:
         The error to raise. Factual either way: what to suggest depends on the
@@ -92,6 +96,27 @@ def _found_nothing(manager: HubManager) -> JsonRpcError:
             ErrorCode.BLUETOOTH_UNAVAILABLE,
             f"Bluetooth cannot be used: {reasons}",
             {"availability": known[0]} if known else None,
+        )
+
+    return _not_found(chosen)
+
+
+def _not_found(chosen: str | None) -> JsonRpcError:
+    """Say that no hub was found, naming the chosen one if that was looked for.
+
+    Args:
+        chosen: The chosen hub, if that is what was looked for.
+
+    Returns:
+        The error to raise.
+    """
+    if chosen is not None:
+        # Marked as chosen in the data too, because the remedy may be to choose
+        # again: a hub chosen last week can be one nobody is using any more.
+        return JsonRpcError(
+            ErrorCode.HUB_NOT_FOUND,
+            f"the chosen hub {chosen!r} was not found",
+            {"chosen": chosen},
         )
 
     return JsonRpcError(ErrorCode.HUB_NOT_FOUND, "no hub found")
@@ -198,15 +223,82 @@ def _device_json(device: DeviceInfo) -> dict[str, Any]:
     }
 
 
+def _present(devices: Iterable[DeviceInfo]) -> list[DeviceInfo]:
+    """Leave out hubs that are only known of, if any were actually heard.
+
+    RFCOMM lists the paired hubs, switched on or not, so a hub on it is no
+    evidence of anything when another transport heard one: an EV3 paired last
+    term and left in a drawer is neither a second hub to ask about nor a better
+    choice than the hub advertising on the desk. Heard on its own, though, it is
+    all there is to go on.
+
+    Args:
+        devices: What a search found.
+
+    Returns:
+        The hubs to choose between.
+    """
+    devices = list(devices)
+    heard = [device for device in devices if device.transport != "rfcomm"]
+    return heard or devices
+
+
+def _several(devices: Iterable[DeviceInfo]) -> bool:
+    """Whether these are certainly more than one hub.
+
+    Two ids on the same transport are. Across transports the same hub turns up
+    under a different id each way, and taking a hub on a cable and over
+    Bluetooth for two hubs would ask the user to choose between one -- but it
+    has the same name both ways, so two names are two hubs wherever they were
+    heard.
+
+    Args:
+        devices: What a search found, at most one entry per id.
+
+    Returns:
+        True if some transport reported two different hubs, or two names were
+        heard.
+    """
+    devices = list(devices)
+    transports = [device.transport for device in devices]
+
+    if len(transports) != len(set(transports)):
+        return True
+
+    return len({device.name for device in devices}) > 1
+
+
 PREFERENCE_SECONDS = 0.5
 """How long a hub found on one transport waits for a better route to appear.
 
 A hub can be reachable more than one way, and which way it is reached decides
 how quick everything afterwards will be -- so taking whichever route answered
-first would make that a race rather than a decision. It is a short wait and it
-is only ever paid when the route that answered is not already the preferred one,
-which in practice means only when Bluetooth answered before USB: enumerating
-serial ports is quick enough that USB usually wins outright.
+first would make that a race rather than a decision. It is a short wait, paid
+only when a hub is asked for by id and the route that answered is not already
+the preferred one. Without an id the longer AMBIGUITY_SECONDS is waited instead,
+USB or not, since then the question is also whether there is another hub.
+"""
+
+AMBIGUITY_SECONDS = 1.0
+"""How long a hub found without an id waits for another that would match too.
+
+Longer than the wait for a better route, because a second hub has to be heard
+before it can be refused, and hubs advertise only so often: measured on
+Windows, gaps between a hub's advertisements of up to 0.8 s with current
+firmware, and of a second with some City hub firmware. A hub quieter
+than this is still missed, and connected to without asking, as before.
+"""
+
+PAIRED_SECONDS = 3.0
+"""How long a paired hub found without an id waits for a hub actually heard.
+
+RFCOMM lists the paired hubs at once, switched on or not, so one of them is no
+sign that anything is there. Starting AMBIGUITY_SECONDS from it would end the
+search before Bluetooth had heard the hubs that are -- Windows takes a moment
+to start watching, and a hub is heard only once its scan response is in. This
+is the wait for that instead, and the first hub heard on another transport
+starts AMBIGUITY_SECONDS afresh. It is what connecting an EV3 costs when no
+other hub is about.
 """
 
 
@@ -309,6 +401,55 @@ def status_json(connection: HubConnection) -> dict[str, Any]:
     """
     report = connection.status
     return {} if report is None else report_json(report)
+
+
+def _hand_back(
+    connection: HubConnection, params: dict[str, Any], *, by_id: bool = False
+) -> dict[str, Any] | None:
+    """Hand back a hub already connected, if it is what ``hub.connect`` asked for.
+
+    Args:
+        connection: The connected hub that would do.
+        params: The request.
+        by_id: Whether it was asked for by id. An id names the route as well
+            as the hub, so another transport asked for alongside it is not a
+            route to search: no hub on it can have that id.
+
+    Returns:
+        The hub, as ``hub.connect`` describes it; or ``None`` if the request
+        asked for another route to it, which makes it a hub to look for that
+        way -- which route is in use decides how quick everything after it is.
+
+    Raises:
+        JsonRpcError: With ``HUB_ALREADY_CONNECTED`` if the request was
+            ``exclusive``, which is a request for a hub nothing else holds.
+    """
+    wanted = _transport(params)
+    using = connection.info.transport if connection.info is not None else None
+
+    if wanted is not None and wanted != using and not by_id:
+        return None
+
+    if params.get("exclusive"):
+        # Named as the user knows it: ids are not shown to anyone.
+        name = connection.info.name if connection.info is not None else "the hub"
+        raise as_wire_error(HubAlreadyConnectedError(f"{name} is already connected"))
+
+    return _connected_json(connection, already=True)
+
+
+def _connected_json(connection: HubConnection, *, already: bool) -> dict[str, Any]:
+    """Describe the hub ``hub.connect`` hands back.
+
+    Args:
+        connection: The hub.
+        already: Whether it was connected before this call, so that a client
+            can say so rather than claim to have just connected it.
+
+    Returns:
+        The hub, as ``hub.info`` describes it, and whether it already was.
+    """
+    return _hub_json(connection) | {"already_connected": already}
 
 
 def _hub_json(connection: HubConnection) -> dict[str, Any]:
@@ -428,18 +569,28 @@ async def hub_scan(session: Session, params: dict[str, Any]) -> dict[str, Any]:
 
 @method(
     "hub.connect",
-    "Connect to a hub and keep it connected. While looking for it, an "
-    "unusable Bluetooth adapter is reported as hub.adapters, as by hub.scan.",
+    "Connect to a hub and keep it connected. With no id or name, the hub "
+    "chosen with hub.use if there is one; otherwise one already connected; "
+    "otherwise the only hub found, or an ambiguity error listing them if there "
+    "are several. Several hubs with the name asked for, or chosen, are an "
+    "ambiguity error too. While looking for it, an unusable Bluetooth adapter is "
+    "reported as hub.adapters, as by hub.scan.",
     params={
         "id": "The hub's id, from hub.scan.",
-        "name": "Connect to the first hub with this name instead.",
+        "name": (
+            "Connect to the hub with this name instead. One already connected "
+            "is handed back; several found are an ambiguity error."
+        ),
         "exclusive": "Fail if the hub is already connected.",
         "transport": (
             "Reach the hub this way, such as usb or ble. Omit to use whichever "
             "is available, preferring USB where a hub is reachable both ways."
         ),
     },
-    returns="The connected hub's details.",
+    returns=(
+        "The connected hub's details, as hub.info gives them, with "
+        "already_connected saying whether it was connected before this call."
+    ),
 )
 async def hub_connect(session: Session, params: dict[str, Any]) -> dict[str, Any]:
     """Connect to a hub, scanning for it first if needed."""
@@ -448,17 +599,77 @@ async def hub_connect(session: Session, params: dict[str, Any]) -> dict[str, Any
 
     wanted_id = params.get("id")
     wanted_name = params.get("name")
+    chosen: str | None = None
 
-    if wanted_id and wanted_id in manager:
-        return _hub_json(manager.get(str(wanted_id)))
+    if (
+        wanted_id
+        and wanted_id in manager
+        and (handed := _hand_back(manager.get(str(wanted_id)), params, by_id=True))
+    ):
+        return handed
 
-    if not wanted_id and not wanted_name and manager.connected:
+    # Nothing named means the same here as for every other command: the chosen
+    # hub, then whatever is connected. Connecting is not the exception it once
+    # was. A hub can be chosen before it is switched on precisely so that the
+    # next connect finds it, and connecting to some other hub instead leaves
+    # the user with one hub chosen and a different one connected.
+    unnamed = not wanted_id and not wanted_name
+
+    if unnamed:
+        chosen = manager.selection.name
+        wanted_name = chosen
+
+    # A name, typed or chosen, is a hub already connected before it is anything
+    # to scan for: a connected hub has stopped advertising, so the scan would
+    # pass it by and connect another hub of the same name instead.
+    if wanted_name and not wanted_id:
+        try:
+            connection = manager.resolve(str(wanted_name))
+        except HubNotFoundError:
+            connection = None
+
+        if connection is not None and (handed := _hand_back(connection, params)):
+            return handed
+    elif unnamed and manager.connected:
         # Connecting is what a user types to be sure they have a hub, so being
         # asked when there already is one is not an error and not a reason to
         # go looking for a second. It would look like one, too: a connected hub
         # has stopped advertising, so the scan would find nothing and the user
         # would be told to check that their hub is switched on.
-        return _hub_json(manager.get(None))
+        #
+        # The one a command would act on, unless another route was asked for
+        # and some other connected hub is on it.
+        wanted_transport = _transport(params)
+        connection = manager.get(None)
+
+        def on(candidate: HubConnection) -> bool:
+            return (
+                candidate.info is not None
+                and candidate.info.transport == wanted_transport
+            )
+
+        if wanted_transport is not None and not on(connection):
+            connection = next(filter(on, manager.connected), connection)
+
+        if handed := _hand_back(connection, params):
+            return handed
+
+    # Anything short of an id has to come down to one hub, or it is a guess.
+    # With nothing named that is plainly so; with a name it is too, because
+    # every hub flashed without one is called Pybricks Hub, so in a classroom
+    # a name -- typed, or remembered by pb use -- can match half the room.
+    # Hubs are told apart within a transport only, because one hub on a cable
+    # and over Bluetooth has two ids and nothing here can tell that it is the
+    # same hub.
+    refuse_several = not wanted_id
+    found: dict[str, DeviceInfo] = {}
+    # Whether a hub has been heard on a transport that hears them, rather than
+    # only listed as paired.
+    heard = False
+    # When the search would have ended had a paired hub not capped it. Kept
+    # rather than read at the start, because waiting on a permission dialog
+    # moves the end later until something is found.
+    uncapped: float | None = None
 
     scan_filter = ScanFilter(
         name=str(wanted_name) if wanted_name else None,
@@ -494,20 +705,46 @@ async def hub_connect(session: Session, params: dict[str, Any]) -> dict[str, Any
                     if wanted_id and candidate.id != wanted_id:
                         continue
 
+                    found[candidate.id] = candidate
+
                     if device is None or preference_rank(
                         candidate.transport
                     ) < preference_rank(device.transport):
                         device = candidate
 
-                    if preference_rank(device.transport) == 0:
+                    if preference_rank(device.transport) == 0 and not refuse_several:
                         # Nothing can beat it, so do not wait out the grace.
+                        # Short of an id, though, another hub may be on the
+                        # next port, and only waiting can tell.
                         break
 
                     # Something matched, so stop waiting for a hub and start
-                    # waiting for a better route to the one already found.
-                    looking.deadline = min(
-                        looking.deadline, anyio.current_time() + PREFERENCE_SECONDS
-                    )
+                    # waiting for a better route to the one already found, and,
+                    # short of an id, for any other hub that matches as well.
+                    now = anyio.current_time()
+
+                    if not refuse_several:
+                        looking.deadline = min(
+                            looking.deadline, now + PREFERENCE_SECONDS
+                        )
+                    elif candidate.transport == "rfcomm":
+                        # Paired, which is not the same as there: give the
+                        # transports that hear hubs time to hear one.
+                        if not heard:
+                            if uncapped is None:
+                                uncapped = looking.deadline
+
+                            looking.deadline = min(
+                                looking.deadline, now + PAIRED_SECONDS
+                            )
+                    elif not heard:
+                        # The first hub actually heard starts the wait afresh,
+                        # whatever a paired one had set it to.
+                        heard = True
+                        looking.deadline = min(
+                            looking.deadline if uncapped is None else uncapped,
+                            now + AMBIGUITY_SECONDS,
+                        )
 
         tg.cancel_scope.cancel()
 
@@ -515,9 +752,40 @@ async def hub_connect(session: Session, params: dict[str, Any]) -> dict[str, Any
         # As for a scan: what the transports say is another search's unless
         # this one got the radio.
         if not started.is_set():
-            raise JsonRpcError(ErrorCode.HUB_NOT_FOUND, "no hub found")
+            raise _not_found(chosen)
 
-        raise _found_nothing(manager)
+        raise _found_nothing(manager, chosen)
+
+    present = _present(found.values())
+
+    if refuse_several and _several(present):
+        # Bounded by AMBIGUITY_SECONDS after the first hub heard on a transport
+        # that hears them, which is what a lone hub costs extra to connect to,
+        # or by PAIRED_SECONDS when only paired hubs were found. A second hub
+        # that has not advertised within it is missed, which is no worse than
+        # before this check, and so is a second USB hub whose port takes longer
+        # than that to answer the first time it is opened.
+        devices = [_device_json(d) for d in present]
+
+        if wanted_name:
+            # Named in the data as well, because the remedy is different: no
+            # choosing by name can tell these apart, only renaming one can.
+            raise JsonRpcError(
+                ErrorCode.HUB_AMBIGUOUS,
+                f"more than one hub named {wanted_name!r} found",
+                {"devices": devices, "name": str(wanted_name)},
+            )
+
+        names = ", ".join(sorted({d.name for d in present}))
+        raise JsonRpcError(
+            ErrorCode.HUB_AMBIGUOUS,
+            f"more than one hub found: {names}",
+            {"devices": devices},
+        )
+
+    # The best route among the hubs heard, which is the hub found when there was
+    # only the one, reached the quickest way.
+    device = min(present, key=lambda found: preference_rank(found.transport))
 
     try:
         with anyio.fail_after(CONNECT_SECONDS):
@@ -538,7 +806,7 @@ async def hub_connect(session: Session, params: dict[str, Any]) -> dict[str, Any
     except (HubNotFoundError, HubAlreadyConnectedError, HubDisconnectedError) as exc:
         raise as_wire_error(exc) from exc
 
-    return _hub_json(manager.get(device.id))
+    return _connected_json(manager.get(device.id), already=False)
 
 
 async def _stop_builtin_program(connection: HubConnection) -> None:

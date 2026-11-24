@@ -255,6 +255,14 @@ class HubInfo:
     can join from a program somebody else started.
     """
 
+    already_connected: bool = False
+    """Whether the hub was connected before, as told by ``hub.connect`` only.
+
+    Asking to connect a hub that already is hands that hub back rather than
+    failing, so this is how to tell that nothing was done. Always false from
+    anything but ``hub.connect``, and from a service too old to say.
+    """
+
     @property
     def legacy_main_module(self) -> bool:
         """Whether this hub needs the program's entry module called ``__main__``.
@@ -307,4 +315,5 @@ class HubInfo:
                 else None
             ),
             status_names=tuple(str(name) for name in listed),
+            already_connected=payload.get("already_connected") is True,
         )
