@@ -5,6 +5,19 @@ Notable changes to `pybricks-cli`, the `pb` command. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- `pb run -n` and `pb start -n` leave stdin alone, for use inside a loop that
+  reads its own input, as with `ssh -n`.
+
+### Changed
+
+- Without a terminal, `pb run` and `pb start --wait` send piped or redirected
+  stdin to the program, so `input()` works in a script:
+  `printf 'a\n' | pb run prog.py`. Line endings become `\r`. A program used to
+  wait in `input()` for ever. A `pb run` inside a loop that reads its own input
+  now takes the rest of it; use `-n` there.
+
 ## [1.0.0b2] - 2026-11-23
 
 ### Changed

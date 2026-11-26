@@ -25,6 +25,7 @@ race a real user can lose but is one a test wins every time.
 from __future__ import annotations
 
 import contextlib
+import os
 import sys
 import uuid
 from collections.abc import AsyncGenerator, Callable, Coroutine, Generator, Iterator
@@ -774,3 +775,231 @@ async def test_wait_by_name_leaves_the_terminal_alone(
     assert await _run(screen, terminal, talk, command) == errors.EXIT_OK
     # Nothing was drawn on the terminal at all: no status line, no margin.
     assert not screen.written
+
+
+# ------------------------------------------------------ piped standard input
+
+
+@pytest.fixture
+def piped(monkeypatch: pytest.MonkeyPatch) -> Iterator[Callable[[bytes, bool], int]]:
+    """Make standard input a real pipe, the way a shell does for ``a | pb``.
+
+    A real one rather than a stand-in, because how a pipe is waited on is the
+    thing under test, and it differs by platform.
+
+    Yields:
+        A function that writes to the pipe, closing it afterwards if asked,
+        and returns the write end.
+    """
+    read_fd, write_fd = os.pipe()
+    reader = os.fdopen(read_fd, "rb", buffering=0)
+    monkeypatch.setattr(sys, "stdin", reader)
+    open_ends = [write_fd]
+
+    def feed(data: bytes, close: bool) -> int:
+        os.write(write_fd, data)
+        if close:
+            os.close(write_fd)
+            open_ends.remove(write_fd)
+        return write_fd
+
+    yield feed
+
+    for fd in open_ends:
+        os.close(fd)
+    reader.close()
+
+
+def _run_waiting(tmp_path: Path) -> Command:
+    """``pb run demo.py --wait``, which always takes the path with no terminal.
+
+    Args:
+        tmp_path: Where to put the script.
+
+    Returns:
+        The command.
+    """
+
+    async def command() -> int:
+        return await program_commands.run_cmd(
+            _script(tmp_path, "print(input())\n"), hub=HUB_NAME, wait=True
+        )
+
+    return command
+
+
+async def test_piped_input_reaches_the_program(
+    service: FakeHub,
+    terminal: list[_Screen],
+    piped: Callable[[bytes, bool], int],
+    tmp_path: Path,
+) -> None:
+    hub = service
+    # Both kinds of line ending a file or another program might use. The hub
+    # ends a line on a carriage return and drops a line feed, so either has to
+    # arrive as the one it understands or input() never returns.
+    piped(b"a\nb\r\nc\n", True)
+
+    async def talk(screen: _Screen) -> None:
+        del screen
+        await _when(lambda: bytes(hub.stdin) == b"a\rb\rc\r")
+        # The end of the input is not the end of the program.
+        await anyio.sleep(0.2)
+        assert hub.status & p.StatusFlag.USER_PROGRAM_RUNNING
+        hub.set_program_running(False)
+
+    assert await _run(_Screen(), terminal, talk, _run_waiting(tmp_path)) == (
+        errors.EXIT_OK
+    )
+    assert bytes(hub.stdin) == b"a\rb\rc\r"
+
+
+async def test_no_input_leaves_stdin_alone(
+    service: FakeHub,
+    terminal: list[_Screen],
+    piped: Callable[[bytes, bool], int],
+    tmp_path: Path,
+) -> None:
+    hub = service
+    # while read hub; do pb run -n x.py; done < hubs.txt -- the rest of the
+    # file belongs to the loop, not to the first program it runs.
+    piped(b"second-hub\nthird-hub\n", True)
+
+    async def talk(screen: _Screen) -> None:
+        del screen
+        await _when(lambda: bool(hub.status & p.StatusFlag.USER_PROGRAM_RUNNING))
+        await anyio.sleep(0.2)
+        hub.set_program_running(False)
+
+    async def command() -> int:
+        return await program_commands.run_cmd(
+            _script(tmp_path, "print(input())\n"),
+            hub=HUB_NAME,
+            wait=True,
+            no_input=True,
+        )
+
+    assert await _run(_Screen(), terminal, talk, command) == errors.EXIT_OK
+    assert bytes(hub.stdin) == b""
+    # And it is all still there for whoever reads stdin next.
+    assert sys.stdin.read() == b"second-hub\nthird-hub\n"
+
+
+async def test_firmware_4_0_says_so_once_and_lets_the_program_run(
+    service: FakeHub,
+    terminal: list[_Screen],
+    piped: Callable[[bytes, bool], int],
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    hub = service
+    # Pybricks 4.0 reported a write size it had no room for: a Prime hub's
+    # buffer held 64 bytes, so a bigger write is refused for good. The service
+    # says so at once. Retrying that as though the program had not read yet
+    # would go on for as long as the program ran, so the forwarder stops and
+    # says why, and the program carries on.
+    hub.firmware = "4.0.1"
+    hub.stdin_capacity = 64
+    piped(b"x" * 200 + b"\n", True)
+
+    async def talk(screen: _Screen) -> None:
+        del screen
+        await _when(lambda: bool(hub.status & p.StatusFlag.USER_PROGRAM_RUNNING))
+        await anyio.sleep(0.3)
+        assert hub.status & p.StatusFlag.USER_PROGRAM_RUNNING
+        hub.set_program_running(False)
+
+    assert await _run(_Screen(), terminal, talk, _run_waiting(tmp_path)) == (
+        errors.EXIT_OK
+    )
+
+    said = capsys.readouterr().err
+    assert said.count("Input was not sent to the hub") == 1
+    assert "update the hub's firmware" in said
+    assert bytes(hub.stdin) == b""
+
+
+async def test_a_pipe_that_stays_open_does_not_hold_the_command(
+    service: FakeHub,
+    terminal: list[_Screen],
+    piped: Callable[[bytes, bool], int],
+    tmp_path: Path,
+) -> None:
+    hub = service
+    # The writer has said nothing and has not closed its end -- a producer
+    # still thinking. The program ending has to end the command regardless,
+    # which only works if the wait for input can be cancelled.
+    piped(b"", False)
+
+    async def talk(screen: _Screen) -> None:
+        del screen
+        await _when(lambda: bool(hub.status & p.StatusFlag.USER_PROGRAM_RUNNING))
+        await anyio.sleep(0.1)
+        hub.set_program_running(False)
+
+    assert await _run(_Screen(), terminal, talk, _run_waiting(tmp_path)) == (
+        errors.EXIT_OK
+    )
+    assert bytes(hub.stdin) == b""
+
+
+async def test_input_from_a_file_reaches_the_program(
+    service: FakeHub,
+    terminal: list[_Screen],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    hub = service
+    answers = tmp_path / "answers.txt"
+    answers.write_bytes(b"yes\nno\n")
+
+    with answers.open("rb") as file:
+        # pb run demo.py < answers.txt
+        monkeypatch.setattr(sys, "stdin", file)
+
+        async def talk(screen: _Screen) -> None:
+            del screen
+            await _when(lambda: bytes(hub.stdin) == b"yes\rno\r")
+            hub.set_program_running(False)
+
+        assert await _run(_Screen(), terminal, talk, _run_waiting(tmp_path)) == (
+            errors.EXIT_OK
+        )
+
+
+async def test_piped_input_waits_for_a_program_that_reads_slowly(
+    service: FakeHub,
+    terminal: list[_Screen],
+    piped: Callable[[bytes, bool], int],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    hub = service
+    # A small buffer, small writes, and a program that reads only now and
+    # then -- more slowly than the service is prepared to wait for a keystroke.
+    # A pipe has to wait as long as it takes, carrying on from wherever the hub
+    # stopped taking it, with nothing lost and nothing sent twice.
+    hub.stdin_capacity = 128
+    hub.max_write_size = 64
+    monkeypatch.setattr("pb_service.methods.stdio.STDIN_PATIENCE_SECONDS", 0.05)
+    sent = bytes(range(32, 127)) * 10
+    piped(sent, True)
+
+    def delivered() -> bytes:
+        return b"".join(hub.stdin_writes)
+
+    async def talk(screen: _Screen) -> None:
+        del screen
+
+        with anyio.fail_after(10):
+            while delivered() != sent:
+                # Stands for the program reading what has arrived.
+                await anyio.sleep(0.15)
+                hub.stdin.clear()
+
+        hub.set_program_running(False)
+
+    assert await _run(_Screen(), terminal, talk, _run_waiting(tmp_path)) == (
+        errors.EXIT_OK
+    )
+    assert delivered() == sent

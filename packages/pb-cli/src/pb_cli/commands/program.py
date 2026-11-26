@@ -39,6 +39,27 @@ The hub answers "invalid command" both for a slot with nothing in it and for
 a program its firmware cannot run, and the first is far more likely.
 """
 
+NoInput = Annotated[
+    bool,
+    cyclopts.Parameter(
+        name=["--no-input", "-n"],
+        help=(
+            "Do not send piped or redirected input to the program. For a pb "
+            "command inside a loop that reads its own input, as with ssh -n."
+        ),
+        show_default=False,
+        # A flag that turns one thing off: --no-no-input would be absurd.
+        negative=(),
+    ),
+]
+"""Leave standard input alone.
+
+Without a terminal, whatever stdin is goes to the program, the way ``ssh``
+sends it. So ``while read hub; do pb run --hub "$hub" x.py; done < hubs.txt``
+would hand the rest of ``hubs.txt`` to the first program and the loop would
+run once. This is the way out, named after ``ssh``'s for the same reason.
+"""
+
 
 @app.command(name="run", group=PROGRAM_COMMANDS, sort_key=0)
 async def run_cmd(
@@ -51,6 +72,7 @@ async def run_cmd(
     hub: str | None = None,
     slot: int | None = None,
     wait: bool | None = None,
+    no_input: NoInput = False,
     verbose: Verbose = (),
 ) -> int:
     """Compile a script, send it to a hub, and run it.
@@ -59,7 +81,9 @@ async def run_cmd(
     and on a terminal the keyboard goes to the hub, so Ctrl-C interrupts and
     input() reads what you type. Press Escape twice to stop the program;
     Ctrl-] q leaves, and Ctrl-] h lists the rest. Without a terminal -- in a
-    pipeline or a build -- the output still comes through, on stdout.
+    pipeline or a build -- the output still comes through, on stdout, and
+    input piped or redirected into pb run goes to the program. Use -n inside
+    a loop that reads its own input, or the program will take the rest of it.
 
     Args:
         script: The Python file to run. Leave it out when using --command.
@@ -72,6 +96,9 @@ async def run_cmd(
             only prints the output, which is what a script wants. --no-wait
             starts the program and returns, for setting a robot going and
             walking away.
+        no_input: Do not send piped or redirected input to the program. For
+            a pb command inside a loop that reads its own input, as with
+            ssh -n.
         verbose: Increase log detail.
     """
 
@@ -82,7 +109,7 @@ async def run_cmd(
         )
 
     configure_logging(verbose)
-    return await errors.run(_run, script, command, hub, slot, wait)
+    return await errors.run(_run, script, command, hub, slot, wait, not no_input)
 
 
 async def _run(
@@ -91,6 +118,7 @@ async def _run(
     hub: str | None,
     slot: int | None,
     wait: bool | None,
+    forward_input: bool,
 ) -> int:
     err = ui.console(err=True)
     compiled: pb_client.CompiledProgram | None = None
@@ -121,7 +149,13 @@ async def _run(
             # --wait by name is asking for less than that: it says stay, and
             # says nothing about wanting the terminal taken over, so it is
             # taken to mean the plain form.
-            return await _stay_with_it(service, hub, slot, terminal=wait is None)
+            return await _stay_with_it(
+                service,
+                hub,
+                slot,
+                terminal=wait is None,
+                forward_input=forward_input,
+            )
 
         with ui.spinner(err, "Starting..."):
             await service.start_program(hub_id=hub, slot=slot, wait=False)
@@ -198,6 +232,7 @@ async def start_cmd(
     hub: str | None = None,
     slot: int | None = None,
     wait: bool | None = None,
+    no_input: NoInput = False,
     verbose: Verbose = (),
 ) -> int:
     """Start a program that is already on the hub.
@@ -215,13 +250,18 @@ async def start_cmd(
             since a script starting a stored program is setting a robot going.
             --wait stays either way, leaving the terminal alone and printing
             only the output. --no-wait always returns as soon as it starts.
+        no_input: Do not send piped or redirected input to the program. For
+            a pb command inside a loop that reads its own input, as with
+            ssh -n.
         verbose: Increase log detail.
     """
     configure_logging(verbose)
-    return await errors.run(_start, hub, slot, wait, hints=_START_HINTS)
+    return await errors.run(_start, hub, slot, wait, not no_input, hints=_START_HINTS)
 
 
-async def _start(hub: str | None, slot: int | None, wait: bool | None) -> int:
+async def _start(
+    hub: str | None, slot: int | None, wait: bool | None, forward_input: bool
+) -> int:
     err = ui.console(err=True)
 
     if wait is None and not session.have_terminal():
@@ -235,7 +275,13 @@ async def _start(hub: str | None, slot: int | None, wait: bool | None) -> int:
 
     async with pb_client.connect(autostart=False) as service:
         if wait is not False:
-            return await _stay_with_it(service, hub, slot, terminal=wait is None)
+            return await _stay_with_it(
+                service,
+                hub,
+                slot,
+                terminal=wait is None,
+                forward_input=forward_input,
+            )
 
         await service.start_program(hub_id=hub, slot=slot)
 
@@ -244,7 +290,12 @@ async def _start(hub: str | None, slot: int | None, wait: bool | None) -> int:
 
 
 async def _stay_with_it(
-    service: pb_client.Service, hub: str | None, slot: int | None, *, terminal: bool
+    service: pb_client.Service,
+    hub: str | None,
+    slot: int | None,
+    *,
+    terminal: bool,
+    forward_input: bool,
 ) -> int:
     """Start a program and stay with it until it ends.
 
@@ -266,6 +317,8 @@ async def _stay_with_it(
         slot: Which program slot, or None for the hub's own choice.
         terminal: Whether taking the terminal over is wanted at all. A script
             run from a terminal is still a script.
+        forward_input: Whether piped or redirected stdin goes to the program
+            when there is no terminal. A terminal's keyboard always does.
 
     Returns:
         The exit code: three if the program ended in an exception, since a
@@ -291,9 +344,20 @@ async def _stay_with_it(
         return True
 
     # Both have to hold: something to take over, and a reason to.
-    use_terminal = terminal and session.have_terminal()
-    stay = session.attached if use_terminal else session.streamed
-    return await stay(service, info, hub, replay=0, running=running, start=start)
+    if terminal and session.have_terminal():
+        return await session.attached(
+            service, info, hub, replay=0, running=running, start=start
+        )
+
+    return await session.streamed(
+        service,
+        info,
+        hub,
+        replay=0,
+        running=running,
+        start=start,
+        forward_input=forward_input,
+    )
 
 
 @app.command(name="stop", group=PROGRAM_COMMANDS, sort_key=4)
