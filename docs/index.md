@@ -31,6 +31,9 @@ pb run demo.py      # compile the script, send it, and run it
 
 `pb run` stays with the program: what it prints appears as it prints it, and
 what you type goes to the hub, so `input()` works and ++ctrl+c++ interrupts.
+Input piped in works too, for driving a program from a script:
+`printf 'a\n' | pb run demo.py`. Inside a loop that reads its own input, use
+`pb run -n` so the program does not take the rest of it.
 
 Press ++esc++ ++esc++ to stop the program — one key, twice, so it is there
 when a robot is heading for the edge of the table. Press ++ctrl+"]"++ ++q++ to

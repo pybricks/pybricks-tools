@@ -31,6 +31,7 @@ import logging
 import sys
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, replace
+from typing import TYPE_CHECKING, cast
 
 import anyio
 from anyio.abc import TaskGroup
@@ -39,9 +40,13 @@ from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStre
 import pb_client
 from pb_cli import banner as banner_module
 from pb_cli import console as console_module
-from pb_cli import escape, ui
+from pb_cli import escape, piped, ui
 from pb_cli.errors import EXIT_HUB_ERROR, EXIT_INTERRUPTED, EXIT_OK
 from pb_cli.escape import Action
+from pb_core.jsonrpc import ErrorCode
+
+if TYPE_CHECKING:
+    from rich.console import Console
 
 logger = logging.getLogger(__name__)
 
@@ -422,14 +427,21 @@ async def streamed(
     replay: int = 0,
     running: Running,
     start: StartFunc,
+    forward_input: bool = True,
 ) -> int:
-    """Stay with a program when there is no terminal to do it on.
+    r"""Stay with a program when there is no terminal to do it on.
 
-    What is left of a session when there is nowhere to draw and nothing to type
-    at: the program's output as it is printed, and how it ended. This is what a
-    command in a pipeline or a build gets, and it is why that output goes to
-    stdout -- ``pb run demo.py > log.txt`` should capture what the program
-    printed and nothing else.
+    What is left of a session when there is nowhere to draw: the program's
+    output as it is printed, and how it ended. This is what a command in a
+    pipeline or a build gets, and it is why that output goes to stdout -- ``pb
+    run demo.py > log.txt`` should capture what the program printed and nothing
+    else.
+
+    Standard input that is a pipe or a file goes to the hub, the way it would
+    with ``ssh``: ``printf 'a\n' | pb run prog.py`` answers the program's
+    ``input()``. The end of that input is not the end of the program, which
+    goes on until it finishes by itself. A terminal is left alone -- see
+    :mod:`pb_cli.piped`.
 
     Args:
         service: The connected service.
@@ -439,6 +451,8 @@ async def streamed(
         replay: How much earlier output to print first, in bytes.
         running: What the session expects to be talking to.
         start: Starts it, once the output is being listened for.
+        forward_input: Whether to send stdin to the program at all. False
+            for ``pb run -n``, inside a loop that reads stdin itself.
 
     Returns:
         The exit code: zero unless the hub went away or the program failed.
@@ -447,27 +461,40 @@ async def streamed(
     err = ui.console(err=True)
     out = sys.stdout.buffer
     disconnected = False
+    source = piped.piped_stdin() if forward_input else None
+    arrived = anyio.Event()
 
     async with service.attach(hub_id=hub, replay_bytes=replay) as events:
         try:
             if await start(err.print):
                 running = running.we_started_it()
 
-            async for event in events:
-                if isinstance(event, pb_client.Output):
-                    running = running.saw(event.data)
-                    out.write(event.data)
-                    out.flush()
-                elif isinstance(event, pb_client.Status):
-                    running = running.note(event)
-                    if running.gone:
+            async with anyio.create_task_group() as tg:
+                if source is not None:
+                    tg.start_soon(_forward_piped, service, hub, source, arrived, err)
+
+                async for event in events:
+                    if isinstance(event, pb_client.Output):
+                        running = running.saw(event.data)
+                        out.write(event.data)
+                        out.flush()
+                    elif isinstance(event, pb_client.Status):
+                        running = running.note(event)
+                        if running.arrived:
+                            arrived.set()
+                        if running.gone:
+                            break
+                    elif not event.connected and event.state == "disconnected":
+                        err.print(
+                            "The hub disconnected "
+                            f"({event.reason or 'no reason given'})."
+                        )
+                        disconnected = True
                         break
-                elif not event.connected and event.state == "disconnected":
-                    err.print(
-                        f"The hub disconnected ({event.reason or 'no reason given'})."
-                    )
-                    disconnected = True
-                    break
+
+                # The program is over, so whatever is still being piped in has
+                # nowhere to go.
+                tg.cancel_scope.cancel()
         finally:
             # However this ends -- the program finishing, Ctrl-C, a broken pipe
             # -- a program this command started must not be left running on a
@@ -476,6 +503,127 @@ async def streamed(
                 await _stop_quietly(service, hub, running.noun)
 
     return _ending(disconnected, running)
+
+
+async def _forward_piped(
+    service: pb_client.Service,
+    hub: str | None,
+    source: piped.Piped,
+    arrived: anyio.Event,
+    err: Console,
+) -> None:
+    """Pass piped standard input to the program until the input ends.
+
+    Each write waits until the hub has taken it, so a hub that reads slowly
+    slows the reading here rather than piling input up in between.
+
+    Args:
+        service: The connected service.
+        hub: Which hub.
+        source: Standard input.
+        arrived: Set once the hub says the program is running. Nothing is sent
+            before then, because the hub empties its input buffer as a program
+            starts and would throw away whatever had already come.
+        err: Where to say that the input could not be delivered.
+    """
+    await arrived.wait()
+    after_cr = False
+
+    # An error reading stdin is not caught. Each one there is means something
+    # is broken rather than finished, and carrying on would leave a program
+    # waiting in input() for what can no longer come. Raised, it ends the
+    # session, which stops the program on the way out.
+    while data := await source.read():
+        data, after_cr = _line_endings(data, after_cr)
+
+        while data:
+            try:
+                await service.write_stdin(data, hub_id=hub)
+            except pb_client.JsonRpcError as exc:
+                detail = _detail(exc)
+
+                if exc.code != ErrorCode.HUB_BUSY or "firmware_limit" in detail:
+                    # Refused for good, not for now: firmware 4.0 has no room
+                    # for a write the size it reports, and waiting will not
+                    # make any. Its message says to update the firmware.
+                    _not_sent(err, exc)
+                    return
+
+                # The service gave up waiting for the program to read. That is
+                # the right answer for a keystroke, which somebody is waiting
+                # to see echoed, and the wrong one for a pipe: a program may
+                # do a minute's work before its first input(). So carry on
+                # from wherever the hub stopped taking it, for as long as the
+                # program runs.
+                written = detail.get("written")
+                data = data[written if isinstance(written, int) else 0 :]
+            except pb_client.ServiceTooOld as exc:
+                _not_sent(err, exc)
+                return
+            else:
+                break
+
+    # The end of the input is not the end of the program. Nothing is sent to
+    # say so: the hub has no end-of-input, and Ctrl-D would mean something to
+    # the program that the person piping a file in did not ask for.
+
+
+def _detail(exc: pb_client.JsonRpcError) -> dict[str, object]:
+    """Read the structured detail the service attached to an error.
+
+    Args:
+        exc: The error.
+
+    Returns:
+        Its data, or empty if it carries none. For ``HUB_BUSY`` that is
+        ``written``, how much was taken before the service gave up, and on
+        firmware 4.0 ``firmware_limit``, the most the hub can ever take.
+    """
+    detail: object = exc.data
+
+    if isinstance(detail, dict):
+        return cast("dict[str, object]", detail)
+
+    return {}
+
+
+def _not_sent(err: Console, exc: Exception) -> None:
+    """Say once that piped input is not reaching the hub.
+
+    The program goes on either way and its output is still worth having, so
+    this is a line on stderr rather than a failed command.
+
+    Args:
+        err: Where to say it.
+        exc: Why.
+    """
+    logger.info("the hub would not take input: %s", exc)
+    err.print(f"Input was not sent to the hub: {exc}", markup=False)
+
+
+def _line_endings(data: bytes, after_cr: bool) -> tuple[bytes, bool]:
+    r"""Make line endings what the hub's input() is waiting for.
+
+    The hub ends a line on a carriage return, which is what Enter sends from a
+    terminal in raw mode, and drops a line feed without a trace. So text piped
+    in from a file or another program, which ends its lines with ``\n`` or
+    ``\r\n``, would never finish a single line. Both become ``\r``.
+
+    Args:
+        data: One read of standard input.
+        after_cr: Whether the read before this one ended in ``\r``, so that a
+            ``\r\n`` split between two reads is still one line ending.
+
+    Returns:
+        The translated bytes, and whether this read ended in ``\r``.
+    """
+
+    if after_cr and data.startswith(b"\n"):
+        data = data[1:]
+
+    ends_in_cr = data.endswith(b"\r")
+
+    return data.replace(b"\r\n", b"\r").replace(b"\n", b"\r"), ends_in_cr
 
 
 async def _stop_quietly(service: pb_client.Service, hub: str | None, noun: str) -> None:
