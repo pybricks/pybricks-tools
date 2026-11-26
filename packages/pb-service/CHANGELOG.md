@@ -5,6 +5,8 @@ Notable changes to `pybricks-service`. The format is based on
 
 ## [Unreleased]
 
+## [1.0.0b4] - 2026-11-25
+
 ### Changed
 
 - The protocol versions this service serves are declared in pb-service, as

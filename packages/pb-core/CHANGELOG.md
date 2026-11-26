@@ -5,6 +5,8 @@ Notable changes to `pybricks-core`. The format is based on
 
 ## [Unreleased]
 
+## [1.0.0b3] - 2026-11-25
+
 ### Removed
 
 - `PROTOCOL_VERSION` and `MIN_PROTOCOL_VERSION`. pb-client and pb-service

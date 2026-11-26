@@ -5,6 +5,8 @@ Notable changes to `pybricks-cli`, the `pb` command. The format is based on
 
 ## [Unreleased]
 
+## [1.0.0b3] - 2026-11-25
+
 ### Added
 
 - `pb run -n` and `pb start -n` leave stdin alone, for use inside a loop that

@@ -5,6 +5,8 @@ Notable changes to `pybricks-client`. The format is based on
 
 ## [Unreleased]
 
+## [1.0.0b3] - 2026-11-25
+
 ### Changed
 
 - The protocol version this client speaks is declared in pb-client, as

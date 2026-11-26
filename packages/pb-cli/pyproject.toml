@@ -1,6 +1,6 @@
 [project]
 name = "pybricks-cli"
-version = "1.0.0b2"
+version = "1.0.0b3"
 description = "The Pybricks command line interface"
 readme = "README.md"
 license = "MIT"
@@ -20,9 +20,9 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "pybricks-core>=1.0.0b2",
-    "pybricks-client>=1.0.0b2",
-    "pybricks-service>=1.0.0b3",
+    "pybricks-core>=1.0.0b3",
+    "pybricks-client>=1.0.0b3",
+    "pybricks-service>=1.0.0b4",
     "anyio>=4.14",
     "cyclopts>=4.22",
     "rich>=13.7",
